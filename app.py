@@ -1486,11 +1486,11 @@ def render_spatial_ladder(
     """Render the spatial ladder visualization with custom HTML/CSS."""
 
     st.markdown(
-        """
+        f"""
         <div class="spx-shell">
             <div class="spx-section-title">Spatial Ladder</div>
             <div class="spx-section-subtitle">
-                Vertical structure map in {price_space_label} terms. Decision logic below remains SPX-based.
+                Live structure map shown in {price_space_label} terms. Trade scenarios and options decisions below remain SPX-based.
             </div>
         </div>
         """,
