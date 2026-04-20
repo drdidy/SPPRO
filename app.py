@@ -1266,6 +1266,21 @@ def to_internal_es_price(value: float, price_space: str, offset: float) -> float
     return round_price(float(value))
 
 
+def resolve_effective_offset(inputs: dict[str, Any]) -> tuple[float, str]:
+    """Resolve the offset used for ES/SPX conversion in the app layer."""
+
+    configured_offset = float(inputs["es_spx_offset"])
+    current_es = inputs.get("current_es_price")
+    current_spx = inputs.get("current_spx_price")
+
+    if is_valid_price_input(current_es) and is_valid_price_input(current_spx):
+        derived_offset = round_price(float(current_es) - float(current_spx))
+        if derived_offset >= 0:
+            return derived_offset, "derived_from_current_prices"
+
+    return configured_offset, "configured_setting"
+
+
 def build_manual_anchor_bundle(
     prior_session_date: date,
     pivot_high_time,
@@ -2520,6 +2535,9 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         open_reference = st.number_input("9:00 AM open reference", value=current_spx_price, step=0.25, format="%.2f")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
+        if is_valid_price_input(current_es_price) and is_valid_price_input(current_spx_price):
+            implied_offset = round_price(float(current_es_price) - float(current_spx_price))
+            st.caption(f"Implied live offset from current inputs: {format_price(implied_offset)}")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
@@ -2582,7 +2600,10 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def resolve_anchor_bundle(inputs: dict[str, Any]) -> tuple[dict[str, Any], Any | None, str | None, dict[str, Any] | None]:
+def resolve_anchor_bundle(
+    inputs: dict[str, Any],
+    conversion_offset: float,
+) -> tuple[dict[str, Any], Any | None, str | None, dict[str, Any] | None]:
     """Resolve auto-fetched or manual anchors."""
 
     es_candles = None
@@ -2601,7 +2622,7 @@ def resolve_anchor_bundle(inputs: dict[str, Any]) -> tuple[dict[str, Any], Any |
                 lw_time=inputs["lw_time"],
                 lw_price=inputs["lw_price"],
                 price_space=inputs["manual_price_space"],
-                es_spx_offset=inputs["es_spx_offset"],
+                es_spx_offset=conversion_offset,
             ),
             es_candles,
             None,
@@ -2653,7 +2674,7 @@ def resolve_anchor_bundle(inputs: dict[str, Any]) -> tuple[dict[str, Any], Any |
                 lw_time=inputs["lw_time"],
                 lw_price=inputs["lw_price"],
                 price_space=inputs["manual_price_space"],
-                es_spx_offset=inputs["es_spx_offset"],
+                es_spx_offset=conversion_offset,
             ),
             es_candles,
             diagnostics.get("explicit_error_message_if_dataframe_is_empty") or diagnostics.get("fetch_error") or f"{exc.__class__.__name__}: {exc}",
@@ -2685,7 +2706,7 @@ def resolve_anchor_bundle(inputs: dict[str, Any]) -> tuple[dict[str, Any], Any |
                 lw_time=inputs["lw_time"],
                 lw_price=inputs["lw_price"],
                 price_space=inputs["manual_price_space"],
-                es_spx_offset=inputs["es_spx_offset"],
+                es_spx_offset=conversion_offset,
             ),
             es_candles,
             f"Auto-fetch returned ES candles, but anchor extraction failed: {diagnostics['anchor_build_error']}",
@@ -3896,6 +3917,8 @@ def main() -> None:
             st.error(error)
         st.stop()
 
+    effective_offset, effective_offset_source = resolve_effective_offset(inputs)
+
     persisted_settings = {
         "es_spx_offset": inputs["es_spx_offset"],
         "news_day": inputs["news_day"],
@@ -3917,7 +3940,7 @@ def main() -> None:
     )
     options_provider_status = options_provider.get_status().to_dict()
 
-    anchor_bundle, es_candles, data_error, fetch_diagnostics = resolve_anchor_bundle(inputs)
+    anchor_bundle, es_candles, data_error, fetch_diagnostics = resolve_anchor_bundle(inputs, effective_offset)
 
     if data_error:
         if fetch_diagnostics and fetch_diagnostics.get("anchor_build_error"):
@@ -3941,7 +3964,7 @@ def main() -> None:
     nine_am_target = at_central(inputs["next_trading_date"], 9, 0)
     try:
         projected_es_9 = project_six_lines(anchor_bundle["anchors"], nine_am_target)
-        projected_spx_9 = convert_projected_lines(projected_es_9, inputs["es_spx_offset"], "spx")
+        projected_spx_9 = convert_projected_lines(projected_es_9, effective_offset, "spx")
     except Exception as exc:
         st.error(f"Unable to project line structure for the selected inputs: {exc}")
         st.stop()
@@ -3995,7 +4018,7 @@ def main() -> None:
         checkpoint_views = build_evening_checkpoint_views(
             anchor_bundle=anchor_bundle,
             next_trading_date=inputs["next_trading_date"],
-            es_spx_offset=inputs["es_spx_offset"],
+            es_spx_offset=effective_offset,
             overnight_high=overnight_high,
             overnight_low=overnight_low,
         )
