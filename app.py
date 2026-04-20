@@ -2443,6 +2443,38 @@ def fetch_live_es_price() -> tuple[float | None, str]:
     return None, "unavailable"
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_live_spx_price() -> tuple[float | None, str]:
+    """Fetch a current SPX price for the sidebar input default."""
+
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker("^GSPC")
+        info = getattr(ticker, "info", {}) or {}
+        for key in ("regularMarketPrice", "currentPrice", "postMarketPrice", "preMarketPrice"):
+            candidate = info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"info.{key}"
+
+        fast_info = getattr(ticker, "fast_info", {}) or {}
+        for key in ("regularMarketPrice", "lastPrice", "previousClose"):
+            candidate = fast_info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"fast_info.{key}"
+
+        recent = ticker.history(period="5d", interval="1d", auto_adjust=False)
+        if not recent.empty:
+            if "Close" in recent.columns:
+                return round_price(float(recent["Close"].dropna().iloc[-1])), "1d_history"
+            if "close" in recent.columns:
+                return round_price(float(recent["close"].dropna().iloc[-1])), "1d_history"
+    except Exception as exc:
+        return None, f"unavailable: {exc.__class__.__name__}"
+
+    return None, "unavailable"
+
+
 def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     """Collect sidebar inputs for Tab 1."""
 
@@ -2450,7 +2482,18 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     default_prior = previous_business_day(now_ct.date())
     default_next = default_next_trading_day(now_ct.date())
     live_es_price, live_es_source = fetch_live_es_price()
+    live_spx_price, live_spx_source = fetch_live_spx_price()
+    configured_offset = float(settings.get("es_spx_offset", DEFAULT_SETTINGS["es_spx_offset"]))
     default_es_price = float(live_es_price if live_es_price is not None else 5320.00)
+    if live_es_price is not None:
+        default_spx_price = float(round_price(live_es_price - configured_offset))
+        default_spx_source = f"derived_from_es_minus_offset ({configured_offset:.2f})"
+    elif live_spx_price is not None:
+        default_spx_price = float(live_spx_price)
+        default_spx_source = live_spx_source
+    else:
+        default_spx_price = 5300.00
+        default_spx_source = "manual_fallback"
 
     with st.sidebar:
         st.header(f"{APP_TITLE} {APP_VERSION}")
@@ -2460,15 +2503,23 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
         st.subheader("Session Inputs")
-        current_spx_price = st.number_input("9:00 AM SPX price", value=5300.00, step=0.25, format="%.2f")
+        current_spx_price = st.number_input("9:00 AM SPX price", value=default_spx_price, step=0.25, format="%.2f")
         current_es_price = st.number_input("Current ES price", value=default_es_price, step=0.25, format="%.2f")
+        if live_es_price is not None:
+            st.caption(f"Auto-filled SPX from ES minus offset ({configured_offset:.2f}): {format_price(default_spx_price)}")
+            if live_spx_price is not None:
+                st.caption(f"Yahoo SPX reference quote ({live_spx_source}): {format_price(live_spx_price)}")
+        elif live_spx_price is not None:
+            st.caption(f"Auto-filled SPX from live quote ({live_spx_source}): {format_price(live_spx_price)}")
+        else:
+            st.caption(f"SPX live fetch unavailable. Using {default_spx_source.replace('_', ' ')}.")
         if live_es_price is not None:
             st.caption(f"Auto-filled from live ES ({live_es_source}): {format_price(live_es_price)}")
         else:
             st.caption("Live ES fetch unavailable. Using manual fallback default.")
         open_reference = st.number_input("9:00 AM open reference", value=current_spx_price, step=0.25, format="%.2f")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
-        es_spx_offset = st.number_input("ES-SPX offset", value=float(settings.get("es_spx_offset", DEFAULT_SETTINGS["es_spx_offset"])), step=0.25, format="%.2f")
+        es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
