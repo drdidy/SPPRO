@@ -599,9 +599,7 @@ def enrich_auto_fetch_diagnostics(
         )
 
     if not ny_session.empty:
-        red_exists = bool((ny_session["close"].astype(float) < ny_session["open"].astype(float)).any())
-        green_exists = bool((ny_session["close"].astype(float) > ny_session["open"].astype(float)).any())
-        enriched["session_extremes_found"] = red_exists and green_exists
+        enriched["session_extremes_found"] = True
 
     return enriched
 
@@ -1836,10 +1834,20 @@ def build_manual_anchor_bundle(
     pivot_green_low_es = to_internal_es_price(pivot_green_low, price_space, es_spx_offset)
     hw_price_es = to_internal_es_price(hw_price, price_space, es_spx_offset)
     lw_price_es = to_internal_es_price(lw_price, price_space, es_spx_offset)
+    pivot_high_extreme_es = max(pivot_green_high_es, pivot_red_high_es)
+    pivot_low_extreme_es = min(pivot_red_low_es, pivot_green_low_es)
 
     return {
         "pivot_high": {
             "pivot_time": pivot_high_time,
+            "pivot_extreme": {
+                "timestamp": pivot_high_time,
+                "high": pivot_high_extreme_es,
+                "low": pivot_high_extreme_es,
+                "open": pivot_high_extreme_es,
+                "close": pivot_high_extreme_es,
+                "color": "manual",
+            },
             "green_candle": {
                 "timestamp": pivot_high_time,
                 "high": pivot_green_high_es,
@@ -1859,6 +1867,14 @@ def build_manual_anchor_bundle(
         },
         "pivot_low": {
             "pivot_time": pivot_low_time,
+            "pivot_extreme": {
+                "timestamp": pivot_low_time,
+                "low": pivot_low_extreme_es,
+                "high": pivot_low_extreme_es,
+                "open": pivot_low_extreme_es,
+                "close": pivot_low_extreme_es,
+                "color": "manual",
+            },
             "red_candle": {
                 "timestamp": pivot_low_time,
                 "low": pivot_red_low_es,
@@ -1880,6 +1896,7 @@ def build_manual_anchor_bundle(
             "hw": {
                 "price": hw_price_es,
                 "timestamp": hw_time,
+                "projection_start_time": hw_time,
                 "source": {
                     "timestamp": hw_time,
                     "high": hw_price_es,
@@ -1893,65 +1910,69 @@ def build_manual_anchor_bundle(
                 "line_type": "session_extreme",
             },
             "asc_ceiling": {
-                "price": pivot_red_high_es,
+                "price": pivot_high_extreme_es,
                 "timestamp": pivot_high_time,
                 "projection_start_time": pivot_high_time,
                 "source": {
                     "timestamp": pivot_high_time,
-                    "high": pivot_red_high_es,
-                    "low": pivot_red_high_es,
-                    "open": pivot_red_high_es,
-                    "close": pivot_red_high_es,
-                    "color": "red",
+                    "high": pivot_high_extreme_es,
+                    "low": pivot_high_extreme_es,
+                    "open": pivot_high_extreme_es,
+                    "close": pivot_high_extreme_es,
+                    "color": "manual",
                 },
+                "pivot_extreme": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
                 "direction": "ascending",
                 "label": "ASC Ceiling",
                 "line_type": "channel",
             },
             "asc_floor": {
-                "price": pivot_red_low_es,
+                "price": pivot_low_extreme_es,
                 "timestamp": pivot_low_time,
                 "projection_start_time": pivot_low_time,
                 "source": {
                     "timestamp": pivot_low_time,
-                    "high": pivot_red_low_es,
-                    "low": pivot_red_low_es,
-                    "open": pivot_red_low_es,
-                    "close": pivot_red_low_es,
-                    "color": "red",
+                    "high": pivot_low_extreme_es,
+                    "low": pivot_low_extreme_es,
+                    "open": pivot_low_extreme_es,
+                    "close": pivot_low_extreme_es,
+                    "color": "manual",
                 },
+                "pivot_extreme": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
                 "direction": "ascending",
                 "label": "ASC Floor",
                 "line_type": "channel",
             },
             "desc_ceiling": {
-                "price": pivot_green_high_es,
+                "price": pivot_high_extreme_es,
                 "timestamp": pivot_high_time,
                 "projection_start_time": pivot_high_time,
                 "source": {
                     "timestamp": pivot_high_time,
-                    "high": pivot_green_high_es,
-                    "low": pivot_green_high_es,
-                    "open": pivot_green_high_es,
-                    "close": pivot_green_high_es,
-                    "color": "green",
+                    "high": pivot_high_extreme_es,
+                    "low": pivot_high_extreme_es,
+                    "open": pivot_high_extreme_es,
+                    "close": pivot_high_extreme_es,
+                    "color": "manual",
                 },
+                "pivot_extreme": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
                 "direction": "descending",
                 "label": "DESC Ceiling",
                 "line_type": "channel",
             },
             "desc_floor": {
-                "price": pivot_green_low_es,
+                "price": pivot_low_extreme_es,
                 "timestamp": pivot_low_time,
                 "projection_start_time": pivot_low_time,
                 "source": {
                     "timestamp": pivot_low_time,
-                    "high": pivot_green_low_es,
-                    "low": pivot_green_low_es,
-                    "open": pivot_green_low_es,
-                    "close": pivot_green_low_es,
-                    "color": "green",
+                    "high": pivot_low_extreme_es,
+                    "low": pivot_low_extreme_es,
+                    "open": pivot_low_extreme_es,
+                    "close": pivot_low_extreme_es,
+                    "color": "manual",
                 },
+                "pivot_extreme": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
                 "direction": "descending",
                 "label": "DESC Floor",
                 "line_type": "channel",
@@ -1959,6 +1980,7 @@ def build_manual_anchor_bundle(
             "lw": {
                 "price": lw_price_es,
                 "timestamp": lw_time,
+                "projection_start_time": lw_time,
                 "source": {
                     "timestamp": lw_time,
                     "high": lw_price_es,
@@ -1971,6 +1993,12 @@ def build_manual_anchor_bundle(
                 "label": "LW",
                 "line_type": "session_extreme",
             },
+        },
+        "source_points": {
+            "pivot_high": {"timestamp": pivot_high_time, "price": pivot_high_extreme_es, "source": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"}, "search_window": "12:00 PM CT to 4:00 PM CT"},
+            "pivot_highest_wick": {"timestamp": hw_time, "price": hw_price_es, "source": {"timestamp": hw_time, "high": hw_price_es, "low": hw_price_es, "open": hw_price_es, "close": hw_price_es, "color": "manual"}, "search_window": "8:30 AM CT to 4:00 PM CT"},
+            "pivot_low": {"timestamp": pivot_low_time, "price": pivot_low_extreme_es, "source": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"}, "search_window": "12:00 PM CT to 4:00 PM CT"},
+            "pivot_lowest_wick": {"timestamp": lw_time, "price": lw_price_es, "source": {"timestamp": lw_time, "high": lw_price_es, "low": lw_price_es, "open": lw_price_es, "close": lw_price_es, "color": "manual"}, "search_window": "8:30 AM CT to 4:00 PM CT"},
         },
         "afternoon_candles": [],
         "manual_price_space": price_space,
@@ -3609,6 +3637,33 @@ def render_projection_verification(
 ) -> None:
     """Temporary verification block proving Tab 1 structure uses a single unit system."""
 
+    def _extract_pivot_extreme_value(pivot_payload: dict[str, Any] | None, pivot_type: str) -> float | None:
+        if not pivot_payload:
+            return None
+
+        pivot_extreme = pivot_payload.get("pivot_extreme")
+        if isinstance(pivot_extreme, dict):
+            key = "high" if pivot_type == "high" else "low"
+            value = pivot_extreme.get(key)
+            if value is not None:
+                return float(value)
+
+        source_key = "pivot_high" if pivot_type == "high" else "pivot_low"
+        source_points = anchor_bundle.get("source_points") or {}
+        source_point = source_points.get(source_key)
+        if isinstance(source_point, dict) and source_point.get("price") is not None:
+            return float(source_point["price"])
+
+        return None
+
+    def _extract_context_value(pivot_payload: dict[str, Any] | None, candle_key: str, value_key: str) -> float | None:
+        if not pivot_payload:
+            return None
+        candle = pivot_payload.get(candle_key)
+        if isinstance(candle, dict) and candle.get(value_key) is not None:
+            return float(candle[value_key])
+        return None
+
     verification_rows: list[dict[str, Any]] = []
     warnings: list[str] = []
 
@@ -3648,39 +3703,57 @@ def render_projection_verification(
         if not warnings:
             st.caption("Verification passed: projected display values differ from raw anchors when candle counts are non-zero.")
 
+        source_points = anchor_bundle.get("source_points")
+        if source_points:
+            st.dataframe(
+                [
+                    {
+                        "Source Point": source_name,
+                        "Timestamp": format_timestamp(details["timestamp"]),
+                        "Price": format_price(details["price"]),
+                        "Search Window": details.get("search_window", ""),
+                    }
+                    for source_name, details in source_points.items()
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
         pivot_high = anchor_bundle.get("pivot_high")
         pivot_low = anchor_bundle.get("pivot_low")
         if pivot_high and pivot_low:
+            pivot_high_extreme = _extract_pivot_extreme_value(pivot_high, "high")
+            pivot_low_extreme = _extract_pivot_extreme_value(pivot_low, "low")
             pivot_anchor_rows = [
                 {
                     "Line": "ASC Ceiling",
-                    "Pivot Extreme Used": format_price(pivot_high["pivot_extreme"]["high"]),
+                    "Pivot Extreme Used": format_price(pivot_high_extreme),
                     "Associated Context Candle": "red_candle",
-                    "Associated Candle Value": format_price(pivot_high["red_candle"]["high"]),
+                    "Associated Candle Value": format_price(_extract_context_value(pivot_high, "red_candle", "high")),
                     "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_ceiling"]["price"]),
                     "Projected Value": format_price(final_projected_lines_spx["asc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Ceiling",
-                    "Pivot Extreme Used": format_price(pivot_high["pivot_extreme"]["high"]),
+                    "Pivot Extreme Used": format_price(pivot_high_extreme),
                     "Associated Context Candle": "green_candle",
-                    "Associated Candle Value": format_price(pivot_high["green_candle"]["high"]),
+                    "Associated Candle Value": format_price(_extract_context_value(pivot_high, "green_candle", "high")),
                     "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_ceiling"]["price"]),
                     "Projected Value": format_price(final_projected_lines_spx["desc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "ASC Floor",
-                    "Pivot Extreme Used": format_price(pivot_low["pivot_extreme"]["low"]),
+                    "Pivot Extreme Used": format_price(pivot_low_extreme),
                     "Associated Context Candle": "red_candle",
-                    "Associated Candle Value": format_price(pivot_low["red_candle"]["low"]),
+                    "Associated Candle Value": format_price(_extract_context_value(pivot_low, "red_candle", "low")),
                     "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_floor"]["price"]),
                     "Projected Value": format_price(final_projected_lines_spx["asc_floor"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Floor",
-                    "Pivot Extreme Used": format_price(pivot_low["pivot_extreme"]["low"]),
+                    "Pivot Extreme Used": format_price(pivot_low_extreme),
                     "Associated Context Candle": "green_candle",
-                    "Associated Candle Value": format_price(pivot_low["green_candle"]["low"]),
+                    "Associated Candle Value": format_price(_extract_context_value(pivot_low, "green_candle", "low")),
                     "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_floor"]["price"]),
                     "Projected Value": format_price(final_projected_lines_spx["desc_floor"]["projected_price"]),
                 },
@@ -3689,22 +3762,22 @@ def render_projection_verification(
             st.json(
                 {
                     "pivot_high_context": {
-                        "i_minus_1": pivot_high["previous_candle"],
-                        "i": pivot_high["pivot_candle"],
-                        "i_plus_1": pivot_high["next_candle"],
-                        "selected_pivot_candle": pivot_high["pivot_candle"],
-                        "pivot_extreme": pivot_high["pivot_extreme"],
-                        "associated_green_candle": pivot_high["green_candle"],
-                        "associated_red_candle": pivot_high["red_candle"],
+                        "i_minus_1": pivot_high.get("previous_candle"),
+                        "i": pivot_high.get("pivot_candle"),
+                        "i_plus_1": pivot_high.get("next_candle"),
+                        "selected_pivot_candle": pivot_high.get("pivot_candle"),
+                        "pivot_extreme": pivot_high.get("pivot_extreme"),
+                        "associated_green_candle": pivot_high.get("green_candle"),
+                        "associated_red_candle": pivot_high.get("red_candle"),
                     },
                     "pivot_low_context": {
-                        "i_minus_1": pivot_low["previous_candle"],
-                        "i": pivot_low["pivot_candle"],
-                        "i_plus_1": pivot_low["next_candle"],
-                        "selected_pivot_candle": pivot_low["pivot_candle"],
-                        "pivot_extreme": pivot_low["pivot_extreme"],
-                        "associated_green_candle": pivot_low["green_candle"],
-                        "associated_red_candle": pivot_low["red_candle"],
+                        "i_minus_1": pivot_low.get("previous_candle"),
+                        "i": pivot_low.get("pivot_candle"),
+                        "i_plus_1": pivot_low.get("next_candle"),
+                        "selected_pivot_candle": pivot_low.get("pivot_candle"),
+                        "pivot_extreme": pivot_low.get("pivot_extreme"),
+                        "associated_green_candle": pivot_low.get("green_candle"),
+                        "associated_red_candle": pivot_low.get("red_candle"),
                     },
                 },
                 expanded=False,
@@ -3874,6 +3947,7 @@ def render_debug_section(
     )
 
     pivot_anchor_debug = {
+        "source_points": anchor_bundle.get("source_points"),
         "pivot_high": anchor_bundle.get("pivot_high"),
         "pivot_low": anchor_bundle.get("pivot_low"),
         "session_extremes": anchor_bundle.get("session_extremes"),
