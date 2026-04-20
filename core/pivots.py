@@ -223,53 +223,55 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
 def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Resolve the four channel anchors from the detected pivots."""
 
-    pivot_high_red = pivot_high["red_candle"]
-    pivot_high_green = pivot_high["green_candle"]
-    pivot_low_red = pivot_low["red_candle"]
-    pivot_low_green = pivot_low["green_candle"]
+    pivot_high_time = to_central_time(pivot_high["pivot_time"])
+    pivot_low_time = to_central_time(pivot_low["pivot_time"])
+    pivot_high_extreme = pivot_high["pivot_extreme"]
+    pivot_low_extreme = pivot_low["pivot_extreme"]
+    pivot_high_extreme_price = float(pivot_high_extreme["high"])
+    pivot_low_extreme_price = float(pivot_low_extreme["low"])
 
     return {
         "asc_ceiling_anchor": {
-            "price": float(pivot_high_red["high"]),
-            "timestamp": to_central_time(pivot_high_red["timestamp"]),
-            "projection_start_time": to_central_time(pivot_high_red["timestamp"]),
-            "source": pivot_high_red,
-            "associated_context_candle": pivot_high_red,
-            "pivot_extreme": pivot_high["pivot_extreme"],
-            "anchor_basis": "pivot_high_red_candle_high",
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
+            "projection_start_time": pivot_high_time,
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["red_candle"],
+            "pivot_extreme": pivot_high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "ascending",
             "label": "ASC Ceiling",
         },
         "desc_ceiling_anchor": {
-            "price": float(pivot_high_green["high"]),
-            "timestamp": to_central_time(pivot_high_green["timestamp"]),
-            "projection_start_time": to_central_time(pivot_high_green["timestamp"]),
-            "source": pivot_high_green,
-            "associated_context_candle": pivot_high_green,
-            "pivot_extreme": pivot_high["pivot_extreme"],
-            "anchor_basis": "pivot_high_green_candle_high",
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
+            "projection_start_time": pivot_high_time,
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["green_candle"],
+            "pivot_extreme": pivot_high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "descending",
             "label": "DESC Ceiling",
         },
         "asc_floor_anchor": {
-            "price": float(pivot_low_red["low"]),
-            "timestamp": to_central_time(pivot_low_red["timestamp"]),
-            "projection_start_time": to_central_time(pivot_low_red["timestamp"]),
-            "source": pivot_low_red,
-            "associated_context_candle": pivot_low_red,
-            "pivot_extreme": pivot_low["pivot_extreme"],
-            "anchor_basis": "pivot_low_red_candle_low",
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
+            "projection_start_time": pivot_low_time,
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["red_candle"],
+            "pivot_extreme": pivot_low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "ascending",
             "label": "ASC Floor",
         },
         "desc_floor_anchor": {
-            "price": float(pivot_low_green["low"]),
-            "timestamp": to_central_time(pivot_low_green["timestamp"]),
-            "projection_start_time": to_central_time(pivot_low_green["timestamp"]),
-            "source": pivot_low_green,
-            "associated_context_candle": pivot_low_green,
-            "pivot_extreme": pivot_low["pivot_extreme"],
-            "anchor_basis": "pivot_low_green_candle_low",
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
+            "projection_start_time": pivot_low_time,
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["green_candle"],
+            "pivot_extreme": pivot_low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "descending",
             "label": "DESC Floor",
         },
