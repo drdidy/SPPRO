@@ -1288,14 +1288,9 @@ def render_tab1_hero(
                     </div>
                 </div>
                 <div class="spx-hero-status">
-                    <div class="spx-hero-status-label">Status</div>
+                    <div class="spx-hero-status-label">Current Price</div>
+                    <div style="font-family:'JetBrains Mono', monospace; font-size:2.1rem; font-weight:800; color:#f8fbff; text-shadow:0 0 20px rgba(0,212,255,0.22); margin-bottom:0.65rem;">{current_display}</div>
                     <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(status_label)}</span></div>
-                </div>
-            </div>
-            <div class="spx-hero-grid" style="grid-template-columns: minmax(0, 1fr);">
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Current Price</div>
-                    <div class="spx-hero-stat-value">{current_display}</div>
                 </div>
             </div>
         </div>
@@ -3339,7 +3334,7 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
 
     card_class = "primary" if "Primary" in title else "alternate"
     icon = "▲" if title == "Primary Trade" else "◇"
-    subtitle = "Main trade" if "Primary" in title else "Alternate trade"
+    subtitle = "Primary setup" if "Primary" in title else "Alternate setup"
 
     if play is None:
         st.markdown(
@@ -3369,30 +3364,22 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
                     <div class="spx-card-subtitle">{escape(subtitle)}</div>
                 </div>
             </div>
-            <div class="spx-banner-meta">
-                <span class="spx-pill scenario-neutral">{escape(play['direction'])}</span>
+            <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
+                <div>
+                    <div style="font-family:'Outfit','Segoe UI',sans-serif; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1;">{escape(play['direction'])}</div>
+                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])}</div>
+                </div>
+                <div class="spx-banner-meta" style="margin-bottom:0;">
+                    <span class="spx-pill scenario-neutral">{escape(play['entry']['label'])}</span>
+                </div>
             </div>
-            <div class="spx-card-grid">
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Direction</div>
-                    <div class="spx-card-stat-value">{escape(play['direction'])}</div>
-                </div>
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Entry</div>
-                    <div class="spx-card-stat-value">{format_price(play['entry']['price'])}</div>
-                </div>
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Stop</div>
-                    <div class="spx-card-stat-value">{escape(play['stop']['label'])} @ {format_price(play['stop']['price'])}</div>
-                </div>
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Strike</div>
-                    <div class="spx-card-stat-value">{play['strike']}</div>
-                </div>
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Contracts</div>
-                    <div class="spx-card-stat-value">{play['contracts']}</div>
-                </div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.9rem 1.2rem; color:#d7e2f1; font-size:1rem; line-height:1.7;">
+                <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
+                <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
+                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])}</span></div>
+            </div>
+            <div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">
+                {escape(play['stop']['label'])}
             </div>
         </div>
         """,
@@ -4687,8 +4674,6 @@ def main() -> None:
         if not checkpoint_views:
             st.warning("Checkpoint views are unavailable for the current inputs.")
         else:
-            render_checkpoint_views(checkpoint_views)
-
             checkpoint_labels = [checkpoint["label"] for checkpoint in checkpoint_views]
             selected_label = st.selectbox(
                 "Reference checkpoint for current ES location",
@@ -4713,6 +4698,8 @@ def main() -> None:
                 st.info("Enter a valid current ES price to enable the Tab 2 reference framework and trade-log handoff.")
             render_evening_decision_framework()
             render_evening_line_ladder(selected_checkpoint)
+            with st.expander("Checkpoint Levels", expanded=False):
+                render_checkpoint_views(checkpoint_views)
 
     with tab_trade_log:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
