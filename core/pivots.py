@@ -204,7 +204,7 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
-            "description": "Highest HIGH of a bearish candle in the 8:30 AM-4:00 PM NY session",
+            "description": "Highest HIGH of a bearish candle in the 8:30 AM-3:00 PM NY session",
         },
         "lw_anchor": {
             "price": float(lw_source["low"]),
@@ -213,7 +213,7 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": lw_source,
             "direction": "descending",
             "label": "LW",
-            "description": "Lowest LOW of a bullish candle in the 8:30 AM-4:00 PM NY session",
+            "description": "Lowest LOW of a bullish candle in the 8:30 AM-3:00 PM NY session",
         },
     }
 
@@ -284,7 +284,7 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
     ny_session_window = filter_time_range(
         normalized,
         start_time=at_central(session_date, 8, 30),
-        end_time=at_central(session_date, 16, 0),
+        end_time=at_central(session_date, 15, 0),
     )
 
     pivot_high = _find_last_pivot(afternoon_window, "high")

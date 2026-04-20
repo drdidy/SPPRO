@@ -5,7 +5,9 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from core.pivots import select_pivot_context
+import pandas as pd
+
+from core.pivots import build_six_line_anchors, select_pivot_context
 from core.projections import apply_overnight_pivot_overrides, convert_projected_lines, project_anchor_line
 from core.scenarios import (
     build_profit_management_plan,
@@ -136,6 +138,62 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(line["candle_count"], 22)
         self.assertEqual(f"{line['projected_price']:.2f}", "6817.37")
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
+        self.assertLess(line["projected_price"], line["raw_anchor_price"])
+
+    def test_session_extremes_use_830_am_to_300_pm_window(self) -> None:
+        candles = pd.DataFrame(
+            [
+                {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
+                {"timestamp": datetime(2020, 4, 10, 9, 30, tzinfo=CENTRAL_TZ), "open": 101.0, "high": 103.0, "low": 100.5, "close": 102.0},
+                {"timestamp": datetime(2020, 4, 10, 10, 30, tzinfo=CENTRAL_TZ), "open": 102.0, "high": 104.0, "low": 100.0, "close": 103.0},
+                {"timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ), "open": 103.0, "high": 104.0, "low": 100.0, "close": 101.0},
+                {"timestamp": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0},
+                {"timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 103.0, "low": 99.5, "close": 102.0},
+                {"timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ), "open": 99.0, "high": 102.5, "low": 98.0, "close": 101.0},
+                {"timestamp": datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ), "open": 99.0, "high": 106.0, "low": 98.5, "close": 98.0},
+                {"timestamp": datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ), "open": 98.0, "high": 107.0, "low": 90.0, "close": 101.0},
+            ]
+        )
+
+        result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
+
+        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "106.00")
+        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "98.00")
+        self.assertEqual(result["ny_session_rows"], 8)
+
+    def test_hw_and_lw_projection_metadata_from_session_extremes(self) -> None:
+        target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        hw_line = project_anchor_line(
+            "hw",
+            {
+                "price": 6864.50,
+                "timestamp": datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ),
+                "projection_start_time": datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ),
+                "direction": "ascending",
+                "label": "HW",
+                "line_type": "session_extreme",
+            },
+            target,
+        )
+        lw_line = project_anchor_line(
+            "lw",
+            {
+                "price": 6840.25,
+                "timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                "projection_start_time": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                "direction": "descending",
+                "label": "LW",
+                "line_type": "session_extreme",
+            },
+            target,
+        )
+
+        self.assertEqual(hw_line["direction"], "ascending")
+        self.assertEqual(lw_line["direction"], "descending")
+        self.assertGreater(hw_line["projected_price"], hw_line["raw_anchor_price"])
+        self.assertLess(lw_line["projected_price"], lw_line["raw_anchor_price"])
 
     def test_converted_lines_preserve_raw_anchor_fields(self) -> None:
         converted = convert_projected_lines(
