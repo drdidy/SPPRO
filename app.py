@@ -1772,6 +1772,52 @@ def default_next_trading_day(today: date) -> date:
     return candidate
 
 
+def build_projection_target(next_trading_date: date):
+    """Return the fixed 9:00 AM CT projection target for a selected trading day."""
+
+    return at_central(next_trading_date, 9, 0)
+
+
+def is_historical_projection_run(next_trading_date: date, reference_date: date | None = None) -> bool:
+    """Return True when the selected next trading date is not the current trading date."""
+
+    comparison_date = reference_date or current_central_time().date()
+    return next_trading_date != default_next_trading_day(comparison_date)
+
+
+def resolve_signal_evaluation_time(next_trading_date: date):
+    """Resolve the timestamp used for signal-package time-based checks."""
+
+    projection_target = build_projection_target(next_trading_date)
+    if is_historical_projection_run(next_trading_date):
+        return projection_target
+    return current_central_time()
+
+
+def sync_projection_price_inputs(
+    next_trading_date: date,
+    default_next_trading_date: date,
+    live_defaults: dict[str, Any],
+) -> bool:
+    """Keep price inputs aligned with the selected projection context."""
+
+    historical_mode = next_trading_date != default_next_trading_date
+    previous_date = st.session_state.get("_projection_context_next_date")
+
+    if previous_date != next_trading_date:
+        if historical_mode:
+            st.session_state["current_spx_price_input"] = 0.0
+            st.session_state["current_es_price_input"] = 0.0
+            st.session_state["open_reference_input"] = 0.0
+        else:
+            st.session_state["current_spx_price_input"] = float(live_defaults["default_spx_price"])
+            st.session_state["current_es_price_input"] = float(live_defaults["default_es_price"])
+            st.session_state["open_reference_input"] = float(live_defaults["default_open_reference"])
+
+    st.session_state["_projection_context_next_date"] = next_trading_date
+    return historical_mode
+
+
 def format_price(value: float | None) -> str:
     """Format a market price."""
 
@@ -3221,32 +3267,41 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             st.rerun()
         prior_session_date = st.date_input("Prior NY session date", value=default_prior)
         next_trading_date = st.date_input("Next trading date", value=default_next)
+        historical_mode = sync_projection_price_inputs(next_trading_date, default_next, live_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
         st.subheader("Session Inputs")
-        current_spx_price = st.number_input("9:00 AM SPX price", value=default_spx_price, step=0.25, format="%.2f")
-        current_es_price = st.number_input("Current ES price", value=default_es_price, step=0.25, format="%.2f")
-        open_reference = st.number_input("9:00 AM open reference", value=default_open_reference, step=0.25, format="%.2f")
-        if not live_defaults["es_available"] or not live_defaults["spx_available"]:
+        current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", default_spx_price)), step=0.25, format="%.2f", key="current_spx_price_input")
+        current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", default_es_price)), step=0.25, format="%.2f", key="current_es_price_input")
+        open_reference = st.number_input("9:00 AM open reference", value=float(st.session_state.get("open_reference_input", default_open_reference)), step=0.25, format="%.2f", key="open_reference_input")
+        if historical_mode:
+            st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
+        elif not live_defaults["es_available"] or not live_defaults["spx_available"]:
             st.warning("Live quote unavailable. Enter current prices manually.")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
-        current_spx_source_label = describe_current_spx_source(
-            current_spx_price=current_spx_price,
-            current_es_price=current_es_price,
-            current_offset=es_spx_offset,
-            default_spx_price=default_spx_price,
-            live_spx_available=live_defaults["spx_available"],
-        )
-        current_es_source_label = describe_current_es_source(
-            current_es_price=current_es_price,
-            default_es_price=default_es_price,
-            live_es_available=live_defaults["es_available"],
-        )
+        if historical_mode:
+            current_spx_source_label = "manual entry" if is_valid_price_input(current_spx_price) else "unavailable"
+            current_es_source_label = "manual entry" if is_valid_price_input(current_es_price) else "unavailable"
+            open_reference_source_label = "manual entry" if is_valid_price_input(open_reference) else "unavailable"
+        else:
+            current_spx_source_label = describe_current_spx_source(
+                current_spx_price=current_spx_price,
+                current_es_price=current_es_price,
+                current_offset=es_spx_offset,
+                default_spx_price=default_spx_price,
+                live_spx_available=live_defaults["spx_available"],
+            )
+            current_es_source_label = describe_current_es_source(
+                current_es_price=current_es_price,
+                default_es_price=default_es_price,
+                live_es_available=live_defaults["es_available"],
+            )
+            open_reference_source_label = "live SPX quote" if live_defaults["spx_available"] and abs(float(open_reference) - float(default_open_reference)) < 0.005 else "manual entry"
         st.caption(f"Current SPX source: {current_spx_source_label}")
         st.caption(f"Current ES source: {current_es_source_label}")
-        st.caption(f"9:00 AM open reference source: {'live SPX quote' if live_defaults['spx_available'] and abs(float(open_reference) - float(default_open_reference)) < 0.005 else 'manual entry'}")
+        st.caption(f"9:00 AM open reference source: {open_reference_source_label}")
         with st.expander("Live Quote Status", expanded=False):
             st.write("Current SPX fetch")
             st.code(
@@ -3319,6 +3374,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "es_fetch_status": live_defaults["es_fetch_status"],
         "spx_fetch_status": live_defaults["spx_fetch_status"],
         "quote_failure_classification": classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"]),
+        "historical_mode": historical_mode,
         "news_day": news_day,
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
@@ -3805,6 +3861,39 @@ def render_projection_verification(
                 use_container_width=True,
                 hide_index=True,
             )
+
+
+def render_historical_projection_panel(
+    inputs: dict[str, Any],
+    projection_target,
+    anchor_bundle: dict[str, Any],
+    projected_lines_es: dict[str, dict[str, Any]],
+) -> None:
+    """Render a compact historical-date verification block."""
+
+    overnight_start = at_central(inputs["prior_session_date"], 17, 0)
+    overnight_end = projection_target
+    details = {
+        "Prior Session Date": str(inputs["prior_session_date"]),
+        "Next Trading Date": str(inputs["next_trading_date"]),
+        "Projection Target Timestamp": format_timestamp(projection_target),
+        "Data Mode": inputs["data_mode"],
+        "Anchor Source": "manual_anchor_bundle" if inputs["data_mode"] == "Manual input" else "auto_fetch_anchor_bundle",
+        "Prior Afternoon Pivot Window": f"{format_timestamp(at_central(inputs['prior_session_date'], 11, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 16, 0))}",
+        "Prior Session Wick Window": f"{format_timestamp(at_central(inputs['prior_session_date'], 8, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 16, 0))}",
+        "Overnight Window": f"{format_timestamp(overnight_start)} -> {format_timestamp(overnight_end)}",
+    }
+    rows = [
+        {
+            "Line": projected_lines_es[name]["label"],
+            "Projected Value (ES)": format_price(projected_lines_es[name]["projected_price"]),
+        }
+        for name in LINE_DISPLAY_ORDER
+    ]
+
+    with st.expander("Historical Projection Verification", expanded=False):
+        st.json(details, expanded=False)
+        st.dataframe(rows, use_container_width=True, hide_index=True)
 
         pivot_high = anchor_bundle.get("pivot_high")
         pivot_low = anchor_bundle.get("pivot_low")
@@ -4997,7 +5086,7 @@ def main() -> None:
                 "Auto-fetch failed because Yahoo returned no usable intraday ES=F data. Manual anchors are being used."
             )
 
-    nine_am_target = at_central(inputs["next_trading_date"], 9, 0)
+    nine_am_target = build_projection_target(inputs["next_trading_date"])
     try:
         projected_es_9 = project_six_lines(anchor_bundle["anchors"], nine_am_target)
         projected_spx_9 = convert_projected_lines(projected_es_9, effective_offset, "spx")
@@ -5042,7 +5131,7 @@ def main() -> None:
                 line_values=line_values_spx,
                 confirmation=confirmation,
                 news_day=inputs["news_day"],
-                current_time=current_central_time(),
+                current_time=resolve_signal_evaluation_time(inputs["next_trading_date"]),
                 open_price=inputs["open_reference"],
             )
         except Exception as exc:
@@ -5156,6 +5245,12 @@ def main() -> None:
                     final_projected_lines_es,
                     "ES",
                 )
+                render_historical_projection_panel(
+                    inputs,
+                    nine_am_target,
+                    anchor_bundle,
+                    final_projected_lines_es,
+                )
         else:
             with st.expander("Structure", expanded=False):
                 render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
@@ -5166,6 +5261,12 @@ def main() -> None:
                     final_projected_lines_es,
                     final_projected_lines_es,
                     "ES",
+                )
+                render_historical_projection_panel(
+                    inputs,
+                    nine_am_target,
+                    anchor_bundle,
+                    final_projected_lines_es,
                 )
     with tab_asian:
         st.markdown(
