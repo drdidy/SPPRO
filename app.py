@@ -524,11 +524,12 @@ def validate_app_inputs(inputs: dict[str, Any]) -> dict[str, list[str]]:
         if invalid_manual:
             errors.append(f"Manual mode requires positive prices for: {', '.join(invalid_manual)}.")
 
-    if not is_valid_price_input(inputs["current_spx_price"]):
-        warnings.append("Tab 1 current SPX price is missing or invalid. Scenario-driven NY decision sections will be limited.")
+    if not inputs.get("historical_mode", False):
+        if not is_valid_price_input(inputs["current_spx_price"]):
+            warnings.append("Tab 1 current SPX price is missing or invalid. Scenario-driven NY decision sections will be limited.")
 
-    if not is_valid_price_input(inputs["current_es_price"]):
-        warnings.append("Tab 2 current ES price is missing or invalid. Reference framework and handoff will be limited.")
+        if not is_valid_price_input(inputs["current_es_price"]):
+            warnings.append("Tab 2 current ES price is missing or invalid. Reference framework and handoff will be limited.")
 
     if float(inputs["es_spx_offset"]) < 0:
         warnings.append("ES-SPX offset is negative. This is allowed, but it is unusual and may indicate a settings issue.")
@@ -5097,19 +5098,28 @@ def main() -> None:
             current_es_price=inputs["current_es_price"],
             effective_offset=effective_offset,
         )
-        if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
-            st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
-        if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
-            st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
+        if inputs["historical_mode"]:
+            st.info("Historical mode: projected structure uses the selected dates only. Enter historical SPX and ES prices to enable scenario and reference outputs.")
+        else:
+            if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
+                st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
+            if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
+                st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
         if signal_package is not None:
             render_trade_decision_summary(signal_package, final_projected_lines)
         if signal_package is None:
-            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
+            if inputs["historical_mode"]:
+                st.info("Scenario outputs are off until you enter the historical 9:00 AM SPX price.")
+            else:
+                st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
             primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
             if primary_play is None:
-                st.warning("No primary play is available to hand off into the Trade Log.")
+                if inputs["historical_mode"]:
+                    st.info("Trade Log handoff will activate after you enter the historical prices needed for scenario generation.")
+                else:
+                    st.warning("No primary play is available to hand off into the Trade Log.")
             elif st.button("Prefill Trade Log from Primary Play", use_container_width=True):
                 set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
                 st.success("Trade Log prefilled from Tab 1. Open Tab 3 to review or save.")
@@ -5250,7 +5260,10 @@ def main() -> None:
                     set_trade_form_prefill(build_tab2_trade_prefill(selected_checkpoint, inputs["current_es_price"]))
                     st.success("Trade Log prefilled from Tab 2. Open Tab 3 to review or save.")
             else:
-                st.info("Enter a valid current ES price to enable the Tab 2 reference framework and trade-log handoff.")
+                if inputs["historical_mode"]:
+                    st.info("Enter the historical ES price to enable the Tab 2 reference framework and trade-log handoff.")
+                else:
+                    st.info("Enter a valid current ES price to enable the Tab 2 reference framework and trade-log handoff.")
             render_evening_decision_framework()
             render_evening_line_ladder(selected_checkpoint)
             with st.expander("Checkpoint Levels", expanded=False):
