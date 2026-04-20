@@ -200,6 +200,7 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
         "hw_anchor": {
             "price": float(hw_source["high"]),
             "timestamp": hw_source["timestamp"],
+            "projection_start_time": hw_source["timestamp"],
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
@@ -208,6 +209,7 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
         "lw_anchor": {
             "price": float(lw_source["low"]),
             "timestamp": lw_source["timestamp"],
+            "projection_start_time": lw_source["timestamp"],
             "source": lw_source,
             "direction": "descending",
             "label": "LW",

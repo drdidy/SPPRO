@@ -44,13 +44,16 @@ def project_anchor_line(line_name: str, anchor: dict[str, Any], target_time) -> 
     start_time = to_central_time(anchor.get("projection_start_time", anchor_timestamp))
     target_ct = to_central_time(target_time)
     candle_count = get_valid_candle_count(start_time, target_ct)
-    projected_price = project_price(float(anchor["price"]), candle_count, str(anchor["direction"]))
+    raw_anchor_price = round_price(float(anchor["price"]))
+    projected_price = project_price(raw_anchor_price, candle_count, str(anchor["direction"]))
 
     return {
         "name": line_name,
         "label": anchor.get("label", line_name.upper()),
         "direction": anchor["direction"],
-        "anchor_price": round_price(float(anchor["price"])),
+        "raw_anchor_price": raw_anchor_price,
+        "raw_anchor_timestamp": anchor_timestamp,
+        "anchor_price": raw_anchor_price,
         "anchor_timestamp": anchor_timestamp,
         "projection_start_time": start_time,
         "source": anchor.get("source"),
@@ -135,8 +138,12 @@ def convert_projected_lines(lines: dict[str, dict[str, Any]], offset: float, to_
 
     for line_name, details in lines.items():
         payload = dict(details)
-        payload["anchor_price"] = convert_price_space(details["anchor_price"], offset, to_space)
+        raw_anchor_price = details.get("raw_anchor_price", details["anchor_price"])
+        payload["raw_anchor_price"] = convert_price_space(raw_anchor_price, offset, to_space)
+        payload["anchor_price"] = payload["raw_anchor_price"]
         payload["projected_price"] = convert_price_space(details["projected_price"], offset, to_space)
+        payload["raw_anchor_timestamp"] = details.get("raw_anchor_timestamp", details.get("anchor_timestamp"))
+        payload["anchor_timestamp"] = payload["raw_anchor_timestamp"]
         if details.get("source"):
             source = dict(details["source"])
             source["high"] = convert_price_space(source["high"], offset, to_space)

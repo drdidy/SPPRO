@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime
 
 from core.pivots import select_pivot_context
-from core.projections import apply_overnight_pivot_overrides, project_anchor_line
+from core.projections import apply_overnight_pivot_overrides, convert_projected_lines, project_anchor_line
 from core.scenarios import (
     build_profit_management_plan,
     calculate_option_strike,
@@ -98,6 +98,70 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(f"{line['projected_price']:.2f}", "6880.30")
         self.assertEqual(line["anchor_timestamp"].hour, 14)
         self.assertEqual(line["projection_start_time"].hour, 12)
+        self.assertEqual(line["raw_anchor_timestamp"].hour, 14)
+        self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6859.50")
+
+    def test_hw_projects_upward_across_friday_to_monday(self) -> None:
+        target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        line = project_anchor_line(
+            "hw",
+            {
+                "price": 6864.50,
+                "timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                "projection_start_time": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                "direction": "ascending",
+                "label": "HW",
+                "line_type": "session_extreme",
+            },
+            target,
+        )
+        self.assertEqual(line["candle_count"], 19)
+        self.assertEqual(f"{line['projected_price']:.2f}", "6884.26")
+        self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6864.50")
+
+    def test_lw_projects_downward_across_friday_to_monday(self) -> None:
+        target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        line = project_anchor_line(
+            "lw",
+            {
+                "price": 6840.25,
+                "timestamp": datetime(2020, 4, 10, 10, 0, tzinfo=CENTRAL_TZ),
+                "projection_start_time": datetime(2020, 4, 10, 10, 0, tzinfo=CENTRAL_TZ),
+                "direction": "descending",
+                "label": "LW",
+                "line_type": "session_extreme",
+            },
+            target,
+        )
+        self.assertEqual(line["candle_count"], 22)
+        self.assertEqual(f"{line['projected_price']:.2f}", "6817.37")
+        self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
+
+    def test_converted_lines_preserve_raw_anchor_fields(self) -> None:
+        converted = convert_projected_lines(
+            {
+                "hw": {
+                    "name": "hw",
+                    "label": "HW",
+                    "direction": "ascending",
+                    "raw_anchor_price": 6864.50,
+                    "raw_anchor_timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                    "anchor_price": 6864.50,
+                    "anchor_timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                    "source": None,
+                    "line_type": "session_extreme",
+                    "candle_count": 19,
+                    "target_time": datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ),
+                    "projected_price": 6884.26,
+                    "description": "",
+                }
+            },
+            36.30,
+            "spx",
+        )
+        self.assertEqual(f"{converted['hw']['raw_anchor_price']:.2f}", "6828.20")
+        self.assertEqual(f"{converted['hw']['projected_price']:.2f}", "6847.96")
 
     def test_overnight_pivot_high_extends_ascending_ceiling_outward(self) -> None:
         result = apply_overnight_pivot_overrides(
