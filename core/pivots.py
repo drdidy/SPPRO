@@ -129,8 +129,11 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
         raise ValueError("At least three candles are required to detect session pivots")
 
     last_match: dict[str, Any] | None = None
+    pivot_window_start = to_central_time(window.iloc[0]["timestamp"]).replace(hour=12, minute=0, second=0, microsecond=0)
 
     for index in range(1, len(window) - 1):
+        if to_central_time(window.iloc[index]["timestamp"]) < pivot_window_start:
+            continue
         is_match = _is_pivot_high(window, index) if pivot_type == "high" else _is_pivot_low(window, index)
         if not is_match:
             continue
@@ -245,9 +248,10 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
 
     normalized = _normalize_candles(candles)
 
+    # Include the 11 AM candle as context so a 12 PM pivot can evaluate i-1.
     afternoon_window = filter_time_range(
         normalized,
-        start_time=at_central(session_date, 12, 0),
+        start_time=at_central(session_date, 11, 0),
         end_time=at_central(session_date, 16, 0),
     )
     ny_session_window = filter_time_range(
