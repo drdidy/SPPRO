@@ -65,10 +65,22 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     CORE_IMPORT_ERROR = f"Core import failed: {exc.__class__.__name__}: {exc}"
 
 try:
-    from options_provider import PROVIDER_NAMES, OptionLookupRequest, load_options_provider
+    from options_provider import (
+        PROVIDER_NAMES,
+        TASTYTRADE_2FA_KEYS,
+        TASTYTRADE_PASSWORD_KEYS,
+        TASTYTRADE_TEST_KEYS,
+        TASTYTRADE_USERNAME_KEYS,
+        OptionLookupRequest,
+        load_options_provider,
+    )
     OPTIONS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     PROVIDER_NAMES = ["none"]
+    TASTYTRADE_USERNAME_KEYS = ["TASTYTRADE_USERNAME", "tastytrade_username"]
+    TASTYTRADE_PASSWORD_KEYS = ["TASTYTRADE_PASSWORD", "tastytrade_password"]
+    TASTYTRADE_2FA_KEYS = ["TASTYTRADE_2FA_CODE", "tastytrade_2fa_code"]
+    TASTYTRADE_TEST_KEYS = ["TASTYTRADE_IS_TEST", "tastytrade_is_test"]
 
     class OptionLookupRequest:  # type: ignore[override]
         """Safe fallback request payload when the options bridge is unavailable."""
@@ -2483,6 +2495,21 @@ def render_options_provider_preview(
         status_col3.metric("Credentials", "Yes" if provider_status.get("credentials_detected") else "No")
         status_col4.metric("Live Ready", "Yes" if provider_status.get("live_mode_available") else "No")
         status_col5.metric("Status", provider_status.get("status_label", "Unavailable"))
+
+        provider_name = str(provider_status.get("provider_name", "none")).lower()
+        if provider_name == "none" or not provider_status.get("credentials_detected"):
+            with st.container(border=True):
+                st.markdown("**Tastytrade Setup**")
+                st.write("Provider name: `tastytrade`")
+                st.write("Authentication mode: username/password only")
+                st.write(f"Username secret keys: `{TASTYTRADE_USERNAME_KEYS[0]}`, `{TASTYTRADE_USERNAME_KEYS[1]}`")
+                st.write(f"Password secret keys: `{TASTYTRADE_PASSWORD_KEYS[0]}`, `{TASTYTRADE_PASSWORD_KEYS[1]}`")
+                st.write(f"Optional 2FA secret keys: `{TASTYTRADE_2FA_KEYS[0]}`, `{TASTYTRADE_2FA_KEYS[1]}`")
+                st.write(f"Optional sandbox flag keys: `{TASTYTRADE_TEST_KEYS[0]}`, `{TASTYTRADE_TEST_KEYS[1]}`")
+                if provider_name == "none":
+                    st.info("Provider is still `none`. Open `Advanced Controls` in the sidebar, enable options mode, and change the provider to `tastytrade`.")
+                else:
+                    st.info("Provider is set to `tastytrade`, but the required credentials were not detected in environment variables or Streamlit secrets.")
 
         if option_request is None:
             st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")

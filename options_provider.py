@@ -32,6 +32,10 @@ except Exception:
 
 
 PROVIDER_NAMES = ["none", "tastytrade"]
+TASTYTRADE_USERNAME_KEYS = ["TASTYTRADE_USERNAME", "tastytrade_username"]
+TASTYTRADE_PASSWORD_KEYS = ["TASTYTRADE_PASSWORD", "tastytrade_password"]
+TASTYTRADE_2FA_KEYS = ["TASTYTRADE_2FA_CODE", "tastytrade_2fa_code"]
+TASTYTRADE_TEST_KEYS = ["TASTYTRADE_IS_TEST", "tastytrade_is_test"]
 
 
 @dataclass
@@ -215,8 +219,8 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
     def _detect_credential_values(self) -> dict[str, bool]:
         """Detect whether external credential fields are present."""
 
-        username = self._get_external_value("TASTYTRADE_USERNAME", "tastytrade_username")
-        password = self._get_external_value("TASTYTRADE_PASSWORD", "tastytrade_password")
+        username = self._get_external_value(*TASTYTRADE_USERNAME_KEYS)
+        password = self._get_external_value(*TASTYTRADE_PASSWORD_KEYS)
         return {
             "username_detected": bool(username),
             "password_detected": bool(password),
@@ -225,7 +229,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
     def _is_test_environment(self) -> bool:
         """Return True when sandbox mode is configured externally."""
 
-        raw = str(self._get_external_value("TASTYTRADE_IS_TEST", "tastytrade_is_test") or "").strip().lower()
+        raw = str(self._get_external_value(*TASTYTRADE_TEST_KEYS) or "").strip().lower()
         return raw in {"1", "true", "yes", "sandbox", "cert"}
 
     def _base_url(self) -> str:
@@ -250,9 +254,9 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         if self._session_token and time.time() < self._session_expiration - 60:
             return self._session_token
 
-        username = self._get_external_value("TASTYTRADE_USERNAME", "tastytrade_username")
-        password = self._get_external_value("TASTYTRADE_PASSWORD", "tastytrade_password")
-        two_factor = self._get_external_value("TASTYTRADE_2FA_CODE", "tastytrade_2fa_code")
+        username = self._get_external_value(*TASTYTRADE_USERNAME_KEYS)
+        password = self._get_external_value(*TASTYTRADE_PASSWORD_KEYS)
+        two_factor = self._get_external_value(*TASTYTRADE_2FA_KEYS)
         if not username or not password:
             raise RuntimeError("No tastytrade credentials detected.")
 
