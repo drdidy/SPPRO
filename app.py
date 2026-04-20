@@ -38,6 +38,7 @@ try:
     from core.scenarios import (
         build_profit_management_plan,
         build_signal_package,
+        calculate_option_strike,
         evaluate_830_confirmation,
         evaluate_trading_scenario,
     )
@@ -56,6 +57,7 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     project_six_lines = None
     build_profit_management_plan = None
     build_signal_package = None
+    calculate_option_strike = None
     evaluate_830_confirmation = None
     evaluate_trading_scenario = None
     at_central = None
@@ -1910,105 +1912,45 @@ def build_manual_anchor_bundle(
                 "line_type": "session_extreme",
             },
             "asc_ceiling": {
-                "price": pivot_red_high_es,
+                "price": pivot_high_extreme_es,
                 "timestamp": pivot_high_time,
                 "projection_start_time": pivot_high_time,
-                "source": {
-                    "timestamp": pivot_high_time,
-                    "high": pivot_red_high_es,
-                    "low": pivot_red_high_es,
-                    "open": pivot_red_high_es,
-                    "close": pivot_red_high_es,
-                    "color": "red",
-                },
-                "associated_context_candle": {
-                    "timestamp": pivot_high_time,
-                    "high": pivot_red_high_es,
-                    "low": pivot_red_high_es,
-                    "open": pivot_red_high_es,
-                    "close": pivot_red_high_es,
-                    "color": "red",
-                },
+                "source": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
                 "pivot_extreme": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
-                "anchor_basis": "pivot_high_red_candle_high",
+                "anchor_basis": "pivot_high_extreme",
                 "direction": "ascending",
                 "label": "ASC Ceiling",
                 "line_type": "channel",
             },
             "asc_floor": {
-                "price": pivot_red_low_es,
+                "price": pivot_low_extreme_es,
                 "timestamp": pivot_low_time,
                 "projection_start_time": pivot_low_time,
-                "source": {
-                    "timestamp": pivot_low_time,
-                    "high": pivot_red_low_es,
-                    "low": pivot_red_low_es,
-                    "open": pivot_red_low_es,
-                    "close": pivot_red_low_es,
-                    "color": "red",
-                },
-                "associated_context_candle": {
-                    "timestamp": pivot_low_time,
-                    "high": pivot_red_low_es,
-                    "low": pivot_red_low_es,
-                    "open": pivot_red_low_es,
-                    "close": pivot_red_low_es,
-                    "color": "red",
-                },
+                "source": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
                 "pivot_extreme": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
-                "anchor_basis": "pivot_low_red_candle_low",
+                "anchor_basis": "pivot_low_extreme",
                 "direction": "ascending",
                 "label": "ASC Floor",
                 "line_type": "channel",
             },
             "desc_ceiling": {
-                "price": pivot_green_high_es,
+                "price": pivot_high_extreme_es,
                 "timestamp": pivot_high_time,
                 "projection_start_time": pivot_high_time,
-                "source": {
-                    "timestamp": pivot_high_time,
-                    "high": pivot_green_high_es,
-                    "low": pivot_green_high_es,
-                    "open": pivot_green_high_es,
-                    "close": pivot_green_high_es,
-                    "color": "green",
-                },
-                "associated_context_candle": {
-                    "timestamp": pivot_high_time,
-                    "high": pivot_green_high_es,
-                    "low": pivot_green_high_es,
-                    "open": pivot_green_high_es,
-                    "close": pivot_green_high_es,
-                    "color": "green",
-                },
+                "source": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
                 "pivot_extreme": {"timestamp": pivot_high_time, "high": pivot_high_extreme_es, "low": pivot_high_extreme_es, "open": pivot_high_extreme_es, "close": pivot_high_extreme_es, "color": "manual"},
-                "anchor_basis": "pivot_high_green_candle_high",
+                "anchor_basis": "pivot_high_extreme",
                 "direction": "descending",
                 "label": "DESC Ceiling",
                 "line_type": "channel",
             },
             "desc_floor": {
-                "price": pivot_green_low_es,
+                "price": pivot_low_extreme_es,
                 "timestamp": pivot_low_time,
                 "projection_start_time": pivot_low_time,
-                "source": {
-                    "timestamp": pivot_low_time,
-                    "high": pivot_green_low_es,
-                    "low": pivot_green_low_es,
-                    "open": pivot_green_low_es,
-                    "close": pivot_green_low_es,
-                    "color": "green",
-                },
-                "associated_context_candle": {
-                    "timestamp": pivot_low_time,
-                    "high": pivot_green_low_es,
-                    "low": pivot_green_low_es,
-                    "open": pivot_green_low_es,
-                    "close": pivot_green_low_es,
-                    "color": "green",
-                },
+                "source": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
                 "pivot_extreme": {"timestamp": pivot_low_time, "high": pivot_low_extreme_es, "low": pivot_low_extreme_es, "open": pivot_low_extreme_es, "close": pivot_low_extreme_es, "color": "manual"},
-                "anchor_basis": "pivot_low_green_candle_low",
+                "anchor_basis": "pivot_low_extreme",
                 "direction": "descending",
                 "label": "DESC Floor",
                 "line_type": "channel",
@@ -2315,12 +2257,20 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
     return merged
 
 
-def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
-    """Build a trade-log prefill from the current Tab 1 primary play."""
+def build_tab1_trade_prefill(signal_package: dict[str, Any], es_spx_offset: float = 0.0) -> dict[str, Any]:
+    """Build a trade-log prefill from the current Tab 1 primary play.
+
+    entry_line_value is stored in ES. The strike is computed from the SPX entry
+    (ES entry minus the offset) so it refers to the correct options strike.
+    """
 
     primary_play = signal_package["scenario"].get("primary_play")
     if primary_play is None:
         raise ValueError("No primary play is available to prefill the trade log.")
+
+    entry_es = float(primary_play["entry"]["price"])
+    spx_entry = round_price(entry_es - float(es_spx_offset))
+    spx_strike = calculate_option_strike(primary_play["direction"], spx_entry) if calculate_option_strike else primary_play.get("strike", 0)
 
     return {
         "source": "Tab 1 primary play",
@@ -2328,9 +2278,9 @@ def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
         "session": "NY Options",
         "scenario_name": signal_package["scenario"]["scenario_name"],
         "direction": primary_play["direction"],
-        "strike_or_contract_label": str(primary_play["strike"]),
+        "strike_or_contract_label": str(spx_strike),
         "entry_line_label": primary_play["entry"]["label"],
-        "entry_line_value": float(primary_play["entry"]["price"]),
+        "entry_line_value": entry_es,
         "contracts": int(primary_play["contracts"]),
         "confidence_note": signal_package["scenario"]["confidence_level"],
         "confirmation_status": "Not Recorded",
@@ -3461,32 +3411,42 @@ def resolve_anchor_bundle(
 
 def build_override_inputs(
     inputs: dict[str, Any],
-    projected_spx_9: dict[str, dict[str, Any]],
+    projected_es_9: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, dict[str, Any]] | None]:
-    """Build optional overnight override candidates in SPX space."""
+    """Build optional overnight override candidates in ES space.
+
+    Override values entered by the operator are converted to internal ES using the
+    manual_price_space setting before being compared against ES projected lines.
+    """
 
     overnight_high: dict[str, dict[str, Any]] = {}
     overnight_low: dict[str, dict[str, Any]] = {}
+    price_space = inputs.get("manual_price_space", "ES")
+    offset = float(inputs.get("es_spx_offset", 0.0))
 
     if inputs["use_asc_ceiling_override"]:
+        override_es = to_internal_es_price(inputs["asc_ceiling_override"], price_space, offset)
         overnight_high["asc_ceiling"] = {
-            **projected_spx_9["asc_ceiling"],
-            "projected_price": round_price(inputs["asc_ceiling_override"]),
+            **projected_es_9["asc_ceiling"],
+            "projected_price": round_price(override_es),
         }
     if inputs["use_desc_ceiling_override"]:
+        override_es = to_internal_es_price(inputs["desc_ceiling_override"], price_space, offset)
         overnight_high["desc_ceiling"] = {
-            **projected_spx_9["desc_ceiling"],
-            "projected_price": round_price(inputs["desc_ceiling_override"]),
+            **projected_es_9["desc_ceiling"],
+            "projected_price": round_price(override_es),
         }
     if inputs["use_asc_floor_override"]:
+        override_es = to_internal_es_price(inputs["asc_floor_override"], price_space, offset)
         overnight_low["asc_floor"] = {
-            **projected_spx_9["asc_floor"],
-            "projected_price": round_price(inputs["asc_floor_override"]),
+            **projected_es_9["asc_floor"],
+            "projected_price": round_price(override_es),
         }
     if inputs["use_desc_floor_override"]:
+        override_es = to_internal_es_price(inputs["desc_floor_override"], price_space, offset)
         overnight_low["desc_floor"] = {
-            **projected_spx_9["desc_floor"],
-            "projected_price": round_price(inputs["desc_floor_override"]),
+            **projected_es_9["desc_floor"],
+            "projected_price": round_price(override_es),
         }
 
     return overnight_high or None, overnight_low or None
@@ -3597,18 +3557,27 @@ def render_six_lines_panel(
         )
 
 
-def render_trade_decision_summary(signal_package: dict[str, Any], projected_lines: dict[str, dict[str, Any]]) -> None:
+def render_trade_decision_summary(
+    signal_package: dict[str, Any],
+    projected_lines_es: dict[str, dict[str, Any]],
+    effective_offset: float,
+) -> None:
     """Render the fastest single-line operator summary."""
 
     scenario = signal_package["scenario"]
-    primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
+    primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines_es)
     sit_out = signal_package["sit_out"]["sit_out"]
 
     scenario_name = scenario["scenario_name"]
     primary_direction = primary_play["direction"] if primary_play else "None"
     entry_line = primary_play["entry"]["label"] if primary_play else "None"
     contracts = str(primary_play["contracts"]) if primary_play else "0"
-    strike = str(primary_play["strike"]) if primary_play else "-"
+    if primary_play and calculate_option_strike:
+        _entry_es = float(primary_play["entry"]["price"])
+        _spx_entry = round_price(_entry_es - float(effective_offset))
+        strike = str(calculate_option_strike(primary_play["direction"], _spx_entry))
+    else:
+        strike = "-"
     sit_out_status = "SIT OUT" if sit_out else "ELIGIBLE"
 
     st.markdown(
@@ -3638,7 +3607,7 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
             <div class="spx-banner-meta">
                 <span class="spx-pill scenario-{scenario_tone}">Scenario Live</span>
                 <span class="spx-pill conf-{confidence_tone}">Confidence {scenario['confidence_level']}</span>
-                <span class="spx-pill scenario-neutral">Price {format_price(scenario['current_price'])} SPX</span>
+                <span class="spx-pill scenario-neutral">Price {format_price(scenario['current_price'])} ES</span>
             </div>
             <div class="spx-banner-text">{scenario['description']}</div>
         </div>
@@ -3649,17 +3618,21 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
 
 def render_play_card(
     title: str,
-    play_spx: dict[str, Any] | None,
-    projected_lines_spx: dict[str, dict[str, Any]],
+    play_es: dict[str, Any] | None,
     projected_lines_es: dict[str, dict[str, Any]],
+    effective_offset: float,
 ) -> None:
-    """Render a single structured play card."""
+    """Render a single structured play card.
+
+    All structural values (entry, stop, TP) are in ES. SPX entry and strike are
+    derived here for trade-card display only and never fed back into structural logic.
+    """
 
     card_class = "primary" if "Primary" in title else "alternate"
     icon = "▲" if title == "Primary Trade" else "◇"
     subtitle = "Primary setup" if "Primary" in title else "Alternate setup"
 
-    if play_spx is None:
+    if play_es is None:
         st.markdown(
             f"""
             <div class="spx-card {card_class}">
@@ -3677,9 +3650,10 @@ def render_play_card(
         )
         return
 
-    play = resolve_play_display_values(play_spx, projected_lines_spx)
-    entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
-    entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
+    play = resolve_play_display_values(play_es, projected_lines_es)
+    entry_es_value = float(play["entry"]["price"]) if play else None
+    spx_entry = round_price(entry_es_value - float(effective_offset)) if entry_es_value is not None else None
+    spx_strike = calculate_option_strike(play["direction"], spx_entry) if (calculate_option_strike and spx_entry is not None and play) else play.get("strike", "-") if play else "-"
 
     st.markdown(
         f"""
@@ -3694,20 +3668,20 @@ def render_play_card(
             <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
                 <div>
                     <div style="font-family:'Outfit','Segoe UI',sans-serif; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1;">{escape(play['direction'])}</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])} <span style="font-size:1rem; color:#9cb0ca;">SPX</span></div>
+                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(entry_es_value)} <span style="font-size:1rem; color:#9cb0ca;">ES</span></div>
                 </div>
                 <div class="spx-banner-meta" style="margin-bottom:0;">
                     <span class="spx-pill scenario-neutral">{escape(play['entry']['label'])}</span>
                 </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:0.9rem 1.2rem; color:#d7e2f1; font-size:1rem; line-height:1.7;">
-                <div><span class="spx-muted">ES line</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(entry_es_value)} ES</span></div>
-                <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
+                <div><span class="spx-muted">SPX entry</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(spx_entry)}</span></div>
+                <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{spx_strike}</span></div>
                 <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
-                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
+                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} ES</span></div>
             </div>
             <div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">
-                {escape(play['entry']['label'])} source in ES, converted once to SPX entry. {escape(play['stop']['label'])}
+                {escape(play['entry']['label'])} in ES. SPX entry = ES &#8722; {format_price(effective_offset)} offset. Strike: {spx_strike}.
             </div>
         </div>
         """,
@@ -3811,60 +3785,52 @@ def render_projection_verification(
         if pivot_high and pivot_low:
             pivot_high_extreme = _extract_pivot_extreme_value(pivot_high, "high")
             pivot_low_extreme = _extract_pivot_extreme_value(pivot_low, "low")
+            # Both ceiling lines share source point A (pivot high extreme).
+            # Both floor lines share source point C (pivot low extreme).
             pivot_anchor_rows = [
                 {
                     "Line": "ASC Ceiling",
-                    "Pivot Extreme Used": format_price(pivot_high_extreme),
-                    "Associated Context Candle": "red_candle",
-                    "Associated Candle Value": format_price(_extract_context_value(pivot_high, "red_candle", "high")),
+                    "Source Point": "A – Pivot High Extreme",
                     "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["asc_ceiling"]["price"]),
+                    "Anchor Basis": anchor_bundle["anchors"]["asc_ceiling"].get("anchor_basis", "pivot_high_extreme"),
                     "Projected Value (ES)": format_price(final_projected_lines_es["asc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Ceiling",
-                    "Pivot Extreme Used": format_price(pivot_high_extreme),
-                    "Associated Context Candle": "green_candle",
-                    "Associated Candle Value": format_price(_extract_context_value(pivot_high, "green_candle", "high")),
+                    "Source Point": "A – Pivot High Extreme",
                     "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["desc_ceiling"]["price"]),
+                    "Anchor Basis": anchor_bundle["anchors"]["desc_ceiling"].get("anchor_basis", "pivot_high_extreme"),
                     "Projected Value (ES)": format_price(final_projected_lines_es["desc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "ASC Floor",
-                    "Pivot Extreme Used": format_price(pivot_low_extreme),
-                    "Associated Context Candle": "red_candle",
-                    "Associated Candle Value": format_price(_extract_context_value(pivot_low, "red_candle", "low")),
+                    "Source Point": "C – Pivot Low Extreme",
                     "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["asc_floor"]["price"]),
+                    "Anchor Basis": anchor_bundle["anchors"]["asc_floor"].get("anchor_basis", "pivot_low_extreme"),
                     "Projected Value (ES)": format_price(final_projected_lines_es["asc_floor"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Floor",
-                    "Pivot Extreme Used": format_price(pivot_low_extreme),
-                    "Associated Context Candle": "green_candle",
-                    "Associated Candle Value": format_price(_extract_context_value(pivot_low, "green_candle", "low")),
+                    "Source Point": "C – Pivot Low Extreme",
                     "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["desc_floor"]["price"]),
+                    "Anchor Basis": anchor_bundle["anchors"]["desc_floor"].get("anchor_basis", "pivot_low_extreme"),
                     "Projected Value (ES)": format_price(final_projected_lines_es["desc_floor"]["projected_price"]),
                 },
             ]
             st.dataframe(pivot_anchor_rows, use_container_width=True, hide_index=True)
             st.json(
                 {
-                    "pivot_high_context": {
-                        "i_minus_1": pivot_high.get("previous_candle"),
-                        "i": pivot_high.get("pivot_candle"),
-                        "i_plus_1": pivot_high.get("next_candle"),
-                        "selected_pivot_candle": pivot_high.get("pivot_candle"),
+                    "source_point_A_pivot_high": {
                         "pivot_extreme": pivot_high.get("pivot_extreme"),
-                        "associated_green_candle": pivot_high.get("green_candle"),
-                        "associated_red_candle": pivot_high.get("red_candle"),
+                        "pivot_candle": pivot_high.get("pivot_candle"),
+                        "context_i_minus_1": pivot_high.get("previous_candle"),
+                        "context_i_plus_1": pivot_high.get("next_candle"),
                     },
-                    "pivot_low_context": {
-                        "i_minus_1": pivot_low.get("previous_candle"),
-                        "i": pivot_low.get("pivot_candle"),
-                        "i_plus_1": pivot_low.get("next_candle"),
-                        "selected_pivot_candle": pivot_low.get("pivot_candle"),
+                    "source_point_C_pivot_low": {
                         "pivot_extreme": pivot_low.get("pivot_extreme"),
-                        "associated_green_candle": pivot_low.get("green_candle"),
-                        "associated_red_candle": pivot_low.get("red_candle"),
+                        "pivot_candle": pivot_low.get("pivot_candle"),
+                        "context_i_minus_1": pivot_low.get("previous_candle"),
+                        "context_i_plus_1": pivot_low.get("next_candle"),
                     },
                 },
                 expanded=False,
@@ -5000,20 +4966,21 @@ def main() -> None:
     nine_am_target = at_central(inputs["next_trading_date"], 9, 0)
     try:
         projected_es_9 = project_six_lines(anchor_bundle["anchors"], nine_am_target)
-        projected_spx_9 = convert_projected_lines(projected_es_9, effective_offset, "spx")
     except Exception as exc:
         st.error(f"Unable to project line structure for the selected inputs: {exc}")
         st.stop()
 
-    overnight_high, overnight_low = build_override_inputs(inputs, projected_spx_9)
+    # Entire override pipeline stays in ES — ES is the structural source of truth.
+    overnight_high, overnight_low = build_override_inputs(inputs, projected_es_9)
     override_result = apply_overnight_pivot_overrides(
-        projected_spx_9,
+        projected_es_9,
         overnight_high=overnight_high,
         overnight_low=overnight_low,
     )
-    final_projected_lines = override_result["projected_lines"]
-    final_projected_lines_es = convert_projected_lines(final_projected_lines, effective_offset, "es")
-    line_values_spx = {name: details["projected_price"] for name, details in final_projected_lines.items()}
+    final_projected_lines_es = override_result["projected_lines"]
+    # SPX conversion is for trade-card display only — not used for any structural logic.
+    final_projected_lines_spx = convert_projected_lines(final_projected_lines_es, effective_offset, "spx")
+    line_values_es = {name: details["projected_price"] for name, details in final_projected_lines_es.items()}
 
     spx_830_candle = None
     try:
@@ -5022,34 +4989,41 @@ def main() -> None:
     except Exception as exc:
         st.warning(f"SPX confirmation data fetch failed: {exc}")
 
+    # ES open reference: the 9:00 AM open reference input is in the manual_price_space;
+    # convert to ES for the scenario engine.
+    open_reference_es = to_internal_es_price(inputs["open_reference"], inputs.get("manual_price_space", "SPX"), effective_offset)
+
     signal_package: dict[str, Any] | None = None
-    if is_valid_price_input(inputs["current_spx_price"]):
+    if is_valid_price_input(inputs["current_es_price"]):
         try:
             seed_scenario = evaluate_trading_scenario(
-                current_price=inputs["current_spx_price"],
-                line_values=line_values_spx,
-                open_price=inputs["open_reference"],
+                current_price=inputs["current_es_price"],
+                line_values=line_values_es,
+                open_price=open_reference_es,
                 confirmation_confirmed=False,
             )
             primary_play = seed_scenario["primary_play"]
+            # 8:30 confirmation uses SPX cash candle; convert ES entry line to SPX for comparison.
+            entry_es_for_conf = primary_play["entry"]["price"] if primary_play else inputs["current_es_price"]
+            entry_spx_for_conf = round_price(float(entry_es_for_conf) - float(effective_offset))
             confirmation = evaluate_830_confirmation(
                 spx_830_candle,
-                primary_play["entry"]["price"] if primary_play else inputs["current_spx_price"],
+                entry_spx_for_conf,
                 primary_play["direction"] if primary_play else "CALL",
             )
             signal_package = build_signal_package(
-                current_price=inputs["current_spx_price"],
-                line_values=line_values_spx,
+                current_price=inputs["current_es_price"],
+                line_values=line_values_es,
                 confirmation=confirmation,
                 news_day=inputs["news_day"],
                 current_time=current_central_time(),
-                open_price=inputs["open_reference"],
+                open_price=open_reference_es,
             )
         except Exception as exc:
             st.warning(f"Tab 1 scenario logic could not be built from the current inputs: {exc}")
-            confirmation = build_unavailable_confirmation("Scenario unavailable because the current SPX setup could not be evaluated.")
+            confirmation = build_unavailable_confirmation("Scenario unavailable because the current ES setup could not be evaluated.")
     else:
-        confirmation = build_unavailable_confirmation("Scenario unavailable because current SPX price is missing or invalid.")
+        confirmation = build_unavailable_confirmation("Scenario unavailable because current ES price is missing or invalid.")
 
     try:
         checkpoint_views = build_evening_checkpoint_views(
@@ -5072,27 +5046,25 @@ def main() -> None:
             current_es_price=inputs["current_es_price"],
             effective_offset=effective_offset,
         )
-        if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
-            st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
         if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
-            st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
+            st.warning("Live ES price is unavailable. Enter the current ES price manually before using the scenario engine.")
         if signal_package is not None:
-            render_trade_decision_summary(signal_package, final_projected_lines)
+            render_trade_decision_summary(signal_package, final_projected_lines_es, effective_offset)
         if signal_package is None:
-            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
+            st.warning("Current ES price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
             primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
             if primary_play is None:
                 st.warning("No primary play is available to hand off into the Trade Log.")
             elif st.button("Prefill Trade Log from Primary Play", use_container_width=True):
-                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
+                set_trade_form_prefill(build_tab1_trade_prefill(signal_package, effective_offset))
                 st.success("Trade Log prefilled from Tab 1. Open Tab 3 to review or save.")
         with action_col2:
             if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None):
                 snapshot_payload = build_daily_snapshot(
                     next_trading_date=inputs["next_trading_date"],
-                    projected_lines=final_projected_lines,
+                    projected_lines=final_projected_lines_es,
                     scenario=signal_package["scenario"],
                     sit_out=signal_package["sit_out"],
                     confirmation=confirmation,
@@ -5108,10 +5080,13 @@ def main() -> None:
         option_lookup_request = None
         if signal_package is not None and signal_package["scenario"].get("primary_play") is not None:
             primary_play = signal_package["scenario"]["primary_play"]
+            _entry_es = float(primary_play["entry"]["price"])
+            _spx_entry = round_price(_entry_es - float(effective_offset))
+            _spx_strike = calculate_option_strike(primary_play["direction"], _spx_entry) if calculate_option_strike else int(primary_play.get("strike", 0))
             option_lookup_request = build_option_lookup_request(
                 session="NY Options",
                 direction=primary_play["direction"],
-                strike=int(primary_play["strike"]),
+                strike=_spx_strike,
                 trade_date=inputs["next_trading_date"],
                 scenario_name=signal_package["scenario"]["scenario_name"],
             )
@@ -5121,15 +5096,15 @@ def main() -> None:
                 render_play_card(
                     "Primary Trade",
                     signal_package["scenario"]["primary_play"],
-                    final_projected_lines,
                     final_projected_lines_es,
+                    effective_offset,
                 )
             with decision_col2:
                 render_play_card(
                     "Alternate Trade",
                     signal_package["scenario"]["alternate_play"],
-                    final_projected_lines,
                     final_projected_lines_es,
+                    effective_offset,
                 )
 
         render_spatial_ladder(
@@ -5142,7 +5117,7 @@ def main() -> None:
             with st.expander("Confirmation", expanded=False):
                 render_confirmation_card(
                     confirmation,
-                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines),
+                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines_es),
                 )
             with st.expander("Structure", expanded=False):
                 render_scenario_section(signal_package["scenario"])
@@ -5151,7 +5126,7 @@ def main() -> None:
                 render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
                 render_projection_verification(
                     anchor_bundle,
-                    final_projected_lines,
+                    final_projected_lines_spx,
                     final_projected_lines_es,
                     final_projected_lines_es,
                     "ES",
@@ -5162,7 +5137,7 @@ def main() -> None:
                 render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
                 render_projection_verification(
                     anchor_bundle,
-                    final_projected_lines,
+                    final_projected_lines_spx,
                     final_projected_lines_es,
                     final_projected_lines_es,
                     "ES",

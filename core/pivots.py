@@ -187,17 +187,19 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
 
 
 def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
-    """Find the full-session highest bearish wick and lowest bullish wick anchors."""
+    """Find the full-session highest wick (HW) and lowest wick (LW) anchors.
+
+    No color filter is applied. HW is the highest wick across all candles
+    in the 8:30 AM–4:00 PM CT window (source point B). LW is the lowest wick
+    across all candles in the same window (source point D).
+    """
 
     all_candles = [row_to_candle_metadata(row) for _, row in window.iterrows()]
     if not all_candles:
         raise ValueError("At least one candle is required to detect session wick extremes")
 
-    bearish_candles = [candle for candle in all_candles if candle["color"] == "red"]
-    bullish_candles = [candle for candle in all_candles if candle["color"] == "green"]
-
-    hw_source = max(bearish_candles or all_candles, key=lambda candle: candle["high"])
-    lw_source = min(bullish_candles or all_candles, key=lambda candle: candle["low"])
+    hw_source = max(all_candles, key=lambda candle: candle["high"])
+    lw_source = min(all_candles, key=lambda candle: candle["low"])
 
     return {
         "hw_anchor": {
@@ -207,8 +209,8 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
-            "description": "Highest wick of any bearish candle in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "bearish_session_high",
+            "description": "Highest wick across all candles in the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_high_wick",
         },
         "lw_anchor": {
             "price": float(lw_source["low"]),
@@ -217,62 +219,66 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": lw_source,
             "direction": "descending",
             "label": "LW",
-            "description": "Lowest wick of any bullish candle in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "bullish_session_low",
+            "description": "Lowest wick across all candles in the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_low_wick",
         },
     }
 
 
 def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Resolve the four channel anchors from the detected pivots."""
+    """Resolve the four channel anchors from the detected pivots.
 
-    pivot_high_red = pivot_high["red_candle"]
-    pivot_high_green = pivot_high["green_candle"]
-    pivot_low_red = pivot_low["red_candle"]
-    pivot_low_green = pivot_low["green_candle"]
+    Both ASC Ceiling and DESC Ceiling share the same raw anchor: the highest wick
+    of the final high pivot (source point A). Both ASC Floor and DESC Floor share
+    the same raw anchor: the lowest wick of the final low pivot (source point C).
+    """
+
+    high_extreme = pivot_high["pivot_extreme"]
+    low_extreme = pivot_low["pivot_extreme"]
+
+    high_price = float(high_extreme["high"])
+    high_ts = to_central_time(high_extreme["timestamp"])
+    low_price = float(low_extreme["low"])
+    low_ts = to_central_time(low_extreme["timestamp"])
 
     return {
         "asc_ceiling_anchor": {
-            "price": float(pivot_high_red["high"]),
-            "timestamp": to_central_time(pivot_high_red["timestamp"]),
-            "projection_start_time": to_central_time(pivot_high_red["timestamp"]),
-            "source": pivot_high_red,
-            "associated_context_candle": pivot_high_red,
-            "pivot_extreme": pivot_high["pivot_extreme"],
-            "anchor_basis": "pivot_high_red_candle_high",
+            "price": high_price,
+            "timestamp": high_ts,
+            "projection_start_time": high_ts,
+            "source": high_extreme,
+            "pivot_extreme": high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "ascending",
             "label": "ASC Ceiling",
         },
         "desc_ceiling_anchor": {
-            "price": float(pivot_high_green["high"]),
-            "timestamp": to_central_time(pivot_high_green["timestamp"]),
-            "projection_start_time": to_central_time(pivot_high_green["timestamp"]),
-            "source": pivot_high_green,
-            "associated_context_candle": pivot_high_green,
-            "pivot_extreme": pivot_high["pivot_extreme"],
-            "anchor_basis": "pivot_high_green_candle_high",
+            "price": high_price,
+            "timestamp": high_ts,
+            "projection_start_time": high_ts,
+            "source": high_extreme,
+            "pivot_extreme": high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "descending",
             "label": "DESC Ceiling",
         },
         "asc_floor_anchor": {
-            "price": float(pivot_low_red["low"]),
-            "timestamp": to_central_time(pivot_low_red["timestamp"]),
-            "projection_start_time": to_central_time(pivot_low_red["timestamp"]),
-            "source": pivot_low_red,
-            "associated_context_candle": pivot_low_red,
-            "pivot_extreme": pivot_low["pivot_extreme"],
-            "anchor_basis": "pivot_low_red_candle_low",
+            "price": low_price,
+            "timestamp": low_ts,
+            "projection_start_time": low_ts,
+            "source": low_extreme,
+            "pivot_extreme": low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "ascending",
             "label": "ASC Floor",
         },
         "desc_floor_anchor": {
-            "price": float(pivot_low_green["low"]),
-            "timestamp": to_central_time(pivot_low_green["timestamp"]),
-            "projection_start_time": to_central_time(pivot_low_green["timestamp"]),
-            "source": pivot_low_green,
-            "associated_context_candle": pivot_low_green,
-            "pivot_extreme": pivot_low["pivot_extreme"],
-            "anchor_basis": "pivot_low_green_candle_low",
+            "price": low_price,
+            "timestamp": low_ts,
+            "projection_start_time": low_ts,
+            "source": low_extreme,
+            "pivot_extreme": low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "descending",
             "label": "DESC Floor",
         },
