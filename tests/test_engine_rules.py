@@ -1,0 +1,362 @@
+"""Focused hardening tests for the SPX Prophet core engine."""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+
+from core.pivots import select_pivot_context
+from core.projections import apply_overnight_pivot_overrides, project_anchor_line
+from core.scenarios import (
+    build_profit_management_plan,
+    calculate_option_strike,
+    evaluate_830_confirmation,
+    evaluate_sit_out_conditions,
+    evaluate_trading_scenario,
+    get_scenario_reference_outputs,
+)
+from core.time_utils import CENTRAL_TZ, EASTERN_TZ, get_valid_candle_count, market_time_to_central
+
+
+class EngineRuleTests(unittest.TestCase):
+    """Validate high-risk rule behavior directly."""
+
+    def setUp(self) -> None:
+        self.base_lines = {
+            "hw": 110.0,
+            "asc_ceiling": 108.0,
+            "asc_floor": 104.0,
+            "desc_ceiling": 100.0,
+            "desc_floor": 96.0,
+            "lw": 92.0,
+        }
+
+    def _projected_line(self, name: str, value: float) -> dict[str, float | str]:
+        return {
+            "name": name,
+            "label": name.upper(),
+            "projected_price": value,
+        }
+
+    def test_candle_count_excludes_maintenance_and_weekend(self) -> None:
+        monday_four_pm = datetime(2020, 4, 6, 16, 0, tzinfo=CENTRAL_TZ)
+        monday_six_pm = datetime(2020, 4, 6, 18, 0, tzinfo=CENTRAL_TZ)
+        self.assertEqual(get_valid_candle_count(monday_four_pm, monday_six_pm), 1)
+
+        friday_noon = datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ)
+        monday_nine_am = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        self.assertEqual(get_valid_candle_count(friday_noon, monday_nine_am), 20)
+
+    def test_market_time_conversion_uses_eastern_for_market_timestamps(self) -> None:
+        eastern_open = datetime(2026, 4, 13, 9, 30, tzinfo=EASTERN_TZ)
+        converted = market_time_to_central(eastern_open)
+        self.assertEqual(converted.hour, 8)
+        self.assertEqual(converted.minute, 30)
+        self.assertEqual(converted.tzinfo, CENTRAL_TZ)
+
+    def test_pivot_context_follows_green_and_red_selection_rules(self) -> None:
+        previous = {
+            "timestamp": datetime(2026, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+            "open": 100.0,
+            "high": 104.0,
+            "low": 99.0,
+            "close": 103.0,
+        }
+        pivot = {
+            "timestamp": datetime(2026, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+            "open": 103.0,
+            "high": 106.0,
+            "low": 102.0,
+            "close": 102.5,
+        }
+        following = {
+            "timestamp": datetime(2026, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+            "open": 102.5,
+            "high": 103.0,
+            "low": 99.5,
+            "close": 100.0,
+        }
+
+        context = select_pivot_context(previous, pivot, following)
+        self.assertEqual(context["green_candle"]["timestamp"], previous["timestamp"])
+        self.assertEqual(context["red_candle"]["timestamp"], pivot["timestamp"])
+
+    def test_projection_uses_projection_start_time_not_source_timestamp(self) -> None:
+        target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        line = project_anchor_line(
+            "asc_ceiling",
+            {
+                "price": 6859.50,
+                "timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                "projection_start_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+                "direction": "ascending",
+                "label": "ASC Ceiling",
+            },
+            target,
+        )
+        self.assertEqual(line["candle_count"], 20)
+        self.assertEqual(f"{line['projected_price']:.2f}", "6880.30")
+        self.assertEqual(line["anchor_timestamp"].hour, 14)
+        self.assertEqual(line["projection_start_time"].hour, 12)
+
+    def test_overnight_pivot_high_extends_ascending_ceiling_outward(self) -> None:
+        result = apply_overnight_pivot_overrides(
+            {name: self._projected_line(name, value) for name, value in self.base_lines.items()},
+            overnight_high={"asc_ceiling": self._projected_line("asc_ceiling", 109.5)},
+        )
+        self.assertTrue(result["decisions"]["asc_ceiling"]["applied"])
+        self.assertEqual(result["projected_lines"]["asc_ceiling"]["projected_price"], 109.5)
+
+    def test_overnight_pivot_high_extends_descending_ceiling_outward(self) -> None:
+        result = apply_overnight_pivot_overrides(
+            {name: self._projected_line(name, value) for name, value in self.base_lines.items()},
+            overnight_high={"desc_ceiling": self._projected_line("desc_ceiling", 101.5)},
+        )
+        self.assertTrue(result["decisions"]["desc_ceiling"]["applied"])
+        self.assertEqual(result["projected_lines"]["desc_ceiling"]["projected_price"], 101.5)
+
+    def test_overnight_pivot_low_extends_ascending_floor_outward(self) -> None:
+        result = apply_overnight_pivot_overrides(
+            {name: self._projected_line(name, value) for name, value in self.base_lines.items()},
+            overnight_low={"asc_floor": self._projected_line("asc_floor", 103.0)},
+        )
+        self.assertTrue(result["decisions"]["asc_floor"]["applied"])
+        self.assertEqual(result["projected_lines"]["asc_floor"]["projected_price"], 103.0)
+
+    def test_overnight_pivot_low_extends_descending_floor_outward(self) -> None:
+        result = apply_overnight_pivot_overrides(
+            {name: self._projected_line(name, value) for name, value in self.base_lines.items()},
+            overnight_low={"desc_floor": self._projected_line("desc_floor", 95.0)},
+        )
+        self.assertTrue(result["decisions"]["desc_floor"]["applied"])
+        self.assertEqual(result["projected_lines"]["desc_floor"]["projected_price"], 95.0)
+
+    def test_overnight_pivot_inside_channel_does_not_override(self) -> None:
+        result = apply_overnight_pivot_overrides(
+            {name: self._projected_line(name, value) for name, value in self.base_lines.items()},
+            overnight_high={"asc_ceiling": self._projected_line("asc_ceiling", 107.0)},
+            overnight_low={"asc_floor": self._projected_line("asc_floor", 105.0)},
+        )
+        self.assertFalse(result["decisions"]["asc_ceiling"]["applied"])
+        self.assertFalse(result["decisions"]["asc_floor"]["applied"])
+        self.assertEqual(result["projected_lines"]["asc_ceiling"]["projected_price"], 108.0)
+        self.assertEqual(result["projected_lines"]["asc_floor"]["projected_price"], 104.0)
+
+    def test_scenario_1_between_channels_output(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 1: BETWEEN CHANNELS")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_floor")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "desc_ceiling")
+        self.assertEqual(scenario["confidence_level"], "MEDIUM")
+
+    def test_scenario_2_inside_ascending_channel_output(self) -> None:
+        scenario = evaluate_trading_scenario(106.0, self.base_lines, confirmation_confirmed=True)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 2: INSIDE ASCENDING CHANNEL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "hw")
+        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
+        self.assertEqual(scenario["confidence_level"], "HIGH")
+
+    def test_scenario_3_inside_descending_channel_output(self) -> None:
+        scenario = evaluate_trading_scenario(
+            98.0,
+            {
+                "hw": 112.0,
+                "asc_ceiling": 111.0,
+                "asc_floor": 107.0,
+                "desc_ceiling": 100.0,
+                "desc_floor": 96.0,
+                "lw": 92.0,
+            },
+            confirmation_confirmed=True,
+        )
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_floor")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "lw")
+        self.assertEqual(scenario["alternate_play"]["direction"], "PUT")
+        self.assertEqual(scenario["confidence_level"], "HIGH")
+
+    def test_scenario_4_above_ascending_channel_output(self) -> None:
+        scenario = evaluate_trading_scenario(109.0, self.base_lines)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 4: ABOVE ASCENDING CHANNEL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "hw")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "hw + 3")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["confidence_level"], "MEDIUM")
+
+    def test_scenario_5_below_descending_channel_output(self) -> None:
+        scenario = evaluate_trading_scenario(94.0, self.base_lines)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 5: BELOW DESCENDING CHANNEL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "lw")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "lw - 3")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "desc_floor")
+        self.assertEqual(scenario["confidence_level"], "MEDIUM")
+
+    def test_scenario_6a_extreme_gap_up_output(self) -> None:
+        scenario = evaluate_trading_scenario(111.0, self.base_lines, open_price=111.0)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 6a: EXTREME GAP UP")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "hw")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "asc_ceiling")
+        self.assertIsNone(scenario["alternate_play"])
+        self.assertEqual(scenario["confidence_level"], "LOW")
+
+    def test_scenario_6b_extreme_gap_down_output(self) -> None:
+        scenario = evaluate_trading_scenario(91.0, self.base_lines, open_price=91.0)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 6b: EXTREME GAP DOWN")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "lw")
+        self.assertEqual(scenario["primary_play"]["stop"]["label"], "desc_floor")
+        self.assertIsNone(scenario["alternate_play"])
+        self.assertEqual(scenario["confidence_level"], "LOW")
+
+    def test_scenario_7_overlap_output(self) -> None:
+        scenario = evaluate_trading_scenario(
+            101.0,
+            {
+                "hw": 112.0,
+                "asc_ceiling": 104.0,
+                "asc_floor": 99.0,
+                "desc_ceiling": 103.0,
+                "desc_floor": 98.0,
+                "lw": 92.0,
+            },
+        )
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 7: CHANNEL OVERLAP (COMPRESSION)")
+        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
+        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
+        self.assertEqual(scenario["confidence_level"], "MEDIUM")
+
+    def test_scenario_reference_outputs_cover_all_states(self) -> None:
+        reference = get_scenario_reference_outputs()
+        self.assertEqual(len(reference), 8)
+        self.assertIn("SCENARIO 6a: EXTREME GAP UP", reference)
+        self.assertIn("SCENARIO 6b: EXTREME GAP DOWN", reference)
+
+    def test_valid_put_confirmation(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 100.0, "high": 105.0, "low": 99.0, "close": 104.0},
+            entry_line_price=104.5,
+            direction="PUT",
+        )
+        self.assertTrue(result["confirmed"])
+
+    def test_failed_put_confirmation_closes_above_line(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 100.0, "high": 105.0, "low": 99.0, "close": 105.0},
+            entry_line_price=104.5,
+            direction="PUT",
+        )
+        self.assertTrue(result["failed"])
+        self.assertFalse(result["confirmed"])
+
+    def test_failed_put_confirmation_red_below_line(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 105.0, "high": 105.5, "low": 100.0, "close": 103.0},
+            entry_line_price=104.5,
+            direction="PUT",
+        )
+        self.assertTrue(result["failed"])
+        self.assertFalse(result["confirmed"])
+
+    def test_valid_call_confirmation(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 100.0, "high": 101.0, "low": 95.0, "close": 99.0},
+            entry_line_price=96.0,
+            direction="CALL",
+        )
+        self.assertTrue(result["confirmed"])
+
+    def test_failed_call_confirmation_closes_below_line(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 100.0, "high": 101.0, "low": 95.0, "close": 95.5},
+            entry_line_price=96.0,
+            direction="CALL",
+        )
+        self.assertTrue(result["failed"])
+        self.assertFalse(result["confirmed"])
+
+    def test_failed_call_confirmation_green_above_line(self) -> None:
+        result = evaluate_830_confirmation(
+            {"open": 95.0, "high": 101.0, "low": 94.5, "close": 99.0},
+            entry_line_price=96.0,
+            direction="CALL",
+        )
+        self.assertTrue(result["failed"])
+        self.assertFalse(result["confirmed"])
+
+    def test_sit_out_channel_width_under_three(self) -> None:
+        scenario = evaluate_trading_scenario(
+            102.0,
+            {
+                "hw": 110.0,
+                "asc_ceiling": 104.5,
+                "asc_floor": 102.0,
+                "desc_ceiling": 101.0,
+                "desc_floor": 99.0,
+                "lw": 95.0,
+            },
+        )
+        result = evaluate_sit_out_conditions(scenario, {"failed": False}, 102.0, False, datetime(2026, 4, 13, 9, 0, tzinfo=CENTRAL_TZ))
+        self.assertTrue(result["sit_out"])
+        self.assertIn("Channel width is under 3 points.", result["reasons"])
+
+    def test_sit_out_price_more_than_fifteen_points_from_entry(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        result = evaluate_sit_out_conditions(scenario, {"failed": False}, 125.0, False, datetime(2026, 4, 13, 9, 0, tzinfo=CENTRAL_TZ))
+        self.assertTrue(result["sit_out"])
+        self.assertIn("Price is more than 15 points from the nearest primary entry line.", result["reasons"])
+
+    def test_sit_out_failed_confirmation_between_channels(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        result = evaluate_sit_out_conditions(scenario, {"failed": True}, 102.0, False, datetime(2026, 4, 13, 9, 0, tzinfo=CENTRAL_TZ))
+        self.assertTrue(result["sit_out"])
+        self.assertIn("8:30 confirmation failed while price is between channels.", result["reasons"])
+
+    def test_sit_out_major_news_toggle_enabled(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        result = evaluate_sit_out_conditions(scenario, {"failed": False}, 102.0, True, datetime(2026, 4, 13, 9, 0, tzinfo=CENTRAL_TZ))
+        self.assertTrue(result["sit_out"])
+        self.assertIn("Fed/CPI/NFP day toggle is enabled.", result["reasons"])
+
+    def test_sit_out_past_ten_am_ct(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        result = evaluate_sit_out_conditions(scenario, {"failed": False}, 102.0, False, datetime(2026, 4, 13, 10, 1, tzinfo=CENTRAL_TZ))
+        self.assertTrue(result["sit_out"])
+        self.assertIn("Past 10:00 AM CT.", result["reasons"])
+
+    def test_put_strike_rounds_down_to_nearest_five(self) -> None:
+        self.assertEqual(calculate_option_strike("PUT", 4321.25), 4300)
+
+    def test_call_strike_rounds_up_to_nearest_five(self) -> None:
+        self.assertEqual(calculate_option_strike("CALL", 4321.25), 4345)
+
+    def test_position_sizing_high_confidence(self) -> None:
+        scenario = evaluate_trading_scenario(106.0, self.base_lines, confirmation_confirmed=True)
+        self.assertEqual(scenario["primary_play"]["contracts"], 3)
+
+    def test_position_sizing_medium_confidence(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        self.assertEqual(scenario["primary_play"]["contracts"], 2)
+
+    def test_position_sizing_low_confidence(self) -> None:
+        scenario = evaluate_trading_scenario(111.0, self.base_lines, open_price=111.0)
+        self.assertEqual(scenario["primary_play"]["contracts"], 1)
+
+    def test_position_sizing_alternate_plays_are_always_one_contract(self) -> None:
+        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        self.assertEqual(scenario["alternate_play"]["contracts"], 1)
+
+    def test_profit_management_returns_machine_usable_structure(self) -> None:
+        plan = build_profit_management_plan(3)
+        self.assertEqual(plan["tp1_action"]["action"], "close_partial")
+        self.assertEqual(plan["tp1_action"]["contracts_to_close"], 2)
+        self.assertTrue(plan["tp1_action"]["move_stop_to_breakeven"])
+        self.assertEqual(plan["tp2_action"]["action"], "close_remaining")
+        self.assertEqual(plan["tp2_action"]["contracts_to_close"], 1)
+        self.assertEqual(plan["stop_action"]["action"], "close_all")
+        self.assertEqual(plan["time_stop"], "10:30 AM CT")
+        self.assertEqual(plan["time_stop_action"]["deadline"], "10:30 AM CT")
+
+
+if __name__ == "__main__":
+    unittest.main()
