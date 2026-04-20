@@ -150,6 +150,62 @@ class NullOptionsProvider(OptionsProviderBase):
     provider_name = "none"
 
 
+def rank_candidate_contracts(candidates: list[dict[str, Any]], target_strike: int) -> list[dict[str, Any]]:
+    """Score and rank candidate contracts by practical trade readiness.
+
+    Criteria: strike proximity, spread width, volume, open interest.
+    Returns candidates with added 'rank_score' and 'readiness' fields.
+    """
+    scored = []
+    for contract in candidates:
+        score = 0.0
+        readiness_notes = []
+
+        # Strike proximity (primary)
+        strike_dist = abs(int(contract.get("strike", target_strike)) - target_strike)
+        if strike_dist == 0:
+            score += 50
+        elif strike_dist <= 5:
+            score += 40
+        elif strike_dist <= 10:
+            score += 20
+
+        # Bid-ask spread
+        bid = float(contract.get("bid", 0) or 0)
+        ask = float(contract.get("ask", 0) or 0)
+        if bid > 0 and ask > 0:
+            spread = ask - bid
+            if spread < 0.05:
+                score += 30
+                readiness_notes.append("tight spread")
+            elif spread < 0.15:
+                score += 15
+                readiness_notes.append("acceptable spread")
+            else:
+                readiness_notes.append("wide spread")
+        else:
+            readiness_notes.append("incomplete quote")
+
+        # Liquidity (volume + open interest)
+        volume = int(contract.get("volume", 0) or 0)
+        open_interest = int(contract.get("open_interest", 0) or 0)
+        liquidity = volume + (open_interest * 0.5)
+        if liquidity > 100:
+            score += 15
+            readiness_notes.append("good liquidity")
+        elif liquidity > 10:
+            readiness_notes.append("acceptable liquidity")
+        else:
+            readiness_notes.append("thin liquidity")
+
+        contract_copy = dict(contract)
+        contract_copy["rank_score"] = round(score, 1)
+        contract_copy["readiness"] = "; ".join(readiness_notes) if readiness_notes else "complete"
+        scored.append(contract_copy)
+
+    return sorted(scored, key=lambda x: x["rank_score"], reverse=True)
+
+
 class TastytradeProviderSkeleton(OptionsProviderBase):
     """Tastytrade-ready skeleton with safe credential detection only."""
 
@@ -167,7 +223,11 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         self.secrets = secrets or {}
 
     def _detect_credential_values(self) -> dict[str, bool]:
-        """Detect whether external credential fields are present."""
+        """Detect whether external credential fields are present.
+
+        Returns only boolean flags — never logs credential values.
+        Credentials are read from environment variables or Streamlit secrets only.
+        """
 
         env_username = bool(self.environment.get("TASTYTRADE_USERNAME"))
         env_password = bool(self.environment.get("TASTYTRADE_PASSWORD"))
@@ -192,13 +252,17 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         return False
 
     def get_status(self) -> ProviderStatus:
-        """Return configuration-only status for the tastytrade bridge."""
+        """Return configuration-only status for the tastytrade bridge.
+
+        Credential detection is safe: only boolean flags are returned, never actual secret values.
+        """
 
         credentials_detected = self.is_configured()
         live_ready = self.is_live_ready()
 
         notes = [
-            "Credentials must come from environment variables or Streamlit secrets.",
+            "Credentials must come from environment variables or Streamlit secrets only.",
+            "Credential values are never logged; only presence flags are returned.",
             "Live login, live chain retrieval, and live quotes are not implemented yet in this bridge.",
         ]
         if not self.options_mode_enabled:
@@ -252,7 +316,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         }
 
     def find_candidate_contracts(self, request: OptionLookupRequest) -> list[dict[str, Any]]:
-        """Return a placeholder candidate list for UI preview purposes."""
+        """Return a ranked placeholder candidate list for UI preview purposes."""
 
         option_type = request.resolved_option_type()
         option_right = "C" if option_type == "CALL" else "P"
@@ -264,7 +328,8 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             provider=self.provider_name,
             note="Preview only. Live chain lookup is not implemented yet.",
         )
-        return [asdict(candidate)]
+        candidates = [asdict(candidate)]
+        return rank_candidate_contracts(candidates, int(request.strike))
 
 
 def load_options_provider(

@@ -67,7 +67,7 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     CORE_IMPORT_ERROR = f"Core import failed: {exc.__class__.__name__}: {exc}"
 
 try:
-    from options_provider import PROVIDER_NAMES, OptionLookupRequest, load_options_provider
+    from options_provider import PROVIDER_NAMES, OptionLookupRequest, load_options_provider, rank_candidate_contracts
     OPTIONS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     PROVIDER_NAMES = ["none"]
@@ -2377,9 +2377,25 @@ def render_options_provider_preview(
         st.json(option_request.to_dict(), expanded=False)
 
         preview_candidates = provider.find_candidate_contracts(option_request)
-        st.markdown("**Candidate Contract Preview**")
+        st.markdown("**Contract Selection**")
         if preview_candidates:
-            st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
+            # Show best candidate card
+            best = preview_candidates[0]  # Already ranked by find_candidate_contracts
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Best Contract", best.get("symbol", ""), delta=f"Score: {best.get('rank_score', 0)}")
+            with col2:
+                readiness = best.get("readiness", "")
+                st.write(f"**Readiness:** {readiness}")
+            with col3:
+                spread_info = f"Bid: {best.get('bid', '-')} | Ask: {best.get('ask', '-')}"
+                st.write(f"**Quote:** {spread_info}")
+
+            # Show ranked table
+            st.markdown("**Ranked Candidates**")
+            display_cols = ["symbol", "strike", "right", "rank_score", "bid", "ask", "volume", "open_interest", "readiness"]
+            display_data = [{col: candidate.get(col, "-") for col in display_cols} for candidate in preview_candidates]
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
         else:
             st.info("No candidate contracts are available because the provider bridge is not live yet.")
 
