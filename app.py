@@ -1256,7 +1256,7 @@ def render_tab1_hero(
     current_es_price: float | None,
     effective_offset: float,
 ) -> None:
-    """Render the premium Tab 1 hero header."""
+    """Render the compact Tab 1 hero header."""
 
     if signal_package is None:
         scenario_name = "Awaiting Valid SPX Input"
@@ -1264,7 +1264,6 @@ def render_tab1_hero(
         status_label = "Workflow Limited"
         status_class = "bad"
         status_icon = "!"
-        summary = "Enter a valid 9:00 AM SPX price to unlock the decision engine. Projected structure stays visible below."
     else:
         scenario = signal_package["scenario"]
         sit_out = signal_package["sit_out"]
@@ -1272,53 +1271,31 @@ def render_tab1_hero(
         confidence = scenario["confidence_level"]
         status_label = "Sit Out Active" if sit_out["sit_out"] else "Eligible To Trade"
         status_class = "bad" if sit_out["sit_out"] else "good"
-        status_icon = "!" if sit_out["sit_out"] else "●"
-        summary = scenario["description"]
+        status_icon = "●" if not sit_out["sit_out"] else "!"
 
-    scenario_tone = get_scenario_tone(scenario_name)
     confidence_tone = get_confidence_tone(confidence)
-    spx_display = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
-    es_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
+    current_display = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
 
     st.markdown(
         f"""
         <div class="spx-hero">
             <div class="spx-hero-top">
                 <div>
-                    <div class="spx-hero-kicker">SPX Prophet Operator Screen</div>
-                    <div class="spx-hero-title">{escape(APP_TITLE)}</div>
+                    <div class="spx-hero-kicker">Decision Screen</div>
+                    <div class="spx-hero-title">{escape(scenario_name)}</div>
                     <div class="spx-banner-meta">
-                        <span class="spx-pill scenario-{scenario_tone}">Scenario</span>
-                        <span class="spx-pill scenario-{scenario_tone}">{escape(scenario_name)}</span>
                         <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
                     </div>
-                    <div class="spx-hero-subtitle">{escape(summary)}</div>
                 </div>
                 <div class="spx-hero-status">
-                    <div class="spx-hero-status-label">Decision Status</div>
+                    <div class="spx-hero-status-label">Status</div>
                     <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(status_label)}</span></div>
                 </div>
             </div>
-            <div class="spx-hero-grid">
+            <div class="spx-hero-grid" style="grid-template-columns: minmax(0, 1fr);">
                 <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Current SPX</div>
-                    <div class="spx-hero-stat-value">{spx_display}</div>
-                    <div class="spx-hero-stat-note">Primary NY decision space</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Current ES</div>
-                    <div class="spx-hero-stat-value">{es_display}</div>
-                    <div class="spx-hero-stat-note">Live operator ladder space</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Effective Offset</div>
-                    <div class="spx-hero-stat-value">{format_price(effective_offset)}</div>
-                    <div class="spx-hero-stat-note">Used for ES/SPX translation</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Engine Mode</div>
-                    <div class="spx-hero-stat-value">SPX Logic</div>
-                    <div class="spx-hero-stat-note">Ladder shown in ES terms</div>
+                    <div class="spx-hero-stat-label">Current Price</div>
+                    <div class="spx-hero-stat-value">{current_display}</div>
                 </div>
             </div>
         </div>
@@ -3377,7 +3354,7 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
 
     card_class = "primary" if "Primary" in title else "alternate"
     icon = "▲" if title == "Primary Trade" else "◇"
-    subtitle = "Main trade expression from the active scenario." if "Primary" in title else "Reference fallback if the primary setup is not the one price respects."
+    subtitle = "Main trade" if "Primary" in title else "Alternate trade"
 
     if play is None:
         st.markdown(
@@ -3397,7 +3374,6 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
         )
         return
 
-    profit_plan = build_profit_management_plan(play["contracts"])
     st.markdown(
         f"""
         <div class="spx-card {card_class}">
@@ -3410,31 +3386,29 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
             </div>
             <div class="spx-banner-meta">
                 <span class="spx-pill scenario-neutral">{escape(play['direction'])}</span>
-                <span class="spx-pill">Strike {play['strike']}</span>
-                <span class="spx-pill">{play['contracts']} Contracts</span>
             </div>
             <div class="spx-card-grid">
                 <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Direction</div>
+                    <div class="spx-card-stat-value">{escape(play['direction'])}</div>
+                </div>
+                <div class="spx-card-stat">
                     <div class="spx-card-stat-label">Entry</div>
-                    <div class="spx-card-stat-value">{escape(play['entry']['label'])} @ {format_price(play['entry']['price'])}</div>
+                    <div class="spx-card-stat-value">{format_price(play['entry']['price'])}</div>
                 </div>
                 <div class="spx-card-stat">
                     <div class="spx-card-stat-label">Stop</div>
                     <div class="spx-card-stat-value">{escape(play['stop']['label'])} @ {format_price(play['stop']['price'])}</div>
                 </div>
                 <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Target 1</div>
-                    <div class="spx-card-stat-value">{escape(play['tp1']['label'])} @ {format_price(play['tp1']['price'])}</div>
+                    <div class="spx-card-stat-label">Strike</div>
+                    <div class="spx-card-stat-value">{play['strike']}</div>
                 </div>
                 <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Target 2</div>
-                    <div class="spx-card-stat-value">{escape(play['tp2']['label'])} @ {format_price(play['tp2']['price'])}</div>
+                    <div class="spx-card-stat-label">Contracts</div>
+                    <div class="spx-card-stat-value">{play['contracts']}</div>
                 </div>
             </div>
-            <div class="spx-card-copy"><strong>Target rule:</strong> Target 1 uses {escape(play['tp1']['label'])}. Target 2 uses {escape(play['tp2']['label'])}.</div>
-            <div class="spx-spacer-sm"></div>
-            <div class="spx-card-copy"><strong>Profit management:</strong> TP1 close {profit_plan['tp1_action']['contracts_to_close']}, TP2 close {profit_plan['tp2_action']['contracts_to_close']}, stop closes all, time stop {profit_plan['time_stop']}.</div>
-            {f'<div class="spx-spacer-sm"></div><div class="spx-play-note">{escape(play["note"])}</div>' if play.get("note") else ""}
         </div>
         """,
         unsafe_allow_html=True,
@@ -4654,8 +4628,6 @@ def main() -> None:
         )
         if signal_package is None:
             st.warning("Current SPX price is required for the Tab 1 decision workflow. Projected lines and debug data are still available below.")
-        else:
-            render_trade_decision_summary(signal_package)
         action_col1, action_col2 = st.columns(2)
         with action_col1:
             primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
@@ -4691,45 +4663,42 @@ def main() -> None:
                 trade_date=inputs["next_trading_date"],
                 scenario_name=signal_package["scenario"]["scenario_name"],
             )
-        decision_col1, decision_col2, decision_col3 = st.columns([1.15, 1.15, 0.95], gap="large")
+        decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
                 render_play_card("Primary Trade", signal_package["scenario"]["primary_play"])
             with decision_col2:
                 render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"])
-            with decision_col3:
-                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
-        else:
-            with decision_col3:
-                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
 
         render_spatial_ladder(
             final_projected_lines_es,
             inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
             price_space_label="ES",
         )
+
         if signal_package is not None:
-            render_scenario_section(signal_package["scenario"])
-            render_sit_out_section(signal_package["sit_out"])
-            secondary_col1, secondary_col2 = st.columns([1.1, 1.2], gap="large")
-            with secondary_col1:
+            with st.expander("Confirmation", expanded=False):
                 render_confirmation_card(confirmation, signal_package["scenario"]["primary_play"])
-            with secondary_col2:
+            with st.expander("Structure", expanded=False):
+                render_scenario_section(signal_package["scenario"])
+                render_sit_out_section(signal_package["sit_out"])
+                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
         else:
-            st.info("Enter a valid current SPX price to unlock scenario, play, sit-out, and confirmation sections.")
-            render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
-        with st.expander("Options Data Preview", expanded=False):
+            with st.expander("Structure", expanded=False):
+                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
+                render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+        with st.expander("Diagnostics", expanded=False):
             render_options_provider_preview(options_provider, options_provider_status, option_lookup_request)
-        render_debug_section(
-            anchor_bundle=anchor_bundle,
-            final_projected_lines=final_projected_lines,
-            original_projected_lines=projected_spx_9,
-            override_result=override_result,
-            overnight_high=overnight_high,
-            overnight_low=overnight_low,
-            fetch_diagnostics=fetch_diagnostics,
-        )
+            render_debug_section(
+                anchor_bundle=anchor_bundle,
+                final_projected_lines=final_projected_lines,
+                original_projected_lines=projected_spx_9,
+                override_result=override_result,
+                overnight_high=overnight_high,
+                overnight_low=overnight_low,
+                fetch_diagnostics=fetch_diagnostics,
+            )
 
     with tab_asian:
         st.markdown(
