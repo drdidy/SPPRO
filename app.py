@@ -2404,12 +2404,39 @@ def validate_trade_form_payload(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_live_es_price() -> tuple[float | None, str]:
+    """Fetch a current ES price for the sidebar input default."""
+
+    try:
+        import yfinance as yf
+
+        ticker = yf.Ticker("ES=F")
+        fast_info = getattr(ticker, "fast_info", {}) or {}
+        last_price = fast_info.get("lastPrice") or fast_info.get("regularMarketPrice")
+        if last_price:
+            return round_price(float(last_price)), "fast_info"
+
+        intraday = ticker.history(period="1d", interval="1m", prepost=True)
+        if not intraday.empty:
+            if "Close" in intraday.columns:
+                return round_price(float(intraday["Close"].dropna().iloc[-1])), "1m_history"
+            if "close" in intraday.columns:
+                return round_price(float(intraday["close"].dropna().iloc[-1])), "1m_history"
+    except Exception as exc:
+        return None, f"unavailable: {exc.__class__.__name__}"
+
+    return None, "unavailable"
+
+
 def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     """Collect sidebar inputs for Tab 1."""
 
     now_ct = current_central_time()
     default_prior = previous_business_day(now_ct.date())
     default_next = default_next_trading_day(now_ct.date())
+    live_es_price, live_es_source = fetch_live_es_price()
+    default_es_price = float(live_es_price if live_es_price is not None else 5320.00)
 
     with st.sidebar:
         st.header(f"{APP_TITLE} {APP_VERSION}")
@@ -2420,7 +2447,11 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
 
         st.subheader("Session Inputs")
         current_spx_price = st.number_input("9:00 AM SPX price", value=5300.00, step=0.25, format="%.2f")
-        current_es_price = st.number_input("Current ES price", value=5320.00, step=0.25, format="%.2f")
+        current_es_price = st.number_input("Current ES price", value=default_es_price, step=0.25, format="%.2f")
+        if live_es_price is not None:
+            st.caption(f"Auto-filled from live ES ({live_es_source}): {format_price(live_es_price)}")
+        else:
+            st.caption("Live ES fetch unavailable. Using manual fallback default.")
         open_reference = st.number_input("9:00 AM open reference", value=current_spx_price, step=0.25, format="%.2f")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=float(settings.get("es_spx_offset", DEFAULT_SETTINGS["es_spx_offset"])), step=0.25, format="%.2f")
