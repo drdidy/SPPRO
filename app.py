@@ -5330,6 +5330,150 @@ def build_backtest_metrics(filtered_rows: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def compute_backtest_expectancy(pnl_series: pd.Series) -> float:
+    """Compute expectancy from a points P&L series."""
+
+    clean = pd.to_numeric(pnl_series, errors="coerce").dropna()
+    if clean.empty:
+        return 0.0
+    wins = clean.loc[clean > 0]
+    losses = clean.loc[clean < 0]
+    count = len(clean)
+    win_rate = len(wins) / count if count else 0.0
+    loss_rate = len(losses) / count if count else 0.0
+    average_win = float(wins.mean()) if not wins.empty else 0.0
+    average_loss = abs(float(losses.mean())) if not losses.empty else 0.0
+    return round_price((win_rate * average_win) - (loss_rate * average_loss))
+
+
+def build_group_backtest_summary(rows: pd.DataFrame, group_column: str) -> pd.DataFrame:
+    """Summarize grouped backtest trade performance."""
+
+    trades = rows.loc[rows["trade_taken"]].copy()
+    if trades.empty or group_column not in trades.columns:
+        return pd.DataFrame()
+    grouped = trades.groupby(group_column, dropna=False)
+    summary = grouped["estimated_pnl"].agg(["count", "sum", "mean"]).reset_index()
+    summary = summary.rename(
+        columns={
+            group_column: group_column,
+            "count": "trade_count",
+            "sum": "total_pnl",
+            "mean": "average_pnl",
+        }
+    )
+    summary["win_rate"] = grouped["estimated_pnl"].apply(lambda s: round_price(s.gt(0).mean() * 100.0)).values
+    summary["expectancy"] = grouped["estimated_pnl"].apply(compute_backtest_expectancy).values
+    return summary
+
+
+def select_card_winner(summary: pd.DataFrame, label_column: str, metric_column: str, highest: bool = True) -> str:
+    """Return a compact label for the best or worst grouped metric."""
+
+    if summary.empty or metric_column not in summary.columns:
+        return "N/A"
+    ranked = summary.loc[summary["trade_count"] > 0].copy()
+    if ranked.empty:
+        return "N/A"
+    ranked = ranked.sort_values(by=[metric_column, "trade_count"], ascending=[not highest, False])
+    best = ranked.iloc[0]
+    return f"{best[label_column]} ({format_price(float(best[metric_column])) if metric_column != 'win_rate' else f'{float(best[metric_column]):.1f}%'} | n={int(best['trade_count'])})"
+
+
+def build_play_path_summary(rows: pd.DataFrame, prefix: str) -> dict[str, float]:
+    """Summarize either the primary or alternate path."""
+
+    trigger_col = f"{prefix}_entry_triggered"
+    pnl_col = f"{prefix}_estimated_pnl"
+    if rows.empty or trigger_col not in rows.columns or pnl_col not in rows.columns:
+        return {"triggered": 0, "win_rate": 0.0, "total_pnl": 0.0}
+    triggered_rows = rows.loc[rows[trigger_col]].copy()
+    if triggered_rows.empty:
+        return {"triggered": 0, "win_rate": 0.0, "total_pnl": 0.0}
+    return {
+        "triggered": int(len(triggered_rows)),
+        "win_rate": round_price(triggered_rows[pnl_col].gt(0).mean() * 100.0),
+        "total_pnl": round_price(float(triggered_rows[pnl_col].sum())),
+    }
+
+
+def classify_first_outcome(review: dict[str, Any]) -> str:
+    """Reduce a play review into a first-outcome bucket."""
+
+    if not review.get("entry_triggered"):
+        return "No Trade"
+    if review.get("result_classification") == "Ambiguous Same-Bar Outcome":
+        return "Ambiguous Same-Bar"
+    stop_time = review.get("stop_time")
+    tp1_time = review.get("tp1_time")
+    tp2_time = review.get("tp2_time")
+    events: list[tuple[str, Any]] = []
+    if stop_time is not None:
+        events.append(("Stop Hit First", stop_time))
+    if tp1_time is not None:
+        events.append(("TP1 Hit First", tp1_time))
+    if tp2_time is not None:
+        events.append(("TP2 Hit First", tp2_time))
+    if not events:
+        return "No Exit"
+    events.sort(key=lambda item: item[1])
+    return events[0][0]
+
+
+def build_time_based_backtest_summary(rows: pd.DataFrame, frequency: str) -> pd.DataFrame:
+    """Summarize backtest performance by week or month."""
+
+    if rows.empty:
+        return pd.DataFrame()
+    summary_rows: list[dict[str, Any]] = []
+    working = rows.copy()
+    working["next_trading_date"] = pd.to_datetime(working["next_trading_date"], errors="coerce")
+    working = working.dropna(subset=["next_trading_date"])
+    if working.empty:
+        return pd.DataFrame()
+    if frequency == "weekly":
+        working["period_label"] = working["next_trading_date"].dt.to_period("W-FRI").astype(str)
+    else:
+        working["period_label"] = working["next_trading_date"].dt.to_period("M").astype(str)
+    for period_label, period_rows in working.groupby("period_label"):
+        metrics = build_backtest_metrics(period_rows)
+        summary_rows.append(
+            {
+                "period": period_label,
+                "setups": int(len(period_rows)),
+                "trades": int(metrics["trade_count"]),
+                "win_rate": metrics["win_rate"],
+                "total_pnl": metrics["total_pnl"],
+                "expectancy": metrics["expectancy"],
+            }
+        )
+    return pd.DataFrame(summary_rows)
+
+
+def build_sitout_effectiveness_summary(rows: pd.DataFrame) -> dict[str, float]:
+    """Summarize sit-out behavior within the backtest set."""
+
+    sitout_rows = rows.loc[rows["sit_out"] == "Sit Out"].copy()
+    if sitout_rows.empty:
+        return {
+            "setups": 0,
+            "traded": 0,
+            "win_rate": 0.0,
+            "total_pnl": 0.0,
+            "protective": 0,
+            "costly": 0,
+        }
+    traded_rows = sitout_rows.loc[sitout_rows["trade_taken"]].copy()
+    return {
+        "setups": int(len(sitout_rows)),
+        "traded": int(len(traded_rows)),
+        "win_rate": round_price(traded_rows["estimated_pnl"].gt(0).mean() * 100.0) if not traded_rows.empty else 0.0,
+        "total_pnl": round_price(float(traded_rows["estimated_pnl"].sum())) if not traded_rows.empty else 0.0,
+        "protective": int((traded_rows["estimated_pnl"] < 0).sum()) if not traded_rows.empty else 0,
+        "costly": int((traded_rows["estimated_pnl"] > 0).sum()) if not traded_rows.empty else 0,
+    }
+
+
 def render_review_card(title: str, review: dict[str, Any]) -> None:
     """Render a compact historical review card."""
 
@@ -5554,12 +5698,26 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
                     "sit_out": "Sit Out" if signal_package["sit_out"]["sit_out"] else "Trade Eligible",
                     "primary_entry_triggered": bool(primary_review["entry_triggered"]),
                     "alternate_entry_triggered": bool(alternate_review["entry_triggered"]),
+                    "primary_stop_hit": bool(primary_review["stop_hit"]),
+                    "primary_tp1_hit": bool(primary_review["tp1_hit"]),
+                    "primary_tp2_hit": bool(primary_review["tp2_hit"]),
+                    "primary_result_classification": primary_review["result_classification"],
+                    "primary_estimated_pnl": float(primary_review["estimated_pnl"]),
+                    "primary_event_order": primary_review["event_order"],
+                    "alternate_stop_hit": bool(alternate_review["stop_hit"]),
+                    "alternate_tp1_hit": bool(alternate_review["tp1_hit"]),
+                    "alternate_tp2_hit": bool(alternate_review["tp2_hit"]),
+                    "alternate_result_classification": alternate_review["result_classification"],
+                    "alternate_estimated_pnl": float(alternate_review["estimated_pnl"]),
+                    "alternate_event_order": alternate_review["event_order"],
                     "stop_hit": bool(chosen_result["stop_hit"]) if trade_taken else False,
                     "tp1_hit": bool(chosen_result["tp1_hit"]) if trade_taken else False,
                     "tp2_hit": bool(chosen_result["tp2_hit"]) if trade_taken else False,
                     "result_classification": chosen_result["result_classification"] if trade_taken else "No Trade",
                     "estimated_pnl": float(chosen_result["estimated_pnl"]) if trade_taken else 0.0,
                     "trade_taken": trade_taken,
+                    "chosen_path": "Primary" if primary_review["entry_triggered"] else ("Alternate" if alternate_review["entry_triggered"] else "None"),
+                    "first_outcome": classify_first_outcome(chosen_result) if trade_taken else "No Trade",
                     "event_order": chosen_result["event_order"] if trade_taken else "No trade",
                 }
             )
@@ -5591,6 +5749,58 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
     st.metric("Expectancy", format_price(metrics["expectancy"]))
 
     trade_rows = filtered_df.loc[filtered_df["trade_taken"]].copy()
+    scenario_summary = build_group_backtest_summary(filtered_df, "scenario")
+    confirmation_summary = build_group_backtest_summary(filtered_df, "confirmation")
+    sitout_summary = build_group_backtest_summary(filtered_df, "sit_out")
+    primary_summary = build_play_path_summary(filtered_df, "primary")
+    alternate_summary = build_play_path_summary(filtered_df, "alternate")
+    outcome_counts = filtered_df["first_outcome"].value_counts()
+    weekly_summary = build_time_based_backtest_summary(filtered_df, "weekly")
+    monthly_summary = build_time_based_backtest_summary(filtered_df, "monthly")
+    sitout_effectiveness = build_sitout_effectiveness_summary(filtered_df)
+
+    st.markdown("**Backtest Intelligence**")
+    intel1, intel2, intel3 = st.columns(3)
+    intel4, intel5, intel6 = st.columns(3)
+    with intel1:
+        st.metric("Best Scenario Win Rate", select_card_winner(scenario_summary, "scenario", "win_rate", highest=True))
+    with intel2:
+        st.metric("Best Scenario Expectancy", select_card_winner(scenario_summary, "scenario", "expectancy", highest=True))
+    with intel3:
+        st.metric("Worst Scenario Expectancy", select_card_winner(scenario_summary, "scenario", "expectancy", highest=False))
+    with intel4:
+        st.metric("Best Confirmation", select_card_winner(confirmation_summary, "confirmation", "expectancy", highest=True))
+    with intel5:
+        st.metric("Best Sit-Out Outcome", select_card_winner(sitout_summary, "sit_out", "expectancy", highest=True))
+    with intel6:
+        st.metric("Ambiguous Outcomes", int((filtered_df["result_classification"] == "Ambiguous Same-Bar Outcome").sum()))
+
+    st.markdown("**Primary vs Alternate**")
+    play_col1, play_col2, play_col3 = st.columns(3)
+    play_col4, play_col5, play_col6 = st.columns(3)
+    play_col1.metric("Primary Triggered", primary_summary["triggered"])
+    play_col2.metric("Primary Win Rate", f"{primary_summary['win_rate']:.1f}%")
+    play_col3.metric("Primary Total P&L", format_price(primary_summary["total_pnl"]))
+    play_col4.metric("Alternate Triggered", alternate_summary["triggered"])
+    play_col5.metric("Alternate Win Rate", f"{alternate_summary['win_rate']:.1f}%")
+    play_col6.metric("Alternate Total P&L", format_price(alternate_summary["total_pnl"]))
+
+    st.markdown("**Outcome Order**")
+    order_col1, order_col2, order_col3, order_col4 = st.columns(4)
+    order_col1.metric("Stop Hit First", int(outcome_counts.get("Stop Hit First", 0)))
+    order_col2.metric("TP1 Hit First", int(outcome_counts.get("TP1 Hit First", 0)))
+    order_col3.metric("TP2 Hit First", int(outcome_counts.get("TP2 Hit First", 0)))
+    order_col4.metric("Ambiguous Same-Bar", int(outcome_counts.get("Ambiguous Same-Bar", 0)))
+
+    st.markdown("**Sit-Out Effectiveness**")
+    sit1, sit2, sit3, sit4, sit5 = st.columns(5)
+    sit1.metric("Sit-Out Setups", sitout_effectiveness["setups"])
+    sit2.metric("Sit-Out Traded", sitout_effectiveness["traded"])
+    sit3.metric("Sit-Out Win Rate", f"{sitout_effectiveness['win_rate']:.1f}%")
+    sit4.metric("Protective", sitout_effectiveness["protective"])
+    sit5.metric("Costly", sitout_effectiveness["costly"])
+    st.caption(f"Performance if traded: {format_price(sitout_effectiveness['total_pnl'])}")
+
     with st.expander("Backtest Table", expanded=True):
         if filtered_df.empty:
             st.info("No sessions matched the selected filters.")
@@ -5607,6 +5817,7 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
                     "stop_hit",
                     "tp1_hit",
                     "tp2_hit",
+                    "first_outcome",
                     "result_classification",
                     "estimated_pnl",
                     "event_order",
@@ -5618,37 +5829,31 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
-            scenario_summary = trade_rows.groupby("scenario").agg(
-                trade_count=("scenario", "count"),
-                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
-                total_pnl=("estimated_pnl", "sum"),
-                average_pnl=("estimated_pnl", "mean"),
-            ).reset_index()
             st.dataframe(scenario_summary, use_container_width=True, hide_index=True)
 
     with st.expander("Performance by Confirmation", expanded=False):
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
-            confirmation_summary = trade_rows.groupby("confirmation").agg(
-                trade_count=("confirmation", "count"),
-                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
-                total_pnl=("estimated_pnl", "sum"),
-                average_pnl=("estimated_pnl", "mean"),
-            ).reset_index()
             st.dataframe(confirmation_summary, use_container_width=True, hide_index=True)
 
     with st.expander("Performance by Sit-Out", expanded=False):
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
-            sitout_summary = trade_rows.groupby("sit_out").agg(
-                trade_count=("sit_out", "count"),
-                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
-                total_pnl=("estimated_pnl", "sum"),
-                average_pnl=("estimated_pnl", "mean"),
-            ).reset_index()
             st.dataframe(sitout_summary, use_container_width=True, hide_index=True)
+
+    with st.expander("Weekly Summary", expanded=False):
+        if weekly_summary.empty:
+            st.info("No weekly rows are available for the selected set.")
+        else:
+            st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
+
+    with st.expander("Monthly Summary", expanded=False):
+        if monthly_summary.empty:
+            st.info("No monthly rows are available for the selected set.")
+        else:
+            st.dataframe(monthly_summary, use_container_width=True, hide_index=True)
 
 
 def render_historical_projection_mode(
