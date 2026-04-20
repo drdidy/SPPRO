@@ -2985,9 +2985,9 @@ def fetch_live_es_price() -> tuple[float | None, str]:
             if "close" in hourly.columns:
                 return round_price(float(hourly["close"].dropna().iloc[-1])), "60m_history"
     except Exception as exc:
-        return None, f"unavailable: {exc.__class__.__name__}"
+        return None, f"unavailable: {exc.__class__.__name__}: {exc}"
 
-    return None, "unavailable"
+    return None, "unavailable: yfinance returned no usable ES quote"
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -3017,9 +3017,9 @@ def fetch_live_spx_price() -> tuple[float | None, str]:
             if "close" in recent.columns:
                 return round_price(float(recent["close"].dropna().iloc[-1])), "1d_history"
     except Exception as exc:
-        return None, f"unavailable: {exc.__class__.__name__}"
+        return None, f"unavailable: {exc.__class__.__name__}: {exc}"
 
-    return None, "unavailable"
+    return None, "unavailable: yfinance returned no usable SPX quote"
 
 
 def resolve_live_input_defaults(
@@ -3049,6 +3049,8 @@ def resolve_live_input_defaults(
         "default_open_reference": open_reference,
         "es_source": live_es_source if es_available else "manual_required_no_live_es_quote",
         "spx_source": live_spx_source if spx_available else "manual_required_no_live_spx_quote",
+        "es_fetch_status": live_es_source,
+        "spx_fetch_status": live_spx_source,
         "es_available": es_available,
         "spx_available": spx_available,
         "configured_offset": round_price(configured_offset),
@@ -3076,8 +3078,39 @@ def describe_current_spx_source(
     return "manual entry"
 
 
+def describe_current_es_source(
+    current_es_price: float,
+    default_es_price: float,
+    live_es_available: bool,
+) -> str:
+    """Describe the active ES input source for the operator."""
+
+    if not is_valid_price_input(current_es_price):
+        return "unavailable"
+    if live_es_available and abs(float(current_es_price) - float(default_es_price)) < 0.005:
+        return "live ES quote"
+    return "manual entry"
+
+
+def classify_quote_failure(es_status: str, spx_status: str) -> str:
+    """Classify live quote failure cause at the app layer."""
+
+    statuses = f"{es_status} | {spx_status}".lower()
+    if "unavailable" not in statuses:
+        return "live quotes available"
+    if "yfinance returned no usable" in statuses:
+        return "provider failure"
+    if any(token in statuses for token in ["timeout", "connection", "429", "forbidden", "unauthorized", "ssl", "proxy"]):
+        return "deployment environment issue"
+    return "provider failure or deployment environment issue"
+
+
 def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     """Collect sidebar inputs for Tab 1."""
+
+    if st.session_state.pop("refresh_live_quotes", False):
+        fetch_live_es_price.clear()
+        fetch_live_spx_price.clear()
 
     now_ct = current_central_time()
     default_prior = previous_business_day(now_ct.date())
@@ -3098,6 +3131,9 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
 
     with st.sidebar:
         st.header(APP_TITLE)
+        if st.button("Refresh Live Quotes", use_container_width=True):
+            st.session_state["refresh_live_quotes"] = True
+            st.rerun()
         prior_session_date = st.date_input("Prior NY session date", value=default_prior)
         next_trading_date = st.date_input("Next trading date", value=default_next)
         data_mode_options = ["Auto-fetch", "Manual input"]
@@ -3118,7 +3154,40 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             default_spx_price=default_spx_price,
             live_spx_available=live_defaults["spx_available"],
         )
+        current_es_source_label = describe_current_es_source(
+            current_es_price=current_es_price,
+            default_es_price=default_es_price,
+            live_es_available=live_defaults["es_available"],
+        )
         st.caption(f"Current SPX source: {current_spx_source_label}")
+        st.caption(f"Current ES source: {current_es_source_label}")
+        st.caption(f"9:00 AM open reference source: {'live SPX quote' if live_defaults['spx_available'] and abs(float(open_reference) - float(default_open_reference)) < 0.005 else 'manual entry'}")
+        with st.expander("Live Quote Status", expanded=False):
+            st.write("Current SPX fetch")
+            st.code(
+                "\n".join(
+                    [
+                        "function: fetch_live_spx_price()",
+                        "provider: yfinance",
+                        "symbol: ^GSPC",
+                        f"status: {'success' if live_defaults['spx_available'] else 'failed'}",
+                        f"source: {live_defaults['spx_fetch_status']}",
+                    ]
+                )
+            )
+            st.write("Current ES fetch")
+            st.code(
+                "\n".join(
+                    [
+                        "function: fetch_live_es_price()",
+                        "provider: yfinance",
+                        "symbol: ES=F",
+                        f"status: {'success' if live_defaults['es_available'] else 'failed'}",
+                        f"source: {live_defaults['es_fetch_status']}",
+                    ]
+                )
+            )
+            st.write(f"Failure classification: {classify_quote_failure(live_defaults['es_fetch_status'], live_defaults['spx_fetch_status'])}")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
@@ -3158,9 +3227,13 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "current_spx_source": live_defaults["spx_source"],
         "current_es_source": live_defaults["es_source"],
         "current_spx_source_label": current_spx_source_label,
+        "current_es_source_label": current_es_source_label,
         "live_es_available": live_defaults["es_available"],
         "live_spx_available": live_defaults["spx_available"],
         "derived_live_offset": live_defaults["derived_live_offset"],
+        "es_fetch_status": live_defaults["es_fetch_status"],
+        "spx_fetch_status": live_defaults["spx_fetch_status"],
+        "quote_failure_classification": classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"]),
         "news_day": news_day,
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
