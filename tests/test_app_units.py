@@ -1,0 +1,81 @@
+"""App-layer unit consistency tests for SPX Prophet Tab 1."""
+
+from __future__ import annotations
+
+import unittest
+
+from app import build_line_rows, get_structure_assertion_warnings, resolve_play_display_values
+
+
+class AppUnitTests(unittest.TestCase):
+    """Validate ES structure display and one-time SPX conversion behavior."""
+
+    def setUp(self) -> None:
+        self.original_lines_es = {
+            "hw": {"label": "HW", "projected_price": 7207.59, "raw_anchor_price": 7185.75, "anchor_price": 7185.75, "candle_count": 21, "direction": "ascending", "line_type": "session_extreme"},
+            "asc_ceiling": {"label": "ASC Ceiling", "projected_price": 7206.55, "raw_anchor_price": 7185.75, "anchor_price": 7185.75, "candle_count": 20, "direction": "ascending", "line_type": "channel"},
+            "asc_floor": {"label": "ASC Floor", "projected_price": 7170.76, "raw_anchor_price": 7151.00, "anchor_price": 7151.00, "candle_count": 19, "direction": "ascending", "line_type": "channel"},
+            "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7164.95, "raw_anchor_price": 7185.75, "anchor_price": 7185.75, "candle_count": 20, "direction": "descending", "line_type": "channel"},
+            "desc_floor": {"label": "DESC Floor", "projected_price": 7131.24, "raw_anchor_price": 7151.00, "anchor_price": 7151.00, "candle_count": 19, "direction": "descending", "line_type": "channel"},
+            "lw": {"label": "LW", "projected_price": 7117.58, "raw_anchor_price": 7141.50, "anchor_price": 7141.50, "candle_count": 23, "direction": "descending", "line_type": "session_extreme"},
+        }
+        self.override_decisions = {}
+
+    def test_build_line_rows_uses_es_unit_labels(self) -> None:
+        rows = build_line_rows(
+            self.original_lines_es,
+            self.original_lines_es,
+            self.override_decisions,
+            "ES",
+        )
+
+        first_row = rows[0]
+        self.assertIn("Projected Level (ES)", first_row)
+        self.assertIn("Raw Anchor (ES)", first_row)
+        self.assertNotIn("Projected Level (SPX)", first_row)
+        self.assertEqual(first_row["Projected Level (ES)"], "7,207.59")
+
+    def test_structure_assertions_pass_for_valid_es_structure(self) -> None:
+        warnings = get_structure_assertion_warnings(
+            self.original_lines_es,
+            self.original_lines_es,
+            "ES",
+        )
+        self.assertEqual(warnings, [])
+
+    def test_structure_assertions_flag_ac_above_hw_and_non_es_display(self) -> None:
+        invalid_lines = {name: dict(details) for name, details in self.original_lines_es.items()}
+        invalid_lines["asc_ceiling"]["projected_price"] = 7210.00
+        displayed_lines = {name: dict(details) for name, details in invalid_lines.items()}
+        displayed_lines["lw"]["projected_price"] = 7097.58
+
+        warnings = get_structure_assertion_warnings(
+            invalid_lines,
+            displayed_lines,
+            "SPX",
+        )
+
+        self.assertTrue(any("ASC Ceiling" in warning for warning in warnings))
+        self.assertTrue(any("LW display mismatch" in warning for warning in warnings))
+        self.assertTrue(any("single source of truth" in warning for warning in warnings))
+
+    def test_trade_entry_display_uses_spx_line_once(self) -> None:
+        projected_lines_spx = {
+            "lw": {"label": "LW", "projected_price": 7097.58},
+        }
+        play = {
+            "direction": "CALL",
+            "strike": 7120,
+            "contracts": 2,
+            "entry": {"label": "lw", "price": 0.0},
+            "stop": {"label": "lw", "price": 0.0},
+        }
+
+        resolved = resolve_play_display_values(play, projected_lines_spx)
+
+        self.assertEqual(resolved["entry"]["price"], 7097.58)
+        self.assertEqual(resolved["stop"]["price"], 7097.58)
+
+
+if __name__ == "__main__":
+    unittest.main()

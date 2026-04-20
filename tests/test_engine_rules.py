@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 
 from core.pivots import build_six_line_anchors, resolve_anchor_prices, select_pivot_context
-from core.projections import apply_overnight_pivot_overrides, convert_projected_lines, project_anchor_line
+from core.projections import apply_overnight_pivot_overrides, convert_projected_lines, project_anchor_line, project_six_lines
 from core.scenarios import (
     build_profit_management_plan,
     calculate_option_strike,
@@ -193,6 +193,8 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(result["anchors"]["desc_ceiling"]["price"], 110.0)
         self.assertEqual(result["anchors"]["asc_floor"]["price"], 94.0)
         self.assertEqual(result["anchors"]["desc_floor"]["price"], 94.0)
+        self.assertEqual(result["source_points"]["pivot_high"]["price"], 110.0)
+        self.assertEqual(result["source_points"]["pivot_low"]["price"], 94.0)
 
     def test_hw_projects_upward_across_friday_to_monday(self) -> None:
         target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
@@ -231,7 +233,7 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
         self.assertLess(line["projected_price"], line["raw_anchor_price"])
 
-    def test_session_extremes_use_830_am_to_300_pm_window(self) -> None:
+    def test_session_wick_extremes_use_830_am_to_400_pm_window(self) -> None:
         candles = pd.DataFrame(
             [
                 {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
@@ -248,11 +250,13 @@ class EngineRuleTests(unittest.TestCase):
 
         result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
 
-        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ))
-        self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ))
-        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "106.00")
-        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "98.00")
-        self.assertEqual(result["ny_session_rows"], 8)
+        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "107.00")
+        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "90.00")
+        self.assertEqual(result["ny_session_rows"], 9)
+        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 107.00)
+        self.assertEqual(result["source_points"]["pivot_lowest_wick"]["price"], 90.00)
 
     def test_hw_and_lw_projection_metadata_from_session_extremes(self) -> None:
         target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
@@ -285,6 +289,66 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(lw_line["direction"], "descending")
         self.assertGreater(hw_line["projected_price"], hw_line["raw_anchor_price"])
         self.assertLess(lw_line["projected_price"], lw_line["raw_anchor_price"])
+
+    def test_projected_hw_stays_at_or_above_projected_ac(self) -> None:
+        target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
+        projected = project_six_lines(
+            {
+                "hw": {
+                    "price": 7185.75,
+                    "timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "ascending",
+                    "label": "HW",
+                    "line_type": "session_extreme",
+                },
+                "asc_ceiling": {
+                    "price": 7185.75,
+                    "timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "ascending",
+                    "label": "ASC Ceiling",
+                    "line_type": "channel",
+                },
+                "asc_floor": {
+                    "price": 7151.00,
+                    "timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "ascending",
+                    "label": "ASC Floor",
+                    "line_type": "channel",
+                },
+                "desc_ceiling": {
+                    "price": 7185.75,
+                    "timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "descending",
+                    "label": "DESC Ceiling",
+                    "line_type": "channel",
+                },
+                "desc_floor": {
+                    "price": 7151.00,
+                    "timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "descending",
+                    "label": "DESC Floor",
+                    "line_type": "channel",
+                },
+                "lw": {
+                    "price": 7141.50,
+                    "timestamp": datetime(2020, 4, 10, 9, 0, tzinfo=CENTRAL_TZ),
+                    "projection_start_time": datetime(2020, 4, 10, 9, 0, tzinfo=CENTRAL_TZ),
+                    "direction": "descending",
+                    "label": "LW",
+                    "line_type": "session_extreme",
+                },
+            },
+            target,
+        )
+
+        self.assertGreaterEqual(projected["hw"]["projected_price"], projected["asc_ceiling"]["projected_price"])
+        self.assertLessEqual(projected["lw"]["projected_price"], projected["asc_floor"]["projected_price"])
+        self.assertLessEqual(projected["lw"]["projected_price"], projected["desc_floor"]["projected_price"])
 
     def test_converted_lines_preserve_raw_anchor_fields(self) -> None:
         converted = convert_projected_lines(

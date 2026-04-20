@@ -3490,6 +3490,50 @@ def build_line_rows(
     return rows
 
 
+def get_structure_assertion_warnings(
+    final_projected_lines_es: dict[str, dict[str, Any]],
+    displayed_lines: dict[str, dict[str, Any]],
+    displayed_unit_label: str,
+) -> list[str]:
+    """Return app-layer structural warnings for the visible ES display path."""
+
+    warnings: list[str] = []
+
+    hw_value = float(final_projected_lines_es["hw"]["projected_price"])
+    ac_value = float(final_projected_lines_es["asc_ceiling"]["projected_price"])
+    lw_value = float(final_projected_lines_es["lw"]["projected_price"])
+    af_value = float(final_projected_lines_es["asc_floor"]["projected_price"])
+    df_value = float(final_projected_lines_es["desc_floor"]["projected_price"])
+
+    if ac_value > hw_value:
+        warnings.append(
+            f"Structural violation: ASC Ceiling ({format_price(ac_value)} ES) is above HW ({format_price(hw_value)} ES)."
+        )
+
+    if lw_value > af_value:
+        warnings.append(
+            f"Structural violation: LW ({format_price(lw_value)} ES) is above ASC Floor ({format_price(af_value)} ES)."
+        )
+
+    if lw_value > df_value:
+        warnings.append(
+            f"Structural violation: LW ({format_price(lw_value)} ES) is above DESC Floor ({format_price(df_value)} ES)."
+        )
+
+    displayed_lw = float(displayed_lines["lw"]["projected_price"])
+    if abs(displayed_lw - lw_value) > 1e-9:
+        warnings.append(
+            f"LW display mismatch: projected LW is {format_price(lw_value)} ES but visible LW is {format_price(displayed_lw)} {displayed_unit_label}."
+        )
+
+    if displayed_unit_label.strip().upper() != "ES":
+        warnings.append(
+            f"Structure display unit mismatch: visible structural displays are labeled {displayed_unit_label}, but ES must be the single source of truth."
+        )
+
+    return warnings
+
+
 def render_six_lines_panel(
     original_lines: dict[str, dict[str, Any]],
     final_lines: dict[str, dict[str, Any]],
@@ -3558,7 +3602,7 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
             <div class="spx-banner-meta">
                 <span class="spx-pill scenario-{scenario_tone}">Scenario Live</span>
                 <span class="spx-pill conf-{confidence_tone}">Confidence {scenario['confidence_level']}</span>
-                <span class="spx-pill scenario-neutral">Price {format_price(scenario['current_price'])}</span>
+                <span class="spx-pill scenario-neutral">Price {format_price(scenario['current_price'])} SPX</span>
             </div>
             <div class="spx-banner-text">{scenario['description']}</div>
         </div>
@@ -3671,7 +3715,11 @@ def render_projection_verification(
         return None
 
     verification_rows: list[dict[str, Any]] = []
-    warnings: list[str] = []
+    warnings: list[str] = get_structure_assertion_warnings(
+        final_projected_lines_es,
+        displayed_lines,
+        displayed_unit_label,
+    )
 
     for name in LINE_DISPLAY_ORDER:
         displayed_details = displayed_lines[name]
