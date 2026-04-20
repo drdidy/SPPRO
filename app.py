@@ -1338,6 +1338,52 @@ def render_key_levels_card(
     )
 
 
+def resolve_line_from_projected_bundle(
+    projected_lines: dict[str, dict[str, Any]],
+    line_label: str | None,
+) -> dict[str, Any] | None:
+    """Resolve a scenario line label against the final projected bundle."""
+
+    if not line_label:
+        return None
+
+    normalized = str(line_label).strip().lower()
+    if normalized in projected_lines:
+        return projected_lines[normalized]
+
+    for line_name, details in projected_lines.items():
+        label = str(details.get("label", "")).strip().lower()
+        if normalized == label:
+            return details
+        if normalized == line_name.replace("_", " "):
+            return details
+
+    return None
+
+
+def resolve_play_display_values(
+    play: dict[str, Any] | None,
+    projected_lines: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Force displayed play prices to use final projected line values when available."""
+
+    if play is None:
+        return None
+
+    resolved_play: dict[str, Any] = dict(play)
+    for leg_name in ("entry", "stop", "tp1", "tp2"):
+        leg = play.get(leg_name)
+        if not isinstance(leg, dict):
+            continue
+        resolved_leg = dict(leg)
+        resolved_line = resolve_line_from_projected_bundle(projected_lines, leg.get("label"))
+        if resolved_line is not None:
+            resolved_leg["price"] = float(resolved_line["projected_price"])
+        resolved_play[leg_name] = resolved_leg
+
+    return resolved_play
+
+
 def build_ladder_items(
     projected_lines: dict[str, dict[str, Any]],
     current_price: float | None,
@@ -3238,15 +3284,13 @@ def build_line_rows(
         rows.append(
             {
                 "line": final_line["label"],
-                "projected_value": format_price(final_line["projected_price"]),
-                "anchor_price": format_price(final_line["anchor_price"]),
-                "anchor_timestamp": format_timestamp(final_line["anchor_timestamp"]),
+                "projected_level": format_price(final_line["projected_price"]),
+                "raw_anchor": format_price(final_line.get("raw_anchor_price", final_line["anchor_price"])),
                 "candle_count": final_line["candle_count"],
                 "direction": final_line["direction"],
                 "source": source_label,
-                "base_source": origin,
-                "original_projected": format_price(original_line["projected_price"]) if applied else "-",
-                "override_projected": format_price(final_line["projected_price"]) if applied else "-",
+                "original_projected": format_price(original_line["projected_price"]) if applied else "",
+                "override_projected": format_price(final_line["projected_price"]) if applied else "",
             }
         )
 
@@ -3279,11 +3323,11 @@ def render_six_lines_panel(
         )
 
 
-def render_trade_decision_summary(signal_package: dict[str, Any]) -> None:
+def render_trade_decision_summary(signal_package: dict[str, Any], projected_lines: dict[str, dict[str, Any]]) -> None:
     """Render the fastest single-line operator summary."""
 
     scenario = signal_package["scenario"]
-    primary_play = scenario.get("primary_play")
+    primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
     sit_out = signal_package["sit_out"]["sit_out"]
 
     scenario_name = scenario["scenario_name"]
@@ -3329,7 +3373,11 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
     )
 
 
-def render_play_card(title: str, play: dict[str, Any] | None) -> None:
+def render_play_card(
+    title: str,
+    play: dict[str, Any] | None,
+    projected_lines: dict[str, dict[str, Any]],
+) -> None:
     """Render a single structured play card."""
 
     card_class = "primary" if "Primary" in title else "alternate"
@@ -3353,6 +3401,8 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
             unsafe_allow_html=True,
         )
         return
+
+    play = resolve_play_display_values(play, projected_lines)
 
     st.markdown(
         f"""
@@ -3385,6 +3435,41 @@ def render_play_card(title: str, play: dict[str, Any] | None) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_projection_verification(final_projected_lines: dict[str, dict[str, Any]]) -> None:
+    """Temporary verification block proving all displayed levels use projected prices."""
+
+    verification_rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for name in LINE_DISPLAY_ORDER:
+        details = final_projected_lines[name]
+        projected_price = float(details["projected_price"])
+        raw_anchor_price = float(details.get("raw_anchor_price", details["anchor_price"]))
+        candle_count = int(details["candle_count"])
+
+        verification_rows.append(
+            {
+                "line_label": details["label"],
+                "projected_price": format_price(projected_price),
+                "raw_anchor_price": format_price(raw_anchor_price),
+                "candle_count": candle_count,
+                "direction": details["direction"],
+            }
+        )
+
+        if name in {"hw", "lw"} and candle_count > 0 and abs(projected_price - raw_anchor_price) < 1e-9:
+            warnings.append(
+                f"{details['label']} has candle_count={candle_count} but projected_price still matches raw_anchor_price."
+            )
+
+    with st.expander("Projection Verification", expanded=False):
+        st.dataframe(verification_rows, use_container_width=True, hide_index=True)
+        for warning in warnings:
+            st.warning(warning)
+        if not warnings:
+            st.caption("Verification passed: projected display values differ from raw anchors when candle counts are non-zero.")
 
 
 def build_confirmation_detail(
@@ -4587,6 +4672,8 @@ def main() -> None:
             current_es_price=inputs["current_es_price"],
             effective_offset=effective_offset,
         )
+        if signal_package is not None:
+            render_trade_decision_summary(signal_package, final_projected_lines)
         if signal_package is None:
             st.warning("Current SPX price is required for the Tab 1 decision workflow. Projected lines and debug data are still available below.")
         action_col1, action_col2 = st.columns(2)
@@ -4627,9 +4714,9 @@ def main() -> None:
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"])
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"])
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines)
 
         render_spatial_ladder(
             final_projected_lines_es,
@@ -4639,16 +4726,21 @@ def main() -> None:
 
         if signal_package is not None:
             with st.expander("Confirmation", expanded=False):
-                render_confirmation_card(confirmation, signal_package["scenario"]["primary_play"])
+                render_confirmation_card(
+                    confirmation,
+                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines),
+                )
             with st.expander("Structure", expanded=False):
                 render_scenario_section(signal_package["scenario"])
                 render_sit_out_section(signal_package["sit_out"])
                 render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+                render_projection_verification(final_projected_lines)
         else:
             with st.expander("Structure", expanded=False):
                 render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+                render_projection_verification(final_projected_lines)
     with tab_asian:
         st.markdown(
             """
