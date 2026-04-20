@@ -1799,6 +1799,7 @@ def sync_projection_price_inputs(
     next_trading_date: date,
     default_next_trading_date: date,
     live_defaults: dict[str, Any],
+    historical_defaults: dict[str, Any] | None = None,
 ) -> bool:
     """Keep price inputs aligned with the selected projection context."""
 
@@ -1807,9 +1808,9 @@ def sync_projection_price_inputs(
 
     if previous_date != next_trading_date:
         if historical_mode:
-            st.session_state["current_spx_price_input"] = 0.0
-            st.session_state["current_es_price_input"] = 0.0
-            st.session_state["open_reference_input"] = 0.0
+            st.session_state["current_spx_price_input"] = float((historical_defaults or {}).get("default_spx_price", 0.0))
+            st.session_state["current_es_price_input"] = float((historical_defaults or {}).get("default_es_price", 0.0))
+            st.session_state["open_reference_input"] = float((historical_defaults or {}).get("default_open_reference", 0.0))
         else:
             st.session_state["current_spx_price_input"] = float(live_defaults["default_spx_price"])
             st.session_state["current_es_price_input"] = float(live_defaults["default_es_price"])
@@ -3224,6 +3225,73 @@ def describe_current_es_source(
     return "manual entry"
 
 
+def extract_timestamp_row(frame: pd.DataFrame | None, target_time) -> dict[str, Any] | None:
+    """Return the last row that matches an exact Central-Time timestamp."""
+
+    if frame is None or frame.empty:
+        return None
+    matches = frame.loc[frame["timestamp"].map(to_central_time) == target_time]
+    if matches.empty:
+        return None
+    row = matches.iloc[-1]
+    return {
+        "timestamp": to_central_time(row["timestamp"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+    }
+
+
+def fetch_historical_input_defaults(
+    prior_session_date: date,
+    next_trading_date: date,
+    es_spx_offset: float,
+) -> dict[str, Any]:
+    """Fetch recent historical 9:00 AM defaults for the selected date pair."""
+
+    days_back = (current_central_time().date() - next_trading_date).days
+    unavailable = {
+        "default_spx_price": 0.0,
+        "default_es_price": 0.0,
+        "default_open_reference": 0.0,
+        "spx_available": False,
+        "es_available": False,
+        "spx_source": "historical_unavailable",
+        "es_source": "historical_unavailable",
+    }
+    if days_back < 0 or days_back > 31:
+        unavailable["spx_source"] = "historical_out_of_range_manual_required"
+        unavailable["es_source"] = "historical_out_of_range_manual_required"
+        return unavailable
+
+    try:
+        es_candles, _ = fetch_es_candles_for_app(prior_session_date, next_trading_date)
+        es_row = extract_timestamp_row(es_candles, at_central(next_trading_date, 9, 0))
+    except Exception:
+        es_row = None
+
+    try:
+        spx_candles = fetch_spx_confirmation_candles(next_trading_date)
+        spx_row = extract_timestamp_row(spx_candles, at_central(next_trading_date, 9, 0))
+    except Exception:
+        spx_row = None
+
+    return {
+        "default_spx_price": float(spx_row["open"]) if spx_row else 0.0,
+        "default_es_price": float(es_row["open"]) if es_row else 0.0,
+        "default_open_reference": float(spx_row["open"]) if spx_row else 0.0,
+        "spx_available": spx_row is not None,
+        "es_available": es_row is not None,
+        "spx_source": "historical 9:00 AM SPX open" if spx_row else "historical_spx_bar_unavailable",
+        "es_source": "historical 9:00 AM ES open" if es_row else "historical_es_bar_unavailable",
+        "derived_live_offset": round_price(float(es_row["open"]) - float(spx_row["open"])) if es_row and spx_row else None,
+        "configured_offset": round_price(es_spx_offset),
+        "es_fetch_status": "historical_success" if es_row else "historical_failed",
+        "spx_fetch_status": "historical_success" if spx_row else "historical_failed",
+    }
+
+
 def classify_quote_failure(es_status: str, spx_status: str) -> str:
     """Classify live quote failure cause at the app layer."""
 
@@ -3263,72 +3331,86 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
 
     with st.sidebar:
         st.header(APP_TITLE)
-        if st.button("Refresh Live Quotes", use_container_width=True):
+        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
+        historical_mode = operating_mode == "Historical Mode"
+        if not historical_mode and st.button("Refresh Live Quotes", use_container_width=True):
             st.session_state["refresh_live_quotes"] = True
             st.rerun()
-        prior_session_date = st.date_input("Prior NY session date", value=default_prior)
-        next_trading_date = st.date_input("Next trading date", value=default_next)
-        historical_mode = sync_projection_price_inputs(next_trading_date, default_next, live_defaults)
+        if historical_mode:
+            prior_session_date = st.date_input("Prior NY session date", value=default_prior)
+            next_trading_date = st.date_input("Next trading date", value=default_next)
+        else:
+            prior_session_date = default_prior
+            next_trading_date = default_next
+            st.caption(f"Prior NY session: {prior_session_date}")
+            st.caption(f"Next trading day: {next_trading_date}")
+        historical_defaults = fetch_historical_input_defaults(prior_session_date, next_trading_date, configured_offset) if historical_mode else None
+        sync_projection_price_inputs(next_trading_date, default_next, live_defaults, historical_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
         st.subheader("Session Inputs")
-        current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", default_spx_price)), step=0.25, format="%.2f", key="current_spx_price_input")
-        current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", default_es_price)), step=0.25, format="%.2f", key="current_es_price_input")
-        open_reference = st.number_input("9:00 AM open reference", value=float(st.session_state.get("open_reference_input", default_open_reference)), step=0.25, format="%.2f", key="open_reference_input")
+        active_defaults = historical_defaults if historical_mode and historical_defaults is not None else live_defaults
+        current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", active_defaults["default_spx_price"])), step=0.25, format="%.2f", key="current_spx_price_input")
+        current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", active_defaults["default_es_price"])), step=0.25, format="%.2f", key="current_es_price_input")
+        open_reference = st.number_input("9:00 AM open reference", value=float(st.session_state.get("open_reference_input", active_defaults["default_open_reference"])), step=0.25, format="%.2f", key="open_reference_input")
         if historical_mode:
-            st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
+            if historical_defaults and historical_defaults["spx_available"] and historical_defaults["es_available"]:
+                st.info("Historical projection mode active. Recent historical 9:00 AM ES/SPX values were loaded automatically and remain editable.")
+            else:
+                st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
         elif not live_defaults["es_available"] or not live_defaults["spx_available"]:
             st.warning("Live quote unavailable. Enter current prices manually.")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
         if historical_mode:
-            current_spx_source_label = "manual entry" if is_valid_price_input(current_spx_price) else "unavailable"
-            current_es_source_label = "manual entry" if is_valid_price_input(current_es_price) else "unavailable"
-            open_reference_source_label = "manual entry" if is_valid_price_input(open_reference) else "unavailable"
+            current_spx_source_label = historical_defaults["spx_source"] if historical_defaults and historical_defaults["spx_available"] and abs(float(current_spx_price) - float(historical_defaults["default_spx_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_spx_price) else "unavailable")
+            current_es_source_label = historical_defaults["es_source"] if historical_defaults and historical_defaults["es_available"] and abs(float(current_es_price) - float(historical_defaults["default_es_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_es_price) else "unavailable")
+            open_reference_source_label = "historical 9:00 AM SPX open" if historical_defaults and historical_defaults["spx_available"] and abs(float(open_reference) - float(historical_defaults["default_open_reference"])) < 0.005 else ("manual entry" if is_valid_price_input(open_reference) else "unavailable")
         else:
             current_spx_source_label = describe_current_spx_source(
                 current_spx_price=current_spx_price,
                 current_es_price=current_es_price,
                 current_offset=es_spx_offset,
-                default_spx_price=default_spx_price,
+                default_spx_price=live_defaults["default_spx_price"],
                 live_spx_available=live_defaults["spx_available"],
             )
             current_es_source_label = describe_current_es_source(
                 current_es_price=current_es_price,
-                default_es_price=default_es_price,
+                default_es_price=live_defaults["default_es_price"],
                 live_es_available=live_defaults["es_available"],
             )
-            open_reference_source_label = "live SPX quote" if live_defaults["spx_available"] and abs(float(open_reference) - float(default_open_reference)) < 0.005 else "manual entry"
+            open_reference_source_label = "live SPX quote" if live_defaults["spx_available"] and abs(float(open_reference) - float(live_defaults["default_open_reference"])) < 0.005 else "manual entry"
         st.caption(f"Current SPX source: {current_spx_source_label}")
         st.caption(f"Current ES source: {current_es_source_label}")
         st.caption(f"9:00 AM open reference source: {open_reference_source_label}")
-        with st.expander("Live Quote Status", expanded=False):
-            st.write("Current SPX fetch")
-            st.code(
-                "\n".join(
-                    [
-                        "function: fetch_live_spx_price()",
-                        "provider: yfinance",
-                        "symbol: ^GSPC",
-                        f"status: {'success' if live_defaults['spx_available'] else 'failed'}",
-                        f"source: {live_defaults['spx_fetch_status']}",
-                    ]
+        if not historical_mode:
+            with st.expander("Live Quote Status", expanded=False):
+                st.write("Current SPX fetch")
+                st.code(
+                    "\n".join(
+                        [
+                            "function: fetch_live_spx_price()",
+                            "provider: yfinance",
+                            "symbol: ^GSPC",
+                            f"status: {'success' if live_defaults['spx_available'] else 'failed'}",
+                            f"source: {live_defaults['spx_fetch_status']}",
+                        ]
+                    )
                 )
-            )
-            st.write("Current ES fetch")
-            st.code(
-                "\n".join(
-                    [
-                        "function: fetch_live_es_price()",
-                        "provider: yfinance",
-                        "symbol: ES=F",
-                        f"status: {'success' if live_defaults['es_available'] else 'failed'}",
-                        f"source: {live_defaults['es_fetch_status']}",
-                    ]
+                st.write("Current ES fetch")
+                st.code(
+                    "\n".join(
+                        [
+                            "function: fetch_live_es_price()",
+                            "provider: yfinance",
+                            "symbol: ES=F",
+                            f"status: {'success' if live_defaults['es_available'] else 'failed'}",
+                            f"source: {live_defaults['es_fetch_status']}",
+                        ]
+                    )
                 )
-            )
-            st.write(f"Failure classification: {classify_quote_failure(live_defaults['es_fetch_status'], live_defaults['spx_fetch_status'])}")
+                st.write(f"Failure classification: {classify_quote_failure(live_defaults['es_fetch_status'], live_defaults['spx_fetch_status'])}")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
@@ -3376,6 +3458,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "spx_fetch_status": live_defaults["spx_fetch_status"],
         "quote_failure_classification": classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"]),
         "historical_mode": historical_mode,
+        "operating_mode": operating_mode,
         "news_day": news_day,
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
@@ -4969,6 +5052,672 @@ def render_trade_log_tab(
                 st.success("No malformed store recovery was needed on this run.")
 
 
+def build_synthetic_spx_session(es_candles: pd.DataFrame | None, es_spx_offset: float) -> pd.DataFrame:
+    """Convert fetched ES candles into a synthetic SPX frame for historical review."""
+
+    if es_candles is None or es_candles.empty:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"])
+
+    synthetic = es_candles.copy()
+    for column in ("open", "high", "low", "close"):
+        synthetic[column] = synthetic[column].astype(float) - float(es_spx_offset)
+    return synthetic
+
+
+def get_next_day_session_candles(candles: pd.DataFrame | None, next_trading_date: date) -> pd.DataFrame:
+    """Filter a fetched candle set down to the selected next-trading-day session."""
+
+    if candles is None or candles.empty:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"])
+    return filter_time_range(candles, at_central(next_trading_date, 8, 0), at_central(next_trading_date, 16, 0))
+
+
+def review_play_against_session(
+    play_spx: dict[str, Any] | None,
+    projected_lines_spx: dict[str, dict[str, Any]],
+    session_candles_spx: pd.DataFrame,
+) -> dict[str, Any]:
+    """Build a simple next-session trigger review for one play."""
+
+    if play_spx is None:
+        return {"available": False, "summary": "No play available."}
+    if session_candles_spx.empty:
+        return {"available": False, "summary": "No next-day session candles available."}
+
+    play = resolve_play_display_values(play_spx, projected_lines_spx)
+    if play is None:
+        return {"available": False, "summary": "Play could not be resolved."}
+
+    def touched(row: pd.Series, level: float | None) -> bool:
+        return level is not None and float(row["low"]) <= float(level) <= float(row["high"])
+
+    entry_price = float(play["entry"]["price"])
+    stop_price = float(play["stop"]["price"]) if play.get("stop") else None
+    tp1_price = float(play["tp1"]["price"]) if play.get("tp1") else None
+    tp2_price = float(play["tp2"]["price"]) if play.get("tp2") else None
+
+    entry_time = stop_time = tp1_time = tp2_time = None
+    for _, row in session_candles_spx.iterrows():
+        if entry_time is None and touched(row, entry_price):
+            entry_time = row["timestamp"]
+        if entry_time is None:
+            continue
+        if stop_time is None and touched(row, stop_price):
+            stop_time = row["timestamp"]
+        if tp1_time is None and touched(row, tp1_price):
+            tp1_time = row["timestamp"]
+        if tp2_time is None and touched(row, tp2_price):
+            tp2_time = row["timestamp"]
+
+    if entry_time is None:
+        summary = "Entry not triggered"
+    elif stop_time is not None and (tp1_time is None or stop_time <= tp1_time):
+        summary = "Stopped after trigger"
+    elif tp2_time is not None:
+        summary = "TP2 reached"
+    elif tp1_time is not None:
+        summary = "TP1 reached"
+    else:
+        summary = "Triggered with no target/stop touch"
+
+    return {
+        "available": True,
+        "summary": summary,
+        "entry_time": entry_time,
+        "stop_time": stop_time,
+        "tp1_time": tp1_time,
+        "tp2_time": tp2_time,
+        "entry_price": entry_price,
+        "stop_price": stop_price,
+        "tp1_price": tp1_price,
+        "tp2_price": tp2_price,
+    }
+
+
+def compute_directional_points(direction: str, entry_price: float, exit_price: float) -> float:
+    """Compute simple directional point P&L from a line-based entry/exit pair."""
+
+    normalized = str(direction or "").upper()
+    if normalized in {"PUT", "SHORT"}:
+        return round_price(float(entry_price) - float(exit_price))
+    return round_price(float(exit_price) - float(entry_price))
+
+
+def confirmation_status_label(confirmation: dict[str, Any]) -> str:
+    """Normalize a confirmation payload into a compact label."""
+
+    if not confirmation.get("available"):
+        return "Not Recorded"
+    if confirmation.get("confirmed"):
+        return "Confirmed"
+    if confirmation.get("failed"):
+        return "Failed"
+    return "Not Recorded"
+
+
+def evaluate_play_outcome(
+    play_spx: dict[str, Any] | None,
+    projected_lines_spx: dict[str, dict[str, Any]],
+    session_candles_spx: pd.DataFrame,
+) -> dict[str, Any]:
+    """Evaluate trigger ordering, result classification, and estimated points for one play."""
+
+    if play_spx is None:
+        return {
+            "available": False,
+            "entry_triggered": False,
+            "stop_hit": False,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "result_classification": "No Play",
+            "estimated_pnl": 0.0,
+            "event_order": "No play",
+        }
+
+    play = resolve_play_display_values(play_spx, projected_lines_spx)
+    if play is None or session_candles_spx.empty:
+        return {
+            "available": False,
+            "entry_triggered": False,
+            "stop_hit": False,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "result_classification": "No Session Data",
+            "estimated_pnl": 0.0,
+            "event_order": "Unavailable",
+        }
+
+    entry_price = float(play["entry"]["price"])
+    stop_price = float(play["stop"]["price"]) if play.get("stop") else None
+    tp1_price = float(play["tp1"]["price"]) if play.get("tp1") else None
+    tp2_price = float(play["tp2"]["price"]) if play.get("tp2") else None
+    direction = str(play.get("direction", "CALL"))
+
+    def touched(row: pd.Series, level: float | None) -> bool:
+        return level is not None and float(row["low"]) <= float(level) <= float(row["high"])
+
+    entry_triggered = False
+    entry_time = None
+    stop_time = None
+    tp1_time = None
+    tp2_time = None
+    event_order: list[str] = []
+    result_classification = "Not Triggered"
+    estimated_pnl = 0.0
+    ambiguous = False
+
+    for _, row in session_candles_spx.iterrows():
+        if not entry_triggered and touched(row, entry_price):
+            entry_triggered = True
+            entry_time = row["timestamp"]
+            event_order.append(f"entry@{format_timestamp(entry_time)}")
+        if not entry_triggered:
+            continue
+
+        row_events: list[tuple[str, float]] = []
+        if stop_time is None and touched(row, stop_price):
+            row_events.append(("stop", float(stop_price)))
+        if tp1_time is None and touched(row, tp1_price):
+            row_events.append(("tp1", float(tp1_price)))
+        if tp2_time is None and touched(row, tp2_price):
+            row_events.append(("tp2", float(tp2_price)))
+
+        if len(row_events) > 1 and any(name == "stop" for name, _ in row_events) and any(name.startswith("tp") for name, _ in row_events):
+            ambiguous = True
+            for name, _ in row_events:
+                event_order.append(f"{name}@{format_timestamp(row['timestamp'])}")
+            result_classification = "Ambiguous Same-Bar Outcome"
+            estimated_pnl = 0.0
+            break
+
+        for name, price in row_events:
+            if name == "stop":
+                stop_time = row["timestamp"]
+                event_order.append(f"stop@{format_timestamp(stop_time)}")
+            elif name == "tp1":
+                tp1_time = row["timestamp"]
+                event_order.append(f"tp1@{format_timestamp(tp1_time)}")
+            elif name == "tp2":
+                tp2_time = row["timestamp"]
+                event_order.append(f"tp2@{format_timestamp(tp2_time)}")
+
+        if tp2_time is not None:
+            result_classification = "TP2"
+            estimated_pnl = compute_directional_points(direction, entry_price, float(tp2_price))
+            break
+        if stop_time is not None and tp1_time is None:
+            result_classification = "Stopped"
+            estimated_pnl = compute_directional_points(direction, entry_price, float(stop_price))
+            break
+
+    if not entry_triggered:
+        result_classification = "Not Triggered"
+    elif not ambiguous:
+        if result_classification == "Not Triggered" and tp1_time is not None and stop_time is not None:
+            result_classification = "TP1 Then Stop"
+            estimated_pnl = round_price(
+                (
+                    compute_directional_points(direction, entry_price, float(tp1_price))
+                    + compute_directional_points(direction, entry_price, float(stop_price))
+                ) / 2.0
+            )
+        elif result_classification == "Not Triggered" and tp1_time is not None:
+            result_classification = "TP1"
+            estimated_pnl = compute_directional_points(direction, entry_price, float(tp1_price))
+        elif result_classification == "Not Triggered":
+            result_classification = "Triggered No Exit"
+            estimated_pnl = 0.0
+
+    return {
+        "available": True,
+        "entry_triggered": entry_triggered,
+        "entry_time": entry_time,
+        "stop_hit": stop_time is not None,
+        "stop_time": stop_time,
+        "tp1_hit": tp1_time is not None,
+        "tp1_time": tp1_time,
+        "tp2_hit": tp2_time is not None,
+        "tp2_time": tp2_time,
+        "result_classification": result_classification,
+        "estimated_pnl": round_price(estimated_pnl),
+        "event_order": " -> ".join(event_order) if event_order else "No events",
+    }
+
+
+def build_backtest_metrics(filtered_rows: pd.DataFrame) -> dict[str, float]:
+    """Build top-line backtest metrics from filtered result rows."""
+
+    if filtered_rows.empty:
+        return {
+            "setups_tested": 0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "loss_rate": 0.0,
+            "average_pnl": 0.0,
+            "total_pnl": 0.0,
+            "expectancy": 0.0,
+        }
+
+    trades = filtered_rows.loc[filtered_rows["trade_taken"]].copy()
+    if trades.empty:
+        return {
+            "setups_tested": int(len(filtered_rows)),
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "loss_rate": 0.0,
+            "average_pnl": 0.0,
+            "total_pnl": 0.0,
+            "expectancy": 0.0,
+        }
+
+    wins = trades.loc[trades["estimated_pnl"] > 0]
+    losses = trades.loc[trades["estimated_pnl"] < 0]
+    trade_count = len(trades)
+    win_rate = len(wins) / trade_count if trade_count else 0.0
+    loss_rate = len(losses) / trade_count if trade_count else 0.0
+    average_win = float(wins["estimated_pnl"].mean()) if not wins.empty else 0.0
+    average_loss = abs(float(losses["estimated_pnl"].mean())) if not losses.empty else 0.0
+    expectancy = (win_rate * average_win) - (loss_rate * average_loss)
+
+    return {
+        "setups_tested": int(len(filtered_rows)),
+        "trade_count": int(trade_count),
+        "win_rate": round_price(win_rate * 100.0),
+        "loss_rate": round_price(loss_rate * 100.0),
+        "average_pnl": round_price(float(trades["estimated_pnl"].mean())),
+        "total_pnl": round_price(float(trades["estimated_pnl"].sum())),
+        "expectancy": round_price(expectancy),
+    }
+
+
+def render_review_card(title: str, review: dict[str, Any]) -> None:
+    """Render a compact historical review card."""
+
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.write(review["summary"])
+        if review.get("available"):
+            st.write(f"Entry: {format_price(review.get('entry_price'))} SPX")
+            st.write(f"Entry trigger: {format_timestamp(review.get('entry_time'))}")
+            st.write(f"Stop trigger: {format_timestamp(review.get('stop_time'))}")
+            st.write(f"TP1 trigger: {format_timestamp(review.get('tp1_time'))}")
+            st.write(f"TP2 trigger: {format_timestamp(review.get('tp2_time'))}")
+
+
+def render_live_mode_shell(
+    inputs: dict[str, Any],
+    signal_package: dict[str, Any] | None,
+    confirmation: dict[str, Any],
+    final_projected_lines: dict[str, dict[str, Any]],
+    final_projected_lines_es: dict[str, dict[str, Any]],
+    projected_es_9: dict[str, dict[str, Any]],
+    override_result: dict[str, Any],
+    anchor_bundle: dict[str, Any],
+    effective_offset: float,
+    checkpoint_views: list[dict[str, Any]],
+    persisted_settings: dict[str, Any],
+    settings: dict[str, Any],
+) -> None:
+    """Render the live operator workflow."""
+
+    live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
+
+    with live_signal_tab:
+        render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset)
+        if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
+            st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
+        if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
+            st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
+        if signal_package is not None:
+            render_trade_decision_summary(signal_package, final_projected_lines)
+        else:
+            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
+
+        action_col1, action_col2 = st.columns(2)
+        with action_col1:
+            primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
+            if primary_play is None:
+                st.warning("No primary play is available to hand off into the Trade Log.")
+            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log"):
+                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
+                st.success("Trade Log prefilled from Live Mode.")
+        with action_col2:
+            if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
+                snapshot_payload = build_daily_snapshot(
+                    next_trading_date=inputs["next_trading_date"],
+                    projected_lines=final_projected_lines,
+                    scenario=signal_package["scenario"],
+                    sit_out=signal_package["sit_out"],
+                    confirmation=confirmation,
+                )
+                snapshot_saved, snapshot_error = append_snapshot(snapshot_payload)
+                if snapshot_saved:
+                    st.success("Daily snapshot saved.")
+                    if snapshot_error:
+                        st.warning(snapshot_error)
+                else:
+                    st.error(snapshot_error or "Unable to save daily snapshot.")
+
+        decision_col1, decision_col2 = st.columns(2, gap="large")
+        if signal_package is not None:
+            with decision_col1:
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es)
+            with decision_col2:
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es)
+
+        render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
+
+        with st.expander("Confirmation", expanded=False):
+            render_confirmation_card(
+                confirmation,
+                resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
+            )
+        with st.expander("Structure", expanded=False):
+            if signal_package is not None:
+                render_scenario_section(signal_package["scenario"])
+                render_sit_out_section(signal_package["sit_out"])
+            render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+            render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
+
+    with live_asian_tab:
+        st.markdown(
+            """
+            <div class="spx-hero">
+                <div class="spx-hero-top">
+                    <div>
+                        <div class="spx-hero-kicker">Asian Session Console</div>
+                        <div class="spx-hero-title">Evening ES Monitoring</div>
+                        <div class="spx-hero-subtitle">
+                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
+                        </div>
+                    </div>
+                    <div class="spx-hero-status">
+                        <div class="spx-hero-status-label">Framework</div>
+                        <div class="spx-status-chip good"><span>◉</span><span>Observation First</span></div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if not checkpoint_views:
+            st.warning("Checkpoint views are unavailable for the current inputs.")
+        else:
+            checkpoint_labels = [checkpoint["label"] for checkpoint in checkpoint_views]
+            selected_label = st.selectbox(
+                "Reference checkpoint for current ES location",
+                checkpoint_labels,
+                index=safe_option_index(checkpoint_labels, settings.get("preferred_checkpoint", DEFAULT_SETTINGS["preferred_checkpoint"])),
+                key="live_checkpoint_selector",
+            )
+            if persisted_settings["preferred_checkpoint"] != selected_label:
+                persisted_settings["preferred_checkpoint"] = selected_label
+                checkpoint_settings_saved, checkpoint_settings_error = save_settings(persisted_settings)
+                if not checkpoint_settings_saved and checkpoint_settings_error:
+                    st.warning(checkpoint_settings_error)
+            selected_checkpoint = next(checkpoint for checkpoint in checkpoint_views if checkpoint["label"] == selected_label)
+
+            if is_valid_price_input(inputs["current_es_price"]):
+                reference_scenario = render_evening_location_panel(inputs["current_es_price"], selected_checkpoint)
+                if reference_scenario.get("primary_play") is None:
+                    st.warning("No live reference play is available to hand off into the Trade Log.")
+                elif st.button("Prefill Trade Log from Evening Framework", use_container_width=True, key="live_evening_prefill"):
+                    set_trade_form_prefill(build_tab2_trade_prefill(selected_checkpoint, inputs["current_es_price"]))
+                    st.success("Trade Log prefilled from Live Mode.")
+            else:
+                st.info("Enter a valid current ES price to enable the evening reference framework and handoff.")
+            render_evening_decision_framework()
+            render_evening_line_ladder(selected_checkpoint)
+            with st.expander("Checkpoint Levels", expanded=False):
+                render_checkpoint_views(checkpoint_views)
+
+
+def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: float) -> None:
+    """Render a practical historical backtest runner."""
+
+    st.markdown("**Backtest**")
+    start_default = previous_business_day(inputs["prior_session_date"])
+    col1, col2 = st.columns(2)
+    with col1:
+        backtest_start = st.date_input("Start next trading day", value=start_default, key="historical_backtest_start")
+    with col2:
+        backtest_end = st.date_input("End next trading day", value=inputs["next_trading_date"], key="historical_backtest_end")
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+    with filter_col1:
+        scenario_filter = st.text_input("Scenario filter", value="", key="historical_backtest_scenario_filter")
+    with filter_col2:
+        confirmation_filter = st.selectbox("Confirmation filter", ["All", "Confirmed", "Failed", "Not Recorded"], key="historical_backtest_confirmation_filter")
+    with filter_col3:
+        sit_out_filter = st.selectbox("Sit-out filter", ["All", "Sit Out", "Trade Eligible"], key="historical_backtest_sitout_filter")
+
+    if not st.button("Run Historical Backtest", use_container_width=True, key="run_historical_backtest"):
+        st.info("Choose a next-trading-day range and run the engine over those dates.")
+        return
+    if backtest_end < backtest_start:
+        st.error("Backtest end date must be on or after the start date.")
+        return
+
+    rows: list[dict[str, Any]] = []
+    cursor = backtest_start
+    while cursor <= backtest_end:
+        if cursor.weekday() >= 5:
+            cursor += timedelta(days=1)
+            continue
+        prior_session_date = previous_business_day(cursor)
+        try:
+            es_candles, _ = fetch_es_candles_for_app(prior_session_date, cursor)
+            if es_candles is None or es_candles.empty:
+                cursor += timedelta(days=1)
+                continue
+            anchor_bundle = build_six_line_anchors(es_candles, prior_session_date)
+            projected_es = project_six_lines(anchor_bundle["anchors"], build_projection_target(cursor))
+            projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
+            next_session_spx = build_synthetic_spx_session(get_next_day_session_candles(es_candles, cursor), effective_offset)
+            nine_am_bar = next_session_spx.loc[next_session_spx["timestamp"] == at_central(cursor, 9, 0)]
+            if nine_am_bar.empty:
+                cursor += timedelta(days=1)
+                continue
+            nine_am_row = nine_am_bar.iloc[0]
+            spx_candles = fetch_spx_confirmation_candles(cursor)
+            spx_830_candle = extract_spx_830_candle(spx_candles, cursor)
+            seed_scenario = evaluate_trading_scenario(
+                current_price=float(nine_am_row["close"]),
+                line_values={name: details["projected_price"] for name, details in projected_spx.items()},
+                open_price=float(nine_am_row["open"]),
+                confirmation_confirmed=False,
+            )
+            primary_seed = seed_scenario.get("primary_play")
+            confirmation = evaluate_830_confirmation(
+                spx_830_candle,
+                primary_seed["entry"]["price"] if primary_seed else float(nine_am_row["close"]),
+                primary_seed["direction"] if primary_seed else "CALL",
+            )
+            signal_package = build_signal_package(
+                current_price=float(nine_am_row["close"]),
+                line_values={name: details["projected_price"] for name, details in projected_spx.items()},
+                confirmation=confirmation,
+                news_day=False,
+                current_time=build_projection_target(cursor),
+                open_price=float(nine_am_row["open"]),
+            )
+            primary_review = evaluate_play_outcome(signal_package["scenario"].get("primary_play"), projected_spx, next_session_spx)
+            alternate_review = evaluate_play_outcome(signal_package["scenario"].get("alternate_play"), projected_spx, next_session_spx)
+            trade_taken = bool(primary_review["entry_triggered"] or alternate_review["entry_triggered"])
+            chosen_result = primary_review if primary_review["entry_triggered"] else alternate_review
+            rows.append(
+                {
+                    "prior_session_date": prior_session_date.isoformat(),
+                    "next_trading_date": cursor.isoformat(),
+                    "scenario": signal_package["scenario"]["scenario_name"],
+                    "confirmation": confirmation_status_label(confirmation),
+                    "sit_out": "Sit Out" if signal_package["sit_out"]["sit_out"] else "Trade Eligible",
+                    "primary_entry_triggered": bool(primary_review["entry_triggered"]),
+                    "alternate_entry_triggered": bool(alternate_review["entry_triggered"]),
+                    "stop_hit": bool(chosen_result["stop_hit"]) if trade_taken else False,
+                    "tp1_hit": bool(chosen_result["tp1_hit"]) if trade_taken else False,
+                    "tp2_hit": bool(chosen_result["tp2_hit"]) if trade_taken else False,
+                    "result_classification": chosen_result["result_classification"] if trade_taken else "No Trade",
+                    "estimated_pnl": float(chosen_result["estimated_pnl"]) if trade_taken else 0.0,
+                    "trade_taken": trade_taken,
+                    "event_order": chosen_result["event_order"] if trade_taken else "No trade",
+                }
+            )
+        except Exception:
+            pass
+        cursor += timedelta(days=1)
+
+    if not rows:
+        st.warning("No historical backtest rows could be built for the selected range.")
+        return
+
+    backtest_df = pd.DataFrame(rows)
+    filtered_df = backtest_df.copy()
+    if scenario_filter.strip():
+        filtered_df = filtered_df.loc[filtered_df["scenario"].str.contains(scenario_filter.strip(), case=False, na=False)]
+    if confirmation_filter != "All":
+        filtered_df = filtered_df.loc[filtered_df["confirmation"] == confirmation_filter]
+    if sit_out_filter != "All":
+        filtered_df = filtered_df.loc[filtered_df["sit_out"] == sit_out_filter]
+
+    metrics = build_backtest_metrics(filtered_df)
+    stats1, stats2, stats3, stats4, stats5, stats6 = st.columns(6)
+    stats1.metric("Total Setups", metrics["setups_tested"])
+    stats2.metric("Trades", metrics["trade_count"])
+    stats3.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
+    stats4.metric("Loss Rate", f"{metrics['loss_rate']:.1f}%")
+    stats5.metric("Average P&L", format_price(metrics["average_pnl"]))
+    stats6.metric("Total P&L", format_price(metrics["total_pnl"]))
+    st.metric("Expectancy", format_price(metrics["expectancy"]))
+
+    trade_rows = filtered_df.loc[filtered_df["trade_taken"]].copy()
+    with st.expander("Backtest Table", expanded=True):
+        if filtered_df.empty:
+            st.info("No sessions matched the selected filters.")
+        else:
+            display_df = filtered_df[
+                [
+                    "prior_session_date",
+                    "next_trading_date",
+                    "scenario",
+                    "confirmation",
+                    "sit_out",
+                    "primary_entry_triggered",
+                    "alternate_entry_triggered",
+                    "stop_hit",
+                    "tp1_hit",
+                    "tp2_hit",
+                    "result_classification",
+                    "estimated_pnl",
+                    "event_order",
+                ]
+            ].copy()
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    with st.expander("Performance by Scenario", expanded=False):
+        if trade_rows.empty:
+            st.info("No completed trades in the filtered set.")
+        else:
+            scenario_summary = trade_rows.groupby("scenario").agg(
+                trade_count=("scenario", "count"),
+                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
+                total_pnl=("estimated_pnl", "sum"),
+                average_pnl=("estimated_pnl", "mean"),
+            ).reset_index()
+            st.dataframe(scenario_summary, use_container_width=True, hide_index=True)
+
+    with st.expander("Performance by Confirmation", expanded=False):
+        if trade_rows.empty:
+            st.info("No completed trades in the filtered set.")
+        else:
+            confirmation_summary = trade_rows.groupby("confirmation").agg(
+                trade_count=("confirmation", "count"),
+                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
+                total_pnl=("estimated_pnl", "sum"),
+                average_pnl=("estimated_pnl", "mean"),
+            ).reset_index()
+            st.dataframe(confirmation_summary, use_container_width=True, hide_index=True)
+
+    with st.expander("Performance by Sit-Out", expanded=False):
+        if trade_rows.empty:
+            st.info("No completed trades in the filtered set.")
+        else:
+            sitout_summary = trade_rows.groupby("sit_out").agg(
+                trade_count=("sit_out", "count"),
+                win_rate=("estimated_pnl", lambda s: round((s.gt(0).mean() * 100), 1)),
+                total_pnl=("estimated_pnl", "sum"),
+                average_pnl=("estimated_pnl", "mean"),
+            ).reset_index()
+            st.dataframe(sitout_summary, use_container_width=True, hide_index=True)
+
+
+def render_historical_projection_mode(
+    inputs: dict[str, Any],
+    signal_package: dict[str, Any] | None,
+    confirmation: dict[str, Any],
+    final_projected_lines: dict[str, dict[str, Any]],
+    final_projected_lines_es: dict[str, dict[str, Any]],
+    projected_es_9: dict[str, dict[str, Any]],
+    override_result: dict[str, Any],
+    anchor_bundle: dict[str, Any],
+    nine_am_target,
+    effective_offset: float,
+    es_candles: pd.DataFrame | None,
+) -> None:
+    """Render the historical analysis workflow."""
+
+    projection_tab, review_tab, backtest_tab = st.tabs(["Historical Projection", "Historical Review", "Backtest"])
+    synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
+
+    with projection_tab:
+        render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset)
+        st.info("Historical mode: structure is built only from the selected prior session and projected to the selected next trading day at 9:00 AM CT.")
+        if signal_package is not None:
+            render_trade_decision_summary(signal_package, final_projected_lines)
+            decision_col1, decision_col2 = st.columns(2, gap="large")
+            with decision_col1:
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es)
+            with decision_col2:
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es)
+        else:
+            st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
+
+        render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
+        with st.expander("Historical Structure", expanded=False):
+            if signal_package is not None:
+                render_scenario_section(signal_package["scenario"])
+                render_sit_out_section(signal_package["sit_out"])
+            render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+            render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
+            render_historical_projection_panel(inputs, nine_am_target, anchor_bundle, final_projected_lines_es)
+
+    with review_tab:
+        st.markdown("**Historical Review**")
+        if signal_package is None:
+            st.info("Enter historical SPX and ES prices to review what would have happened after 9:00 AM CT.")
+        else:
+            left, right = st.columns(2)
+            with left:
+                render_review_card(
+                    "Primary Entry Review",
+                    review_play_against_session(signal_package["scenario"]["primary_play"], final_projected_lines, synthetic_spx_session),
+                )
+            with right:
+                render_review_card(
+                    "Alternate Entry Review",
+                    review_play_against_session(signal_package["scenario"]["alternate_play"], final_projected_lines, synthetic_spx_session),
+                )
+            with st.expander("Next-Day Session Candles", expanded=False):
+                if synthetic_spx_session.empty:
+                    st.info("No next-day session candles were available for review.")
+                else:
+                    st.dataframe(synthetic_spx_session, use_container_width=True, hide_index=True)
+
+    with backtest_tab:
+        render_historical_backtest_tab(inputs, effective_offset)
+
+
 def main() -> None:
     """Run the current Streamlit integration."""
 
@@ -5089,189 +5838,47 @@ def main() -> None:
         st.error(f"Unable to build Asian session checkpoints: {exc}")
         checkpoint_views = []
 
-    tab_signal, tab_asian, tab_trade_log = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION", "TRADE LOG"])
+    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["LIVE MODE", "HISTORICAL MODE", "TRADE LOG"])
 
-    with tab_signal:
-        render_tab1_hero(
-            signal_package=signal_package,
-            current_spx_price=inputs["current_spx_price"],
-            current_es_price=inputs["current_es_price"],
-            effective_offset=effective_offset,
-        )
-        if inputs["historical_mode"]:
-            st.info("Historical mode: projected structure uses the selected dates only. Enter historical SPX and ES prices to enable scenario and reference outputs.")
-        else:
-            if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
-                st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
-            if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
-                st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
-        if signal_package is not None:
-            render_trade_decision_summary(signal_package, final_projected_lines)
-        if signal_package is None:
-            if inputs["historical_mode"]:
-                st.info("Scenario outputs are off until you enter the historical 9:00 AM SPX price.")
-            else:
-                st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
-        action_col1, action_col2 = st.columns(2)
-        with action_col1:
-            primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
-            if primary_play is None:
-                if inputs["historical_mode"]:
-                    st.info("Trade Log handoff will activate after you enter the historical prices needed for scenario generation.")
-                else:
-                    st.warning("No primary play is available to hand off into the Trade Log.")
-            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True):
-                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
-                st.success("Trade Log prefilled from Tab 1. Open Tab 3 to review or save.")
-        with action_col2:
-            if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None):
-                snapshot_payload = build_daily_snapshot(
-                    next_trading_date=inputs["next_trading_date"],
-                    projected_lines=final_projected_lines,
-                    scenario=signal_package["scenario"],
-                    sit_out=signal_package["sit_out"],
-                    confirmation=confirmation,
-                )
-                snapshot_saved, snapshot_error = append_snapshot(snapshot_payload)
-                if snapshot_saved:
-                    st.success("Daily snapshot saved.")
-                    if snapshot_error:
-                        st.warning(snapshot_error)
-                else:
-                    st.error(snapshot_error or "Unable to save daily snapshot.")
-
-        option_lookup_request = None
-        if signal_package is not None and signal_package["scenario"].get("primary_play") is not None:
-            primary_play = signal_package["scenario"]["primary_play"]
-            option_lookup_request = build_option_lookup_request(
-                session="NY Options",
-                direction=primary_play["direction"],
-                strike=int(primary_play["strike"]),
-                trade_date=inputs["next_trading_date"],
-                scenario_name=signal_package["scenario"]["scenario_name"],
+    with top_live_tab:
+        if inputs["operating_mode"] == "Live Mode":
+            render_live_mode_shell(
+                inputs=inputs,
+                signal_package=signal_package,
+                confirmation=confirmation,
+                final_projected_lines=final_projected_lines,
+                final_projected_lines_es=final_projected_lines_es,
+                projected_es_9=projected_es_9,
+                override_result=override_result,
+                anchor_bundle=anchor_bundle,
+                effective_offset=effective_offset,
+                checkpoint_views=checkpoint_views,
+                persisted_settings=persisted_settings,
+                settings=settings,
             )
-        decision_col1, decision_col2 = st.columns(2, gap="large")
-        if signal_package is not None:
-            with decision_col1:
-                render_play_card(
-                    "Primary Trade",
-                    signal_package["scenario"]["primary_play"],
-                    final_projected_lines,
-                    final_projected_lines_es,
-                )
-            with decision_col2:
-                render_play_card(
-                    "Alternate Trade",
-                    signal_package["scenario"]["alternate_play"],
-                    final_projected_lines,
-                    final_projected_lines_es,
-                )
-
-        render_spatial_ladder(
-            final_projected_lines_es,
-            inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
-            price_space_label="ES",
-        )
-
-        if signal_package is not None:
-            with st.expander("Confirmation", expanded=False):
-                render_confirmation_card(
-                    confirmation,
-                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines),
-                )
-            with st.expander("Structure", expanded=False):
-                render_scenario_section(signal_package["scenario"])
-                render_sit_out_section(signal_package["sit_out"])
-                render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
-                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-                render_projection_verification(
-                    anchor_bundle,
-                    final_projected_lines,
-                    final_projected_lines_es,
-                    final_projected_lines_es,
-                    "ES",
-                )
-                render_historical_projection_panel(
-                    inputs,
-                    nine_am_target,
-                    anchor_bundle,
-                    final_projected_lines_es,
-                )
         else:
-            with st.expander("Structure", expanded=False):
-                render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
-                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-                render_projection_verification(
-                    anchor_bundle,
-                    final_projected_lines,
-                    final_projected_lines_es,
-                    final_projected_lines_es,
-                    "ES",
-                )
-                render_historical_projection_panel(
-                    inputs,
-                    nine_am_target,
-                    anchor_bundle,
-                    final_projected_lines_es,
-                )
-    with tab_asian:
-        st.markdown(
-            """
-            <div class="spx-hero">
-                <div class="spx-hero-top">
-                    <div>
-                        <div class="spx-hero-kicker">Asian Session Console</div>
-                        <div class="spx-hero-title">Evening ES Monitoring</div>
-                        <div class="spx-hero-subtitle">
-                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
-                        </div>
-                    </div>
-                    <div class="spx-hero-status">
-                        <div class="spx-hero-status-label">Framework</div>
-                        <div class="spx-status-chip good"><span>◌</span><span>Observation First</span></div>
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            st.info("Historical Mode is active in the sidebar. Switch back to Live Mode to use the current-session operator workflow.")
 
-        if not checkpoint_views:
-            st.warning("Checkpoint views are unavailable for the current inputs.")
-        else:
-            checkpoint_labels = [checkpoint["label"] for checkpoint in checkpoint_views]
-            selected_label = st.selectbox(
-                "Reference checkpoint for current ES location",
-                checkpoint_labels,
-                index=safe_option_index(checkpoint_labels, settings.get("preferred_checkpoint", DEFAULT_SETTINGS["preferred_checkpoint"])),
+    with top_historical_tab:
+        if inputs["operating_mode"] == "Historical Mode":
+            render_historical_projection_mode(
+                inputs=inputs,
+                signal_package=signal_package,
+                confirmation=confirmation,
+                final_projected_lines=final_projected_lines,
+                final_projected_lines_es=final_projected_lines_es,
+                projected_es_9=projected_es_9,
+                override_result=override_result,
+                anchor_bundle=anchor_bundle,
+                nine_am_target=nine_am_target,
+                effective_offset=effective_offset,
+                es_candles=es_candles,
             )
-            if persisted_settings["preferred_checkpoint"] != selected_label:
-                persisted_settings["preferred_checkpoint"] = selected_label
-                checkpoint_settings_saved, checkpoint_settings_error = save_settings(persisted_settings)
-                if not checkpoint_settings_saved and checkpoint_settings_error:
-                    st.warning(checkpoint_settings_error)
-            selected_checkpoint = next(checkpoint for checkpoint in checkpoint_views if checkpoint["label"] == selected_label)
+        else:
+            st.info("Live Mode is active in the sidebar. Switch to Historical Mode to inspect prior sessions, review historical outcomes, and run backtests.")
 
-            if is_valid_price_input(inputs["current_es_price"]):
-                reference_scenario = render_evening_location_panel(inputs["current_es_price"], selected_checkpoint)
-                if reference_scenario.get("primary_play") is None:
-                    st.warning("No Tab 2 reference play is available to hand off into the Trade Log at this checkpoint.")
-                elif st.button("Prefill Trade Log from Evening Framework", use_container_width=True):
-                    set_trade_form_prefill(build_tab2_trade_prefill(selected_checkpoint, inputs["current_es_price"]))
-                    st.success("Trade Log prefilled from Tab 2. Open Tab 3 to review or save.")
-            else:
-                if inputs["historical_mode"]:
-                    st.info("Enter the historical ES price to enable the Tab 2 reference framework and trade-log handoff.")
-                else:
-                    st.info("Enter a valid current ES price to enable the Tab 2 reference framework and trade-log handoff.")
-            render_evening_decision_framework()
-            render_evening_line_ladder(selected_checkpoint)
-            with st.expander("Checkpoint Levels", expanded=False):
-                render_checkpoint_views(checkpoint_views)
-
-    with tab_trade_log:
+    with top_trade_log_tab:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
-
 
 if __name__ == "__main__":
     main()

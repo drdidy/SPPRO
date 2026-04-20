@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Final
 
 from core.time_utils import at_central, market_time_to_central, to_central_time
@@ -126,13 +126,51 @@ def _fetch_es_candles_simple(interval: str = "60m", period: str = "7d"):
     return _normalize_price_frame(raw)
 
 
+def _fetch_es_candles_by_days_back(
+    prior_session_date: date,
+    next_trading_date: date,
+    interval: str = "60m",
+):
+    """Fetch enough recent ES history to cover a selected historical date pair."""
+
+    import pandas as pd
+
+    today_ct = datetime.now().date()
+    days_back = max(7, (today_ct - prior_session_date).days + 3)
+    raw = _history_request(
+        ES_FUTURES_SYMBOL,
+        {
+            "ticker": ES_FUTURES_SYMBOL,
+            "interval": interval,
+            "period": f"{days_back}d",
+            "prepost": True,
+        },
+    )
+    if raw.empty:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"]), days_back
+    return _normalize_price_frame(raw), days_back
+
+
 def _build_es_intraday_attempts(prior_session_date: date, next_trading_date: date) -> list[dict[str, Any]]:
     """Build a conservative ES intraday fetch sequence for Yahoo."""
 
     minimal_start = _naive_market_datetime(at_central(prior_session_date, 7, 0))
     minimal_end = _naive_market_datetime(at_central(next_trading_date, 10, 0))
+    today_ct = datetime.now().date()
+    historical_days_back = max(7, (today_ct - prior_session_date).days + 3)
 
     return [
+        {
+            "name": "historical_period_days_back_60m",
+            "description": "Date-targeted historical period request",
+            "request_kwargs": {
+                "ticker": ES_FUTURES_SYMBOL,
+                "interval": "60m",
+                "period": f"{historical_days_back}d",
+                "prepost": True,
+            },
+            "method": "historical_days_back",
+        },
         {
             "name": "preferred_period_7d_60m",
             "description": "Simple Ticker.history period request",
@@ -219,7 +257,23 @@ def fetch_es_hourly_candles_with_diagnostics(prior_session_date: date, next_trad
             "method": attempt.get("method", "Ticker.history"),
         }
         try:
-            if attempt_record["method"] == "simple_period":
+            if attempt_record["method"] == "historical_days_back":
+                normalized, days_back = _fetch_es_candles_by_days_back(
+                    prior_session_date,
+                    next_trading_date,
+                    interval=str(request_kwargs["interval"]),
+                )
+                attempt_record["request_parameters"]["period"] = f"{days_back}d"
+                attempt_record["raw_row_count"] = int(len(normalized))
+                attempt_record["rows_returned"] = bool(len(normalized) > 0)
+                attempt_record["first_timestamp_returned"] = (
+                    str(normalized.iloc[0]["timestamp"]) if len(normalized) > 0 else None
+                )
+                attempt_record["last_timestamp_returned"] = (
+                    str(normalized.iloc[-1]["timestamp"]) if len(normalized) > 0 else None
+                )
+                attempt_record["timezone_info_before_conversion"] = "normalized_to_central_via_historical_period_fetch"
+            elif attempt_record["method"] == "simple_period":
                 normalized = _fetch_es_candles_simple(
                     interval=str(request_kwargs["interval"]),
                     period=str(request_kwargs["period"]),
