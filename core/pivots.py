@@ -151,7 +151,32 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
         }
 
     if last_match is None:
-        raise ValueError(f"No pivot {pivot_type} found in the 12 PM to 4 PM session window")
+        # Match the working Spx-Prophet behavior: if no strict pivot exists in the
+        # 12 PM-4 PM window, fall back to the strongest close in that same window.
+        in_window = window.loc[
+            window["timestamp"].map(to_central_time) >= pivot_window_start
+        ].copy()
+        if in_window.empty:
+            raise ValueError(f"No pivot {pivot_type} found in the 12 PM to 4 PM session window")
+
+        fallback_index = (
+            int(in_window["close"].astype(float).idxmax())
+            if pivot_type == "high"
+            else int(in_window["close"].astype(float).idxmin())
+        )
+        context = _select_pivot_context_candles(window, fallback_index)
+        return {
+            "pivot_type": pivot_type,
+            "pivot_index": fallback_index,
+            "pivot_time": context["pivot_candle"]["timestamp"],
+            "previous_candle": context["previous_candle"],
+            "pivot_candle": context["pivot_candle"],
+            "next_candle": context["next_candle"],
+            "green_candle": context["green_candle"],
+            "red_candle": context["red_candle"],
+            "confirmed": False,
+            "fallback_reason": "no_strict_pivot_in_window",
+        }
 
     return last_match
 
@@ -169,13 +194,17 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
         elif metadata["color"] == "green":
             green_candles.append(metadata)
 
-    if not red_candles:
-        raise ValueError("Unable to find any bearish candles for the HW ascending anchor")
-    if not green_candles:
-        raise ValueError("Unable to find any bullish candles for the LW descending anchor")
+    # Match the working Spx-Prophet repo: if one color is absent, fall back to
+    # the absolute session extreme rather than failing the whole anchor build.
+    if red_candles:
+        hw_source = max(red_candles, key=lambda candle: candle["high"])
+    else:
+        hw_source = max((row_to_candle_metadata(row) for _, row in window.iterrows()), key=lambda candle: candle["high"])
 
-    hw_source = max(red_candles, key=lambda candle: candle["high"])
-    lw_source = min(green_candles, key=lambda candle: candle["low"])
+    if green_candles:
+        lw_source = min(green_candles, key=lambda candle: candle["low"])
+    else:
+        lw_source = min((row_to_candle_metadata(row) for _, row in window.iterrows()), key=lambda candle: candle["low"])
 
     return {
         "hw_anchor": {
@@ -254,6 +283,12 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
         start_time=at_central(session_date, 11, 0),
         end_time=at_central(session_date, 16, 0),
     )
+    if len(afternoon_window) < 3:
+        afternoon_window = filter_time_range(
+            normalized,
+            start_time=at_central(session_date, 8, 30),
+            end_time=at_central(session_date, 20, 0),
+        )
     ny_session_window = filter_time_range(
         normalized,
         start_time=at_central(session_date, 8, 30),
