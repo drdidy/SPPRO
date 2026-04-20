@@ -2443,43 +2443,79 @@ def build_option_lookup_request(
     )
 
 
+def normalize_option_candidate_rows(candidates: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Normalize provider candidate rows for the app table."""
+
+    normalized_rows: list[dict[str, Any]] = []
+    for candidate in candidates or []:
+        normalized_rows.append(
+            {
+                "contract_symbol": candidate.get("symbol", ""),
+                "option_type": candidate.get("option_type") or candidate.get("right", ""),
+                "strike": candidate.get("strike", ""),
+                "expiration": candidate.get("expiration") or candidate.get("expiration_date", ""),
+                "bid": candidate.get("bid", ""),
+                "ask": candidate.get("ask", ""),
+                "last": candidate.get("last", ""),
+                "mark": candidate.get("mark", ""),
+                "volume": candidate.get("volume", ""),
+                "open_interest": candidate.get("open_interest", ""),
+                "status": candidate.get("status", ""),
+                "note": candidate.get("note", ""),
+            }
+        )
+    return normalized_rows
+
+
 def render_options_provider_preview(
     provider: Any,
     provider_status: dict[str, Any],
     option_request: OptionLookupRequest | None,
+    play_spx: dict[str, Any] | None = None,
+    play_es: dict[str, Any] | None = None,
 ) -> None:
     """Render a safe provider integration preview without requiring live connectivity."""
 
     with st.expander("Options Data", expanded=False):
-        st.caption("Provider integration preview. Live options mode is not active unless a provider is configured and implemented.")
-        st.write(f"Provider selected: {provider_status['provider_name']}")
-        st.write(f"Options mode enabled: {'Yes' if provider_status['options_mode_enabled'] else 'No'}")
-        st.write(f"Credentials detected: {'Yes' if provider_status['credentials_detected'] else 'No'}")
-        st.write(f"Configured: {'Yes' if provider_status['configured'] else 'No'}")
-        st.write(f"Live readiness status: {provider_status['readiness_state']}")
-        st.write(f"Live options mode available: {'Yes' if provider_status['live_mode_available'] else 'No'}")
-        st.write(f"Provider status: {provider_status['status_label']}")
-        for note in provider_status.get("notes", []):
-            st.write(f"- {note}")
-
-        if provider_status.get("bridge_only", True):
-            st.info("This provider is currently bridge-only. Live chain and quote retrieval are not active yet.")
+        status_col1, status_col2, status_col3, status_col4, status_col5 = st.columns(5)
+        status_col1.metric("Provider", str(provider_status.get("provider_name", "none")).upper())
+        status_col2.metric("Configured", "Yes" if provider_status.get("configured") else "No")
+        status_col3.metric("Credentials", "Yes" if provider_status.get("credentials_detected") else "No")
+        status_col4.metric("Live Ready", "Yes" if provider_status.get("live_mode_available") else "No")
+        status_col5.metric("Status", provider_status.get("status_label", "Unavailable"))
 
         if option_request is None:
-            st.info("No option lookup request is available yet. A primary SPX options setup with a strike is required.")
-            st.markdown("**Candidate Contract Preview**")
-            st.info("No candidate-contract preview is available without a prepared lookup request.")
+            st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")
             return
 
-        st.markdown("**Prepared Contract Lookup Request**")
-        st.json(option_request.to_dict(), expanded=False)
+        request_payload = option_request.to_dict()
+        overview_col1, overview_col2, overview_col3 = st.columns(3)
+        overview_col1.metric("Direction", str(request_payload.get("direction", "")))
+        overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
+        overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
 
-        preview_candidates = provider.find_candidate_contracts(option_request)
-        st.markdown("**Candidate Contract Preview**")
+        chain_snapshot = provider.get_option_chain_snapshot(option_request) if provider is not None else {"status": "unavailable", "contracts": []}
+        chain_status = chain_snapshot.get("status", "unavailable")
+        preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts")) or normalize_option_candidate_rows(provider.find_candidate_contracts(option_request))
+
+        if provider_status.get("bridge_only", True):
+            st.info("Provider bridge is available, but live options chain and quotes are not active yet.")
+
+        st.markdown("**Prepared Lookup Request**")
+        st.json(request_payload, expanded=False)
+        st.caption(f"Connection/data status: {chain_status}")
+
+        st.markdown("**Candidate Contracts**")
         if preview_candidates:
             st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
         else:
-            st.info("No candidate contracts are available because the provider bridge is not live yet.")
+            st.info("No live option candidates are available. The prepared lookup request is shown above so execution support can be verified without fake data.")
+
+        notes = provider_status.get("notes", [])
+        if notes:
+            with st.expander("Provider Notes", expanded=False):
+                for note in notes:
+                    st.write(f"- {note}")
 
 
 def build_daily_snapshot(
@@ -3381,11 +3417,39 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 live_es_available=live_defaults["es_available"],
             )
             open_reference_source_label = "live SPX quote" if live_defaults["spx_available"] and abs(float(open_reference) - float(live_defaults["default_open_reference"])) < 0.005 else "manual entry"
-        st.caption(f"Current SPX source: {current_spx_source_label}")
-        st.caption(f"Current ES source: {current_es_source_label}")
-        st.caption(f"9:00 AM open reference source: {open_reference_source_label}")
+        with st.expander("Advanced Controls", expanded=False):
+            st.caption(f"Current SPX source: {current_spx_source_label}")
+            st.caption(f"Current ES source: {current_es_source_label}")
+            st.caption(f"9:00 AM open source: {open_reference_source_label}")
+            price_space_options = ["SPX", "ES"]
+            manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
+            options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
+            options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
+
+        with st.expander("Manual Anchors", expanded=False):
+            pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
+            pivot_low_hour = st.selectbox("Bounce pivot time", options=[12, 13, 14, 15, 16], index=2)
+            pivot_green_high = st.number_input("Rejection green candle high", value=6857.70, step=0.25, format="%.2f")
+            pivot_red_high = st.number_input("Rejection red candle high", value=6859.50, step=0.25, format="%.2f")
+            pivot_red_low = st.number_input("Bounce red candle low", value=6848.75, step=0.25, format="%.2f")
+            pivot_green_low = st.number_input("Bounce green candle low", value=6851.00, step=0.25, format="%.2f")
+            hw_hour = st.selectbox("Highest wick time", options=list(range(9, 17)), index=4)
+            hw_price = st.number_input("Highest wick price", value=6864.50, step=0.25, format="%.2f")
+            lw_hour = st.selectbox("Lowest wick time", options=list(range(9, 17)), index=1)
+            lw_price = st.number_input("Lowest wick price", value=6840.25, step=0.25, format="%.2f")
+
+        with st.expander("Overnight Overrides", expanded=False):
+            use_asc_ceiling_override = st.checkbox("Override ASC Ceiling")
+            asc_ceiling_override = st.number_input("ASC Ceiling override value", value=0.00, step=0.25, format="%.2f")
+            use_desc_ceiling_override = st.checkbox("Override DESC Ceiling")
+            desc_ceiling_override = st.number_input("DESC Ceiling override value", value=0.00, step=0.25, format="%.2f")
+            use_asc_floor_override = st.checkbox("Override ASC Floor")
+            asc_floor_override = st.number_input("ASC Floor override value", value=0.00, step=0.25, format="%.2f")
+            use_desc_floor_override = st.checkbox("Override DESC Floor")
+            desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
+
         if not historical_mode:
-            with st.expander("Live Quote Status", expanded=False):
+            with st.expander("Diagnostics", expanded=False):
                 st.write("Current SPX fetch")
                 st.code(
                     "\n".join(
@@ -3411,34 +3475,6 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                     )
                 )
                 st.write(f"Failure classification: {classify_quote_failure(live_defaults['es_fetch_status'], live_defaults['spx_fetch_status'])}")
-        price_space_options = ["SPX", "ES"]
-        manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
-
-        st.subheader("Options Provider")
-        options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
-        options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
-
-        st.subheader("Manual Anchors")
-        pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
-        pivot_low_hour = st.selectbox("Bounce pivot time", options=[12, 13, 14, 15, 16], index=2)
-        pivot_green_high = st.number_input("Rejection green candle high", value=6857.70, step=0.25, format="%.2f")
-        pivot_red_high = st.number_input("Rejection red candle high", value=6859.50, step=0.25, format="%.2f")
-        pivot_red_low = st.number_input("Bounce red candle low", value=6848.75, step=0.25, format="%.2f")
-        pivot_green_low = st.number_input("Bounce green candle low", value=6851.00, step=0.25, format="%.2f")
-        hw_hour = st.selectbox("Highest wick time", options=list(range(9, 17)), index=4)
-        hw_price = st.number_input("Highest wick price", value=6864.50, step=0.25, format="%.2f")
-        lw_hour = st.selectbox("Lowest wick time", options=list(range(9, 17)), index=1)
-        lw_price = st.number_input("Lowest wick price", value=6840.25, step=0.25, format="%.2f")
-
-        st.subheader("Overnight Overrides")
-        use_asc_ceiling_override = st.checkbox("Override ASC Ceiling")
-        asc_ceiling_override = st.number_input("ASC Ceiling override value", value=0.00, step=0.25, format="%.2f")
-        use_desc_ceiling_override = st.checkbox("Override DESC Ceiling")
-        desc_ceiling_override = st.number_input("DESC Ceiling override value", value=0.00, step=0.25, format="%.2f")
-        use_asc_floor_override = st.checkbox("Override ASC Floor")
-        asc_floor_override = st.number_input("ASC Floor override value", value=0.00, step=0.25, format="%.2f")
-        use_desc_floor_override = st.checkbox("Override DESC Floor")
-        desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
 
     return {
         "prior_session_date": prior_session_date,
@@ -5513,6 +5549,8 @@ def render_live_mode_shell(
     checkpoint_views: list[dict[str, Any]],
     persisted_settings: dict[str, Any],
     settings: dict[str, Any],
+    options_provider: Any,
+    options_provider_status: dict[str, Any],
 ) -> None:
     """Render the live operator workflow."""
 
@@ -5576,6 +5614,27 @@ def render_live_mode_shell(
             render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
         with st.expander("Verification", expanded=False):
             render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
+        primary_play_spx = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
+        primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
+        option_request = None
+        if primary_play_spx is not None and primary_play_spx.get("strike"):
+            try:
+                option_request = build_option_lookup_request(
+                    session="NY Options",
+                    direction=str(primary_play_spx.get("direction", "")),
+                    strike=int(primary_play_spx.get("strike", 0)),
+                    trade_date=inputs["next_trading_date"],
+                    scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
+                )
+            except (TypeError, ValueError):
+                option_request = None
+        render_options_provider_preview(
+            options_provider,
+            options_provider_status,
+            option_request,
+            primary_play_spx,
+            primary_play_es,
+        )
 
     with live_asian_tab:
         st.markdown(
@@ -6075,6 +6134,8 @@ def main() -> None:
                 checkpoint_views=checkpoint_views,
                 persisted_settings=persisted_settings,
                 settings=settings,
+                options_provider=options_provider,
+                options_provider_status=options_provider_status,
             )
         else:
             st.info("Historical Mode is active in the sidebar. Switch back to Live Mode to use the current-session operator workflow.")
