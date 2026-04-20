@@ -1272,7 +1272,7 @@ def render_tab1_hero(
         status_icon = "●" if not sit_out["sit_out"] else "!"
 
     confidence_tone = get_confidence_tone(confidence)
-    current_display = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
+    current_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
 
     st.markdown(
         f"""
@@ -1286,7 +1286,7 @@ def render_tab1_hero(
                     </div>
                 </div>
                 <div class="spx-hero-status">
-                    <div class="spx-hero-status-label">Current Price</div>
+                    <div class="spx-hero-status-label">Current Price (ES)</div>
                     <div style="font-family:'JetBrains Mono', monospace; font-size:2.1rem; font-weight:800; color:#f8fbff; text-shadow:0 0 20px rgba(0,212,255,0.22); margin-bottom:0.65rem;">{current_display}</div>
                     <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(status_label)}</span></div>
                 </div>
@@ -1299,14 +1299,14 @@ def render_tab1_hero(
 
 def render_key_levels_card(
     final_lines: dict[str, dict[str, Any]],
-    current_spx_price: float | None,
+    current_es_price: float | None,
     effective_offset: float,
 ) -> None:
     """Render a compact key-levels summary card."""
 
-    current_label = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
+    current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
     chips = "".join(
-        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])} (SPX)</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
+        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])} (ES)</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
         for name in LINE_DISPLAY_ORDER
     )
     st.markdown(
@@ -1316,16 +1316,16 @@ def render_key_levels_card(
                 <div class="spx-card-icon">◆</div>
                 <div>
                     <div class="spx-card-heading">Key Levels Summary</div>
-                    <div class="spx-card-subtitle">Fast scan of the full projected stack in SPX decision terms.</div>
+                    <div class="spx-card-subtitle">Fast scan of the full projected stack in ES source terms.</div>
                 </div>
             </div>
             <div class="spx-card-grid">
                 <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Current Price (SPX)</div>
+                    <div class="spx-card-stat-label">Current Price (ES)</div>
                     <div class="spx-card-stat-value">{current_label}</div>
                 </div>
                 <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Effective Offset</div>
+                    <div class="spx-card-stat-label">ES-SPX Offset</div>
                     <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
                 </div>
             </div>
@@ -3460,6 +3460,7 @@ def build_line_rows(
     original_lines: dict[str, dict[str, Any]],
     final_lines: dict[str, dict[str, Any]],
     override_decisions: dict[str, Any],
+    unit_label: str,
 ) -> list[dict[str, Any]]:
     """Build a readable six-line table payload."""
 
@@ -3476,13 +3477,13 @@ def build_line_rows(
         rows.append(
             {
                 "Line": final_line["label"],
-                "Projected Level (SPX)": format_price(final_line["projected_price"]),
-                "Raw Anchor (SPX)": format_price(final_line.get("raw_anchor_price", final_line["anchor_price"])),
+                f"Projected Level ({unit_label})": format_price(final_line["projected_price"]),
+                f"Raw Anchor ({unit_label})": format_price(final_line.get("raw_anchor_price", final_line["anchor_price"])),
                 "Candle Count": final_line["candle_count"],
                 "Direction": final_line["direction"],
                 "Source": source_label,
-                "Original Projected (SPX)": format_price(original_line["projected_price"]) if applied else "",
-                "Override Projected (SPX)": format_price(final_line["projected_price"]) if applied else "",
+                f"Original Projected ({unit_label})": format_price(original_line["projected_price"]) if applied else "",
+                f"Override Projected ({unit_label})": format_price(final_line["projected_price"]) if applied else "",
             }
         )
 
@@ -3493,15 +3494,16 @@ def render_six_lines_panel(
     original_lines: dict[str, dict[str, Any]],
     final_lines: dict[str, dict[str, Any]],
     override_decisions: dict[str, Any],
+    unit_label: str = "ES",
 ) -> None:
     """Render the six projected lines in operator-friendly order."""
 
     st.markdown(
-        """
+        f"""
         <div class="spx-shell">
             <div class="spx-section-title">Projected Lines</div>
             <div class="spx-section-subtitle">
-                Ordered display follows the house structure: HW, ASC Ceiling, ASC Floor, DESC Ceiling, DESC Floor, LW. All values below are shown in SPX terms.
+                Ordered display follows the house structure: HW, ASC Ceiling, ASC Floor, DESC Ceiling, DESC Floor, LW. All values below are shown in {unit_label} terms.
             </div>
         </div>
         """,
@@ -3509,7 +3511,7 @@ def render_six_lines_panel(
     )
     with st.container():
         st.dataframe(
-            build_line_rows(original_lines, final_lines, override_decisions),
+            build_line_rows(original_lines, final_lines, override_decisions, unit_label),
             use_container_width=True,
             hide_index=True,
         )
@@ -3567,8 +3569,9 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
 
 def render_play_card(
     title: str,
-    play: dict[str, Any] | None,
-    projected_lines: dict[str, dict[str, Any]],
+    play_spx: dict[str, Any] | None,
+    projected_lines_spx: dict[str, dict[str, Any]],
+    projected_lines_es: dict[str, dict[str, Any]],
 ) -> None:
     """Render a single structured play card."""
 
@@ -3576,7 +3579,7 @@ def render_play_card(
     icon = "▲" if title == "Primary Trade" else "◇"
     subtitle = "Primary setup" if "Primary" in title else "Alternate setup"
 
-    if play is None:
+    if play_spx is None:
         st.markdown(
             f"""
             <div class="spx-card {card_class}">
@@ -3594,7 +3597,9 @@ def render_play_card(
         )
         return
 
-    play = resolve_play_display_values(play, projected_lines)
+    play = resolve_play_display_values(play_spx, projected_lines_spx)
+    entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
+    entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
 
     st.markdown(
         f"""
@@ -3609,19 +3614,20 @@ def render_play_card(
             <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
                 <div>
                     <div style="font-family:'Outfit','Segoe UI',sans-serif; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1;">{escape(play['direction'])}</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])}</div>
+                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])} <span style="font-size:1rem; color:#9cb0ca;">SPX</span></div>
                 </div>
                 <div class="spx-banner-meta" style="margin-bottom:0;">
                     <span class="spx-pill scenario-neutral">{escape(play['entry']['label'])}</span>
                 </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:0.9rem 1.2rem; color:#d7e2f1; font-size:1rem; line-height:1.7;">
+                <div><span class="spx-muted">ES line</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(entry_es_value)} ES</span></div>
                 <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
                 <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
-                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])}</span></div>
+                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
             </div>
             <div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">
-                {escape(play['stop']['label'])}
+                {escape(play['entry']['label'])} source in ES, converted once to SPX entry. {escape(play['stop']['label'])}
             </div>
         </div>
         """,
@@ -3710,7 +3716,7 @@ def render_projection_verification(
                     {
                         "Source Point": source_name,
                         "Timestamp": format_timestamp(details["timestamp"]),
-                        "Price": format_price(details["price"]),
+                        "Price (ES)": format_price(details["price"]),
                         "Search Window": details.get("search_window", ""),
                     }
                     for source_name, details in source_points.items()
@@ -3730,32 +3736,32 @@ def render_projection_verification(
                     "Pivot Extreme Used": format_price(pivot_high_extreme),
                     "Associated Context Candle": "red_candle",
                     "Associated Candle Value": format_price(_extract_context_value(pivot_high, "red_candle", "high")),
-                    "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_ceiling"]["price"]),
-                    "Projected Value": format_price(final_projected_lines_spx["asc_ceiling"]["projected_price"]),
+                    "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["asc_ceiling"]["price"]),
+                    "Projected Value (ES)": format_price(final_projected_lines_es["asc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Ceiling",
                     "Pivot Extreme Used": format_price(pivot_high_extreme),
                     "Associated Context Candle": "green_candle",
                     "Associated Candle Value": format_price(_extract_context_value(pivot_high, "green_candle", "high")),
-                    "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_ceiling"]["price"]),
-                    "Projected Value": format_price(final_projected_lines_spx["desc_ceiling"]["projected_price"]),
+                    "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["desc_ceiling"]["price"]),
+                    "Projected Value (ES)": format_price(final_projected_lines_es["desc_ceiling"]["projected_price"]),
                 },
                 {
                     "Line": "ASC Floor",
                     "Pivot Extreme Used": format_price(pivot_low_extreme),
                     "Associated Context Candle": "red_candle",
                     "Associated Candle Value": format_price(_extract_context_value(pivot_low, "red_candle", "low")),
-                    "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_floor"]["price"]),
-                    "Projected Value": format_price(final_projected_lines_spx["asc_floor"]["projected_price"]),
+                    "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["asc_floor"]["price"]),
+                    "Projected Value (ES)": format_price(final_projected_lines_es["asc_floor"]["projected_price"]),
                 },
                 {
                     "Line": "DESC Floor",
                     "Pivot Extreme Used": format_price(pivot_low_extreme),
                     "Associated Context Candle": "green_candle",
                     "Associated Candle Value": format_price(_extract_context_value(pivot_low, "green_candle", "low")),
-                    "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_floor"]["price"]),
-                    "Projected Value": format_price(final_projected_lines_spx["desc_floor"]["projected_price"]),
+                    "Raw Anchor (ES)": format_price(anchor_bundle["anchors"]["desc_floor"]["price"]),
+                    "Projected Value (ES)": format_price(final_projected_lines_es["desc_floor"]["projected_price"]),
                 },
             ]
             st.dataframe(pivot_anchor_rows, use_container_width=True, hide_index=True)
@@ -5031,14 +5037,24 @@ def main() -> None:
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines)
+                render_play_card(
+                    "Primary Trade",
+                    signal_package["scenario"]["primary_play"],
+                    final_projected_lines,
+                    final_projected_lines_es,
+                )
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines)
+                render_play_card(
+                    "Alternate Trade",
+                    signal_package["scenario"]["alternate_play"],
+                    final_projected_lines,
+                    final_projected_lines_es,
+                )
 
         render_spatial_ladder(
-            final_projected_lines,
-            inputs["current_spx_price"] if is_valid_price_input(inputs["current_spx_price"]) else None,
-            price_space_label="SPX",
+            final_projected_lines_es,
+            inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
+            price_space_label="ES",
         )
 
         if signal_package is not None:
@@ -5050,25 +5066,25 @@ def main() -> None:
             with st.expander("Structure", expanded=False):
                 render_scenario_section(signal_package["scenario"])
                 render_sit_out_section(signal_package["sit_out"])
-                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
-                render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+                render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
                 render_projection_verification(
                     anchor_bundle,
                     final_projected_lines,
                     final_projected_lines_es,
-                    final_projected_lines,
-                    "SPX",
+                    final_projected_lines_es,
+                    "ES",
                 )
         else:
             with st.expander("Structure", expanded=False):
-                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
-                render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+                render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
                 render_projection_verification(
                     anchor_bundle,
                     final_projected_lines,
                     final_projected_lines_es,
-                    final_projected_lines,
-                    "SPX",
+                    final_projected_lines_es,
+                    "ES",
                 )
     with tab_asian:
         st.markdown(
