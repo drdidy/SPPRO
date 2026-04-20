@@ -3726,28 +3726,25 @@ def render_projection_verification(
         spx_details = final_projected_lines_spx[name]
         es_details = final_projected_lines_es[name]
         raw_es_value = float(anchor_bundle["anchors"][name]["price"])
-        raw_spx_value = float(spx_details.get("raw_anchor_price", spx_details["anchor_price"]))
         projected_es_value = float(es_details["projected_price"])
-        projected_spx_value = float(spx_details["projected_price"])
         displayed_value = float(displayed_details["projected_price"])
-        candle_count = int(spx_details["candle_count"])
+        candle_count = int(es_details["candle_count"])
 
         verification_rows.append(
             {
                 "line_label": displayed_details["label"],
-                "raw_es_value": f"{format_price(raw_es_value)} (ES)",
-                "converted_spx_value": f"{format_price(raw_spx_value)} (SPX)",
-                "projected_es_value": f"{format_price(projected_es_value)} (ES)",
-                "projected_spx_value": f"{format_price(projected_spx_value)} (SPX)",
-                "final_displayed_value": f"{format_price(displayed_value)} ({displayed_unit_label})",
+                "raw_anchor_es": f"{format_price(raw_es_value)} (ES)",
+                "raw_anchor_timestamp": format_timestamp(es_details.get("raw_anchor_timestamp")),
+                "projected_es": f"{format_price(projected_es_value)} (ES)",
+                "displayed_es": f"{format_price(displayed_value)} ({displayed_unit_label})",
                 "candle_count": candle_count,
-                "direction": spx_details["direction"],
+                "direction": es_details["direction"],
             }
         )
 
-        if name in {"hw", "lw"} and candle_count > 0 and abs(projected_spx_value - raw_spx_value) < 1e-9:
+        if name in {"hw", "lw"} and candle_count > 0 and abs(projected_es_value - raw_es_value) < 1e-9:
             warnings.append(
-                f"{displayed_details['label']} has candle_count={candle_count} but projected_price still matches raw_anchor_price in SPX terms."
+                f"{displayed_details['label']} has candle_count={candle_count} but projected ES still matches the raw ES anchor."
             )
 
     with st.expander("Projection Verification", expanded=False):
