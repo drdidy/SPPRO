@@ -2523,6 +2523,7 @@ def render_options_provider_preview(
 
         chain_snapshot = provider.get_option_chain_snapshot(option_request) if provider is not None else {"status": "unavailable", "contracts": []}
         chain_status = chain_snapshot.get("status", "unavailable")
+        provider_diagnostics = chain_snapshot.get("diagnostics") or {}
         preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
         if not preview_candidates and not provider_status.get("live_mode_available", False):
             preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(option_request))
@@ -2535,6 +2536,8 @@ def render_options_provider_preview(
         st.caption(f"Connection/data status: {chain_status}")
         if chain_snapshot.get("message"):
             st.write(chain_snapshot["message"])
+        if chain_snapshot.get("error"):
+            st.warning(chain_snapshot["error"])
 
         st.markdown("**Candidate Contracts**")
         if preview_candidates:
@@ -2547,6 +2550,15 @@ def render_options_provider_preview(
             with st.expander("Provider Notes", expanded=False):
                 for note in notes:
                     st.write(f"- {note}")
+        if provider_diagnostics:
+            with st.expander("Provider Diagnostics", expanded=False):
+                stage_col1, stage_col2, stage_col3, stage_col4 = st.columns(4)
+                stage_col1.metric("Login", "OK" if provider_diagnostics.get("login", {}).get("success") else "Fail")
+                stage_col2.metric("Chain", "OK" if provider_diagnostics.get("chain_lookup", {}).get("success") else "Fail")
+                stage_col3.metric("Quotes", "OK" if provider_diagnostics.get("quote_lookup", {}).get("success") else "Fail")
+                stage_col4.metric("Failure Stage", str(provider_diagnostics.get("failure_stage") or "None"))
+                st.write(f"Failure message: {provider_diagnostics.get('failure_message') or 'None'}")
+                st.json(provider_diagnostics, expanded=False)
 
 
 def build_daily_snapshot(

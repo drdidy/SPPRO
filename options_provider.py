@@ -204,6 +204,23 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         self._session_expiration: float = 0.0
         self._last_error: str | None = None
 
+    @staticmethod
+    def _build_diagnostics() -> dict[str, Any]:
+        """Create a mutable diagnostics payload for a lookup run."""
+
+        return {
+            "login": {"success": False, "message": ""},
+            "chain_lookup": {"success": False, "message": ""},
+            "quote_lookup": {"success": False, "message": ""},
+            "failure_stage": None,
+            "failure_message": None,
+            "provider_mode": None,
+            "request": {},
+            "symbol_resolution": {},
+            "expiration_resolution": {},
+            "strike_resolution": {},
+        }
+
     def _get_external_value(self, *names: str) -> str | None:
         """Read a config value from environment variables or Streamlit secrets."""
 
@@ -248,10 +265,12 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
 
         return self.options_mode_enabled and self.is_configured() and TASTYTRADE_SDK_AVAILABLE
 
-    def _login(self) -> str:
+    def _login(self, diagnostics: dict[str, Any] | None = None) -> str:
         """Authenticate with tastytrade and return a live session token."""
 
         if self._session_token and time.time() < self._session_expiration - 60:
+            if diagnostics is not None:
+                diagnostics["login"] = {"success": True, "message": "Reused active tastytrade session token."}
             return self._session_token
 
         username = self._get_external_value(*TASTYTRADE_USERNAME_KEYS)
@@ -282,15 +301,17 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         self._session_token = str(token)
         self._session_expiration = time.time() + 14 * 60
         self._last_error = None
+        if diagnostics is not None:
+            diagnostics["login"] = {"success": True, "message": "Authenticated successfully with tastytrade session login."}
         return self._session_token
 
-    def _build_sdk_session(self) -> Session:
+    def _build_sdk_session(self, diagnostics: dict[str, Any] | None = None) -> Session:
         """Build an authenticated SDK session from a live session token."""
 
         if not TASTYTRADE_SDK_AVAILABLE or Session is None:
             raise RuntimeError("tastytrade SDK is not installed.")
 
-        token = self._login()
+        token = self._login(diagnostics)
         sdk_session = Session(provider_secret="unused", refresh_token="unused", is_test=self._is_test_environment(), timeout=12)
         sdk_session.session_token = token
         sdk_session.session_expiration = self._session_expiration
@@ -305,23 +326,56 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             return None
         return float(value)
 
-    def _pick_expiration(self, chain: dict[date, list[Option]], request: OptionLookupRequest) -> tuple[date | None, list[Option]]:
+    def _pick_expiration(
+        self,
+        chain: dict[date, list[Option]],
+        request: OptionLookupRequest,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> tuple[date | None, list[Option]]:
         """Pick the nearest usable expiration for the lookup request."""
 
         if not chain:
+            if diagnostics is not None:
+                diagnostics["expiration_resolution"] = {
+                    "requested_date": request.trade_date,
+                    "returned_expirations": [],
+                    "chosen_expiration": None,
+                    "reason": "No expirations returned from option chain.",
+                }
             return None, []
         target_date = date.fromisoformat(request.trade_date)
         eligible_dates = sorted(expiration for expiration in chain if expiration >= target_date)
         chosen_date = eligible_dates[0] if eligible_dates else sorted(chain.keys())[0]
+        if diagnostics is not None:
+            diagnostics["expiration_resolution"] = {
+                "requested_date": request.trade_date,
+                "returned_expirations": [expiration.isoformat() for expiration in sorted(chain.keys())[:20]],
+                "chosen_expiration": chosen_date.isoformat(),
+                "reason": "Nearest usable expiration on or after request date." if eligible_dates else "No future expiration found; used nearest available expiration.",
+            }
         return chosen_date, chain.get(chosen_date, [])
 
-    async def _fetch_option_chain_async(self, request: OptionLookupRequest) -> tuple[list[OptionCandidate], str]:
+    async def _fetch_option_chain_async(self, request: OptionLookupRequest, diagnostics: dict[str, Any]) -> tuple[list[OptionCandidate], str]:
         """Fetch a real option chain slice and rank candidate contracts."""
 
-        sdk_session = self._build_sdk_session()
+        diagnostics["provider_mode"] = "test" if self._is_test_environment() else "live"
+        diagnostics["request"] = request.to_dict()
+        sdk_session = self._build_sdk_session(diagnostics)
+        diagnostics["symbol_resolution"] = {
+            "underlying_symbol": request.underlying_symbol,
+            "direction": request.direction,
+            "option_type": request.resolved_option_type(),
+            "requested_strike": request.strike,
+        }
         option_chain = await get_option_chain(sdk_session, request.underlying_symbol)
-        expiration_date, options = self._pick_expiration(option_chain, request)
+        diagnostics["chain_lookup"] = {"success": True, "message": f"Loaded option chain for {request.underlying_symbol}."}
+        expiration_date, options = self._pick_expiration(option_chain, request, diagnostics)
         if expiration_date is None or not options:
+            diagnostics["strike_resolution"] = {
+                "requested_strike": request.strike,
+                "available_nearby_strikes": [],
+                "reason": "No usable expiration or contracts returned.",
+            }
             return [], "no_contracts"
 
         desired_type = request.resolved_option_type()
@@ -334,8 +388,14 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             and not bool(option.is_closing_only)
         ]
         if not filtered:
+            diagnostics["strike_resolution"] = {
+                "requested_strike": request.strike,
+                "available_nearby_strikes": [],
+                "reason": f"No active {desired_type} contracts were available in the chosen expiration.",
+            }
             return [], "no_matching_contracts"
 
+        available_strikes = sorted({int(float(option.strike_price)) for option in filtered})
         filtered.sort(
             key=lambda option: (
                 abs(float(option.strike_price) - float(request.strike)),
@@ -344,6 +404,12 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             )
         )
         selected = filtered[:5]
+        diagnostics["strike_resolution"] = {
+            "requested_strike": request.strike,
+            "available_nearby_strikes": available_strikes[:15],
+            "selected_strikes": [int(float(option.strike_price)) for option in selected],
+            "reason": "Sorted by nearest strike, then nearest expiration and strike value.",
+        }
         candidates = [
             OptionCandidate(
                 symbol=option.symbol,
@@ -359,10 +425,10 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         ]
         return candidates, "ok"
 
-    async def _fetch_live_quotes_async(self, streamer_symbols: list[str]) -> dict[str, dict[str, Any]]:
+    async def _fetch_live_quotes_async(self, streamer_symbols: list[str], diagnostics: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Fetch quote, trade, and summary events for the supplied symbols."""
 
-        sdk_session = self._build_sdk_session()
+        sdk_session = self._build_sdk_session(diagnostics)
         symbols = [symbol for symbol in streamer_symbols if symbol]
         if not symbols:
             return {}
@@ -410,6 +476,10 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "volume": getattr(trade, "day_volume", None),
                 "open_interest": getattr(summary, "open_interest", None),
             }
+        diagnostics["quote_lookup"] = {
+            "success": True,
+            "message": f"Fetched live quote payloads for {sum(1 for symbol in symbols if normalized.get(symbol))} contract(s).",
+        }
         return normalized
 
     def get_status(self) -> ProviderStatus:
@@ -467,11 +537,18 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "status": "bridge_only",
                 "contracts": self.find_candidate_contracts(request),
                 "message": "Live lookup is unavailable. Showing prepared request only.",
+                "diagnostics": {
+                    "provider_mode": "test" if self._is_test_environment() else "live",
+                    "request": request.to_dict(),
+                    "failure_stage": "configuration",
+                    "failure_message": "Provider is not configured for live lookup.",
+                },
             }
 
+        diagnostics = self._build_diagnostics()
         try:
-            candidates, chain_status = anyio_run(self._fetch_option_chain_async, request)
-            quote_map = anyio_run(self._fetch_live_quotes_async, [candidate.streamer_symbol for candidate in candidates]) if candidates else {}
+            candidates, chain_status = anyio_run(self._fetch_option_chain_async, request, diagnostics)
+            quote_map = anyio_run(self._fetch_live_quotes_async, [candidate.streamer_symbol for candidate in candidates], diagnostics) if candidates else {}
             normalized_contracts = []
             for candidate in candidates:
                 quote_details = quote_map.get(candidate.streamer_symbol, {})
@@ -501,9 +578,46 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "status": "live" if normalized_contracts else chain_status,
                 "contracts": normalized_contracts,
                 "message": "Live candidate contracts loaded." if normalized_contracts else "No live contracts matched the lookup request.",
+                "diagnostics": {
+                    **diagnostics,
+                    "failure_stage": (
+                        None
+                        if normalized_contracts
+                        else (
+                            "expiration resolution"
+                            if chain_status == "no_contracts"
+                            else "strike resolution"
+                            if chain_status == "no_matching_contracts"
+                            else None
+                        )
+                    ),
+                    "failure_message": (
+                        None
+                        if normalized_contracts
+                        else diagnostics.get("expiration_resolution", {}).get("reason")
+                        if chain_status == "no_contracts"
+                        else diagnostics.get("strike_resolution", {}).get("reason")
+                        if chain_status == "no_matching_contracts"
+                        else None
+                    ),
+                },
             }
         except Exception as exc:
             self._last_error = f"Live lookup failed: {exc.__class__.__name__}: {exc}"
+            message = f"{exc.__class__.__name__}: {exc}"
+            if not diagnostics["login"]["success"]:
+                diagnostics["failure_stage"] = "auth/session"
+            elif not diagnostics["chain_lookup"]["success"]:
+                diagnostics["failure_stage"] = "chain lookup"
+            elif not diagnostics["quote_lookup"]["success"]:
+                diagnostics["failure_stage"] = "quote lookup"
+            else:
+                diagnostics["failure_stage"] = "connectivity"
+            diagnostics["failure_message"] = message
+            if not diagnostics["chain_lookup"]["message"]:
+                diagnostics["chain_lookup"]["message"] = "Chain lookup did not complete."
+            if not diagnostics["quote_lookup"]["message"]:
+                diagnostics["quote_lookup"]["message"] = "Quote lookup did not complete."
             return {
                 "provider": self.provider_name,
                 "request": request.to_dict(),
@@ -511,6 +625,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "contracts": [],
                 "message": "Live options lookup failed. Check provider configuration and connectivity.",
                 "error": str(exc),
+                "diagnostics": diagnostics,
             }
 
     def get_option_quote(self, request: OptionQuoteRequest) -> dict[str, Any] | None:
