@@ -233,7 +233,7 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
         self.assertLess(line["projected_price"], line["raw_anchor_price"])
 
-    def test_session_wick_extremes_use_bearish_and_bullish_filters(self) -> None:
+    def test_session_wick_extremes_use_absolute_session_wicks(self) -> None:
         candles = pd.DataFrame(
             [
                 {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
@@ -250,12 +250,12 @@ class EngineRuleTests(unittest.TestCase):
 
         result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
 
-        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
         self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
-        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "106.00")
+        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "107.00")
         self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "90.00")
         self.assertEqual(result["ny_session_rows"], 9)
-        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 106.00)
+        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 107.00)
         self.assertEqual(result["source_points"]["pivot_lowest_wick"]["price"], 90.00)
 
     def test_hw_and_lw_projection_metadata_from_session_extremes(self) -> None:

@@ -187,17 +187,14 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
 
 
 def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
-    """Find the full-session highest bearish wick and lowest bullish wick anchors."""
+    """Find the full-session highest and lowest wick anchors."""
 
     all_candles = [row_to_candle_metadata(row) for _, row in window.iterrows()]
     if not all_candles:
         raise ValueError("At least one candle is required to detect session wick extremes")
 
-    bearish_candles = [candle for candle in all_candles if candle["color"] == "red"]
-    bullish_candles = [candle for candle in all_candles if candle["color"] == "green"]
-
-    hw_source = max(bearish_candles or all_candles, key=lambda candle: candle["high"])
-    lw_source = min(bullish_candles or all_candles, key=lambda candle: candle["low"])
+    hw_source = max(all_candles, key=lambda candle: candle["high"])
+    lw_source = min(all_candles, key=lambda candle: candle["low"])
 
     return {
         "hw_anchor": {
@@ -207,8 +204,8 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
-            "description": "Highest wick of any bearish candle in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "bearish_session_high",
+            "description": "Highest wick of the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_high",
         },
         "lw_anchor": {
             "price": float(lw_source["low"]),
@@ -217,8 +214,8 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": lw_source,
             "direction": "descending",
             "label": "LW",
-            "description": "Lowest wick of any bullish candle in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "bullish_session_low",
+            "description": "Lowest wick of the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_low",
         },
     }
 
