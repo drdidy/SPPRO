@@ -5488,6 +5488,18 @@ def render_review_card(title: str, review: dict[str, Any]) -> None:
             st.write(f"TP2 trigger: {format_timestamp(review.get('tp2_time'))}")
 
 
+def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anchor_bundle: dict[str, Any]) -> None:
+    """Render a compact historical context banner."""
+
+    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual input"
+    anchor_source = anchor_bundle.get("source", "Session anchors")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Prior Session", inputs["prior_session_date"].strftime("%Y-%m-%d"))
+    col2.metric("Next Trading Day", inputs["next_trading_date"].strftime("%Y-%m-%d"))
+    col3.metric("Projection Target", format_timestamp(nine_am_target))
+    col4.metric("Anchor Source", f"{anchor_source} | {source_mode}")
+
+
 def render_live_mode_shell(
     inputs: dict[str, Any],
     signal_package: dict[str, Any] | None,
@@ -5550,18 +5562,19 @@ def render_live_mode_shell(
                 render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
+        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
 
         with st.expander("Confirmation", expanded=False):
             render_confirmation_card(
                 confirmation,
                 resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
             )
-        with st.expander("Structure", expanded=False):
+        with st.expander("Structure Details", expanded=False):
             if signal_package is not None:
                 render_scenario_section(signal_package["scenario"])
                 render_sit_out_section(signal_package["sit_out"])
-            render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
             render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+        with st.expander("Verification", expanded=False):
             render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
 
     with live_asian_tab:
@@ -5738,17 +5751,6 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
     if sit_out_filter != "All":
         filtered_df = filtered_df.loc[filtered_df["sit_out"] == sit_out_filter]
 
-    metrics = build_backtest_metrics(filtered_df)
-    stats1, stats2, stats3, stats4, stats5, stats6 = st.columns(6)
-    stats1.metric("Total Setups", metrics["setups_tested"])
-    stats2.metric("Trades", metrics["trade_count"])
-    stats3.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
-    stats4.metric("Loss Rate", f"{metrics['loss_rate']:.1f}%")
-    stats5.metric("Average P&L", format_price(metrics["average_pnl"]))
-    stats6.metric("Total P&L", format_price(metrics["total_pnl"]))
-    st.metric("Expectancy", format_price(metrics["expectancy"]))
-
-    trade_rows = filtered_df.loc[filtered_df["trade_taken"]].copy()
     scenario_summary = build_group_backtest_summary(filtered_df, "scenario")
     confirmation_summary = build_group_backtest_summary(filtered_df, "confirmation")
     sitout_summary = build_group_backtest_summary(filtered_df, "sit_out")
@@ -5758,6 +5760,8 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
     weekly_summary = build_time_based_backtest_summary(filtered_df, "weekly")
     monthly_summary = build_time_based_backtest_summary(filtered_df, "monthly")
     sitout_effectiveness = build_sitout_effectiveness_summary(filtered_df)
+    metrics = build_backtest_metrics(filtered_df)
+    trade_rows = filtered_df.loc[filtered_df["trade_taken"]].copy()
 
     st.markdown("**Backtest Intelligence**")
     intel1, intel2, intel3 = st.columns(3)
@@ -5801,59 +5805,69 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
     sit5.metric("Costly", sitout_effectiveness["costly"])
     st.caption(f"Performance if traded: {format_price(sitout_effectiveness['total_pnl'])}")
 
-    with st.expander("Backtest Table", expanded=True):
-        if filtered_df.empty:
-            st.info("No sessions matched the selected filters.")
-        else:
-            display_df = filtered_df[
-                [
-                    "prior_session_date",
-                    "next_trading_date",
-                    "scenario",
-                    "confirmation",
-                    "sit_out",
-                    "primary_entry_triggered",
-                    "alternate_entry_triggered",
-                    "stop_hit",
-                    "tp1_hit",
-                    "tp2_hit",
-                    "first_outcome",
-                    "result_classification",
-                    "estimated_pnl",
-                    "event_order",
-                ]
-            ].copy()
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.markdown("**Backtest Snapshot**")
+    stats1, stats2, stats3, stats4, stats5, stats6 = st.columns(6)
+    stats1.metric("Total Setups", metrics["setups_tested"])
+    stats2.metric("Trades", metrics["trade_count"])
+    stats3.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
+    stats4.metric("Loss Rate", f"{metrics['loss_rate']:.1f}%")
+    stats5.metric("Average P&L", format_price(metrics["average_pnl"]))
+    stats6.metric("Total P&L", format_price(metrics["total_pnl"]))
+    st.metric("Expectancy", format_price(metrics["expectancy"]))
 
-    with st.expander("Performance by Scenario", expanded=False):
+    summary_left, summary_right = st.columns(2, gap="large")
+    with summary_left:
+        st.markdown("**Performance by Scenario**")
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
             st.dataframe(scenario_summary, use_container_width=True, hide_index=True)
-
-    with st.expander("Performance by Confirmation", expanded=False):
+        st.markdown("**Performance by Confirmation**")
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
             st.dataframe(confirmation_summary, use_container_width=True, hide_index=True)
-
-    with st.expander("Performance by Sit-Out", expanded=False):
+    with summary_right:
+        st.markdown("**Performance by Sit-Out**")
         if trade_rows.empty:
             st.info("No completed trades in the filtered set.")
         else:
             st.dataframe(sitout_summary, use_container_width=True, hide_index=True)
-
-    with st.expander("Weekly Summary", expanded=False):
+        st.markdown("**Weekly Summary**")
         if weekly_summary.empty:
             st.info("No weekly rows are available for the selected set.")
         else:
             st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
 
-    with st.expander("Monthly Summary", expanded=False):
-        if monthly_summary.empty:
-            st.info("No monthly rows are available for the selected set.")
-        else:
-            st.dataframe(monthly_summary, use_container_width=True, hide_index=True)
+    st.markdown("**Monthly Summary**")
+    if monthly_summary.empty:
+        st.info("No monthly rows are available for the selected set.")
+    else:
+        st.dataframe(monthly_summary, use_container_width=True, hide_index=True)
+
+    st.markdown("**Backtest Table**")
+    if filtered_df.empty:
+        st.info("No sessions matched the selected filters.")
+    else:
+        display_df = filtered_df[
+            [
+                "prior_session_date",
+                "next_trading_date",
+                "scenario",
+                "confirmation",
+                "sit_out",
+                "primary_entry_triggered",
+                "alternate_entry_triggered",
+                "stop_hit",
+                "tp1_hit",
+                "tp2_hit",
+                "first_outcome",
+                "result_classification",
+                "estimated_pnl",
+                "event_order",
+            ]
+        ].copy()
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 def render_historical_projection_mode(
@@ -5876,7 +5890,7 @@ def render_historical_projection_mode(
 
     with projection_tab:
         render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset)
-        st.info("Historical mode: structure is built only from the selected prior session and projected to the selected next trading day at 9:00 AM CT.")
+        render_historical_context_banner(inputs, nine_am_target, anchor_bundle)
         if signal_package is not None:
             render_trade_decision_summary(signal_package, final_projected_lines)
             decision_col1, decision_col2 = st.columns(2, gap="large")
@@ -5888,14 +5902,15 @@ def render_historical_projection_mode(
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
-        with st.expander("Historical Structure", expanded=False):
+        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+        render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+        with st.expander("Historical Structure Details", expanded=False):
             if signal_package is not None:
                 render_scenario_section(signal_package["scenario"])
                 render_sit_out_section(signal_package["sit_out"])
-            render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
-            render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
             render_historical_projection_panel(inputs, nine_am_target, anchor_bundle, final_projected_lines_es)
+        with st.expander("Verification", expanded=False):
+            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
 
     with review_tab:
         st.markdown("**Historical Review**")
