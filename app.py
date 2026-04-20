@@ -67,19 +67,23 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
 try:
     from options_provider import (
         PROVIDER_NAMES,
-        TASTYTRADE_2FA_KEYS,
-        TASTYTRADE_PASSWORD_KEYS,
+        TASTYTRADE_AUTH_CODE_KEYS,
+        TASTYTRADE_CLIENT_ID_KEYS,
+        TASTYTRADE_CLIENT_SECRET_KEYS,
+        TASTYTRADE_REDIRECT_URI_KEYS,
+        TASTYTRADE_REFRESH_TOKEN_KEYS,
         TASTYTRADE_TEST_KEYS,
-        TASTYTRADE_USERNAME_KEYS,
         OptionLookupRequest,
         load_options_provider,
     )
     OPTIONS_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     PROVIDER_NAMES = ["none"]
-    TASTYTRADE_USERNAME_KEYS = ["TASTYTRADE_USERNAME", "tastytrade_username"]
-    TASTYTRADE_PASSWORD_KEYS = ["TASTYTRADE_PASSWORD", "tastytrade_password"]
-    TASTYTRADE_2FA_KEYS = ["TASTYTRADE_2FA_CODE", "tastytrade_2fa_code"]
+    TASTYTRADE_CLIENT_ID_KEYS = ["TASTYTRADE_CLIENT_ID", "tastytrade_client_id"]
+    TASTYTRADE_CLIENT_SECRET_KEYS = ["TASTYTRADE_CLIENT_SECRET", "tastytrade_client_secret"]
+    TASTYTRADE_REDIRECT_URI_KEYS = ["TASTYTRADE_REDIRECT_URI", "tastytrade_redirect_uri"]
+    TASTYTRADE_REFRESH_TOKEN_KEYS = ["TASTYTRADE_REFRESH_TOKEN", "tastytrade_refresh_token"]
+    TASTYTRADE_AUTH_CODE_KEYS = ["TASTYTRADE_AUTH_CODE", "tastytrade_auth_code"]
     TASTYTRADE_TEST_KEYS = ["TASTYTRADE_IS_TEST", "tastytrade_is_test"]
 
     class OptionLookupRequest:  # type: ignore[override]
@@ -2495,21 +2499,27 @@ def render_options_provider_preview(
         status_col3.metric("Credentials", "Yes" if provider_status.get("credentials_detected") else "No")
         status_col4.metric("Live Ready", "Yes" if provider_status.get("live_mode_available") else "No")
         status_col5.metric("Status", provider_status.get("status_label", "Unavailable"))
+        st.caption(
+            f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
+            f"Environment: {provider_status.get('active_environment', 'sandbox')}"
+        )
 
         provider_name = str(provider_status.get("provider_name", "none")).lower()
         if provider_name == "none" or not provider_status.get("credentials_detected"):
             with st.container(border=True):
                 st.markdown("**Tastytrade Setup**")
                 st.write("Provider name: `tastytrade`")
-                st.write("Authentication mode: username/password only")
-                st.write(f"Username secret keys: `{TASTYTRADE_USERNAME_KEYS[0]}`, `{TASTYTRADE_USERNAME_KEYS[1]}`")
-                st.write(f"Password secret keys: `{TASTYTRADE_PASSWORD_KEYS[0]}`, `{TASTYTRADE_PASSWORD_KEYS[1]}`")
-                st.write(f"Optional 2FA secret keys: `{TASTYTRADE_2FA_KEYS[0]}`, `{TASTYTRADE_2FA_KEYS[1]}`")
+                st.write("Authentication mode: OAuth")
+                st.write(f"Client ID keys: `{TASTYTRADE_CLIENT_ID_KEYS[0]}`, `{TASTYTRADE_CLIENT_ID_KEYS[1]}`")
+                st.write(f"Client secret keys: `{TASTYTRADE_CLIENT_SECRET_KEYS[0]}`, `{TASTYTRADE_CLIENT_SECRET_KEYS[1]}`")
+                st.write(f"Preferred refresh-token keys: `{TASTYTRADE_REFRESH_TOKEN_KEYS[0]}`, `{TASTYTRADE_REFRESH_TOKEN_KEYS[1]}`")
+                st.write(f"Optional auth-code keys: `{TASTYTRADE_AUTH_CODE_KEYS[0]}`, `{TASTYTRADE_AUTH_CODE_KEYS[1]}`")
+                st.write(f"Optional redirect-URI keys: `{TASTYTRADE_REDIRECT_URI_KEYS[0]}`, `{TASTYTRADE_REDIRECT_URI_KEYS[1]}`")
                 st.write(f"Optional sandbox flag keys: `{TASTYTRADE_TEST_KEYS[0]}`, `{TASTYTRADE_TEST_KEYS[1]}`")
                 if provider_name == "none":
                     st.info("Provider is still `none`. Open `Advanced Controls` in the sidebar, enable options mode, and change the provider to `tastytrade`.")
                 else:
-                    st.info("Provider is set to `tastytrade`, but the required credentials were not detected in environment variables or Streamlit secrets.")
+                    st.info("Provider is set to `tastytrade`, but the required OAuth credentials were not detected in environment variables or Streamlit secrets.")
 
         if option_request is None:
             st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")
@@ -2553,10 +2563,13 @@ def render_options_provider_preview(
         if provider_diagnostics:
             with st.expander("Provider Diagnostics", expanded=False):
                 stage_col1, stage_col2, stage_col3, stage_col4 = st.columns(4)
-                stage_col1.metric("Login", "OK" if provider_diagnostics.get("login", {}).get("success") else "Fail")
+                stage_col1.metric("Token", "OK" if provider_diagnostics.get("token_retrieval", {}).get("success") else "Fail")
                 stage_col2.metric("Chain", "OK" if provider_diagnostics.get("chain_lookup", {}).get("success") else "Fail")
                 stage_col3.metric("Quotes", "OK" if provider_diagnostics.get("quote_lookup", {}).get("success") else "Fail")
                 stage_col4.metric("Failure Stage", str(provider_diagnostics.get("failure_stage") or "None"))
+                st.write(f"Auth mode: {provider_diagnostics.get('auth_mode') or provider_status.get('auth_mode', 'none')}")
+                st.write(f"Environment: {provider_diagnostics.get('active_environment') or provider_status.get('active_environment', 'sandbox')}")
+                st.write(f"Token message: {provider_diagnostics.get('token_retrieval', {}).get('message') or 'None'}")
                 st.write(f"Failure message: {provider_diagnostics.get('failure_message') or 'None'}")
                 st.json(provider_diagnostics, expanded=False)
 

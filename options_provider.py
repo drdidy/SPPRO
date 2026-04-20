@@ -32,10 +32,13 @@ except Exception:
 
 
 PROVIDER_NAMES = ["none", "tastytrade"]
-TASTYTRADE_USERNAME_KEYS = ["TASTYTRADE_USERNAME", "tastytrade_username"]
-TASTYTRADE_PASSWORD_KEYS = ["TASTYTRADE_PASSWORD", "tastytrade_password"]
-TASTYTRADE_2FA_KEYS = ["TASTYTRADE_2FA_CODE", "tastytrade_2fa_code"]
 TASTYTRADE_TEST_KEYS = ["TASTYTRADE_IS_TEST", "tastytrade_is_test"]
+TASTYTRADE_CLIENT_ID_KEYS = ["TASTYTRADE_CLIENT_ID", "tastytrade_client_id"]
+TASTYTRADE_CLIENT_SECRET_KEYS = ["TASTYTRADE_CLIENT_SECRET", "tastytrade_client_secret"]
+TASTYTRADE_REDIRECT_URI_KEYS = ["TASTYTRADE_REDIRECT_URI", "tastytrade_redirect_uri"]
+TASTYTRADE_REFRESH_TOKEN_KEYS = ["TASTYTRADE_REFRESH_TOKEN", "tastytrade_refresh_token"]
+TASTYTRADE_AUTH_CODE_KEYS = ["TASTYTRADE_AUTH_CODE", "tastytrade_auth_code"]
+DEFAULT_USER_AGENT = "SPXProphet/1.0"
 
 
 @dataclass
@@ -112,6 +115,8 @@ class ProviderStatus:
     implementation_ready: bool
     status_label: str
     bridge_only: bool
+    auth_mode: str = "none"
+    active_environment: str = "sandbox"
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -215,6 +220,9 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             "failure_stage": None,
             "failure_message": None,
             "provider_mode": None,
+            "auth_mode": "none",
+            "active_environment": "sandbox",
+            "token_retrieval": {"success": False, "message": ""},
             "request": {},
             "symbol_resolution": {},
             "expiration_resolution": {},
@@ -233,14 +241,20 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 return str(secret_value)
         return None
 
-    def _detect_credential_values(self) -> dict[str, bool]:
-        """Detect whether external credential fields are present."""
+    def _detect_oauth_values(self) -> dict[str, bool]:
+        """Detect whether OAuth credential fields are present."""
 
-        username = self._get_external_value(*TASTYTRADE_USERNAME_KEYS)
-        password = self._get_external_value(*TASTYTRADE_PASSWORD_KEYS)
+        client_id = self._get_external_value(*TASTYTRADE_CLIENT_ID_KEYS)
+        client_secret = self._get_external_value(*TASTYTRADE_CLIENT_SECRET_KEYS)
+        redirect_uri = self._get_external_value(*TASTYTRADE_REDIRECT_URI_KEYS)
+        refresh_token = self._get_external_value(*TASTYTRADE_REFRESH_TOKEN_KEYS)
+        auth_code = self._get_external_value(*TASTYTRADE_AUTH_CODE_KEYS)
         return {
-            "username_detected": bool(username),
-            "password_detected": bool(password),
+            "client_id_detected": bool(client_id),
+            "client_secret_detected": bool(client_secret),
+            "redirect_uri_detected": bool(redirect_uri),
+            "refresh_token_detected": bool(refresh_token),
+            "auth_code_detected": bool(auth_code),
         }
 
     def _is_test_environment(self) -> bool:
@@ -254,68 +268,131 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
 
         return "https://api.cert.tastyworks.com" if self._is_test_environment() else "https://api.tastyworks.com"
 
-    def is_configured(self) -> bool:
-        """Return True when external credentials are detected."""
+    def _oauth_token_url(self) -> str:
+        """Return the configured OAuth token endpoint."""
 
-        credential_flags = self._detect_credential_values()
-        return credential_flags["username_detected"] and credential_flags["password_detected"]
+        return f"{self._base_url()}/oauth/token"
+
+    def _active_environment_label(self) -> str:
+        """Return the current tastytrade environment label."""
+
+        return "sandbox" if self._is_test_environment() else "production"
+
+    def _resolve_oauth_auth_mode(self) -> str:
+        """Determine the available OAuth grant mode."""
+
+        refresh_token = self._get_external_value(*TASTYTRADE_REFRESH_TOKEN_KEYS)
+        auth_code = self._get_external_value(*TASTYTRADE_AUTH_CODE_KEYS)
+        redirect_uri = self._get_external_value(*TASTYTRADE_REDIRECT_URI_KEYS)
+        client_id = self._get_external_value(*TASTYTRADE_CLIENT_ID_KEYS)
+        if refresh_token:
+            return "oauth_refresh_token"
+        if auth_code and client_id and redirect_uri:
+            return "oauth_authorization_code"
+        return "oauth_unconfigured"
+
+    def is_configured(self) -> bool:
+        """Return True when external OAuth credentials are detected."""
+
+        oauth_flags = self._detect_oauth_values()
+        has_client_secret = oauth_flags["client_secret_detected"]
+        has_refresh_flow = oauth_flags["refresh_token_detected"]
+        has_auth_code_flow = (
+            oauth_flags["client_id_detected"]
+            and oauth_flags["auth_code_detected"]
+            and oauth_flags["redirect_uri_detected"]
+        )
+        return has_client_secret and (has_refresh_flow or has_auth_code_flow)
 
     def is_live_ready(self) -> bool:
         """Return True when the provider can attempt a real live lookup safely."""
 
         return self.options_mode_enabled and self.is_configured() and TASTYTRADE_SDK_AVAILABLE
 
-    def _login(self, diagnostics: dict[str, Any] | None = None) -> str:
-        """Authenticate with tastytrade and return a live session token."""
+    def _retrieve_oauth_token(self, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Retrieve an OAuth access token from tastytrade."""
 
         if self._session_token and time.time() < self._session_expiration - 60:
             if diagnostics is not None:
-                diagnostics["login"] = {"success": True, "message": "Reused active tastytrade session token."}
-            return self._session_token
+                diagnostics["login"] = {"success": True, "message": "Reused active OAuth access token."}
+                diagnostics["token_retrieval"] = {"success": True, "message": "Reused active OAuth access token."}
+            return {"access_token": self._session_token, "expires_in": max(int(self._session_expiration - time.time()), 0)}
 
-        username = self._get_external_value(*TASTYTRADE_USERNAME_KEYS)
-        password = self._get_external_value(*TASTYTRADE_PASSWORD_KEYS)
-        two_factor = self._get_external_value(*TASTYTRADE_2FA_KEYS)
-        if not username or not password:
-            raise RuntimeError("No tastytrade credentials detected.")
+        client_id = self._get_external_value(*TASTYTRADE_CLIENT_ID_KEYS)
+        client_secret = self._get_external_value(*TASTYTRADE_CLIENT_SECRET_KEYS)
+        redirect_uri = self._get_external_value(*TASTYTRADE_REDIRECT_URI_KEYS)
+        refresh_token = self._get_external_value(*TASTYTRADE_REFRESH_TOKEN_KEYS)
+        auth_code = self._get_external_value(*TASTYTRADE_AUTH_CODE_KEYS)
+        auth_mode = self._resolve_oauth_auth_mode()
+        if diagnostics is not None:
+            diagnostics["auth_mode"] = auth_mode
+            diagnostics["active_environment"] = self._active_environment_label()
 
-        payload: dict[str, Any] = {
-            "login": username,
-            "password": password,
-            "remember-me": True,
-        }
-        if two_factor:
-            payload["two-factor-authentication-code"] = two_factor
+        if not client_secret:
+            raise RuntimeError("No tastytrade OAuth client secret detected.")
+
+        payload: dict[str, Any]
+        if refresh_token:
+            payload = {
+                "grant_type": "refresh_token",
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+            }
+            if client_id:
+                payload["client_id"] = client_id
+        elif auth_code and client_id and redirect_uri:
+            payload = {
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": auth_code,
+                "redirect_uri": redirect_uri,
+            }
+        else:
+            raise RuntimeError("OAuth credentials are incomplete. Supply a refresh token, or client ID + auth code + redirect URI.")
 
         response = requests.post(
-            f"{self._base_url()}/sessions",
+            self._oauth_token_url(),
             json=payload,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": DEFAULT_USER_AGENT,
+            },
             timeout=12,
         )
         response.raise_for_status()
         body = response.json()
-        token = body.get("data", {}).get("session-token")
+        token = body.get("access_token")
         if not token:
-            raise RuntimeError("tastytrade login returned no session token.")
+            raise RuntimeError("OAuth token response returned no access token.")
+        expires_in = int(body.get("expires_in", 900))
         self._session_token = str(token)
-        self._session_expiration = time.time() + 14 * 60
+        self._session_expiration = time.time() + expires_in
         self._last_error = None
         if diagnostics is not None:
-            diagnostics["login"] = {"success": True, "message": "Authenticated successfully with tastytrade session login."}
-        return self._session_token
+            diagnostics["login"] = {"success": True, "message": "Authenticated successfully with tastytrade OAuth."}
+            diagnostics["token_retrieval"] = {"success": True, "message": "OAuth access token retrieved successfully."}
+        return body
 
     def _build_sdk_session(self, diagnostics: dict[str, Any] | None = None) -> Session:
-        """Build an authenticated SDK session from a live session token."""
+        """Build an authenticated SDK session from an OAuth token."""
 
         if not TASTYTRADE_SDK_AVAILABLE or Session is None:
             raise RuntimeError("tastytrade SDK is not installed.")
 
-        token = self._login(diagnostics)
-        sdk_session = Session(provider_secret="unused", refresh_token="unused", is_test=self._is_test_environment(), timeout=12)
-        sdk_session.session_token = token
+        token_response = self._retrieve_oauth_token(diagnostics)
+        client_secret = self._get_external_value(*TASTYTRADE_CLIENT_SECRET_KEYS)
+        refresh_token = self._get_external_value(*TASTYTRADE_REFRESH_TOKEN_KEYS) or "unused"
+        sdk_session = Session(provider_secret=client_secret, refresh_token=refresh_token, is_test=self._is_test_environment(), timeout=12)
+        sdk_session.session_token = str(token_response.get("access_token", ""))
         sdk_session.session_expiration = self._session_expiration
-        sdk_session._client.headers.update({"Authorization": token})
+        sdk_session._client.headers.update(
+            {
+                "Authorization": f"Bearer {sdk_session.session_token}",
+                "User-Agent": DEFAULT_USER_AGENT,
+            }
+        )
         return sdk_session
 
     @staticmethod
@@ -359,6 +436,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         """Fetch a real option chain slice and rank candidate contracts."""
 
         diagnostics["provider_mode"] = "test" if self._is_test_environment() else "live"
+        diagnostics["active_environment"] = self._active_environment_label()
         diagnostics["request"] = request.to_dict()
         sdk_session = self._build_sdk_session(diagnostics)
         diagnostics["symbol_resolution"] = {
@@ -487,9 +565,13 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
 
         credentials_detected = self.is_configured()
         live_ready = self.is_live_ready()
+        auth_mode = self._resolve_oauth_auth_mode()
+        active_environment = self._active_environment_label()
         notes = [
             "Credentials must come from environment variables or Streamlit secrets.",
             "This section supports live contract lookup and quotes only. No order execution is enabled.",
+            f"Authentication mode: {auth_mode}.",
+            f"Environment: {active_environment}.",
         ]
         if not TASTYTRADE_SDK_AVAILABLE:
             notes.append("The tastytrade Python SDK is not installed in this environment.")
@@ -524,6 +606,8 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             implementation_ready=TASTYTRADE_SDK_AVAILABLE,
             status_label=status_label,
             bridge_only=not live_ready,
+            auth_mode=auth_mode,
+            active_environment=active_environment,
             notes=notes,
         )
 
@@ -539,6 +623,8 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "message": "Live lookup is unavailable. Showing prepared request only.",
                 "diagnostics": {
                     "provider_mode": "test" if self._is_test_environment() else "live",
+                    "auth_mode": self._resolve_oauth_auth_mode(),
+                    "active_environment": self._active_environment_label(),
                     "request": request.to_dict(),
                     "failure_stage": "configuration",
                     "failure_message": "Provider is not configured for live lookup.",
@@ -640,12 +726,14 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             }
 
         try:
-            quote_map = anyio_run(self._fetch_live_quotes_async, [request.contract_symbol])
+            diagnostics = self._build_diagnostics()
+            quote_map = anyio_run(self._fetch_live_quotes_async, [request.contract_symbol], diagnostics)
             quote = quote_map.get(request.contract_symbol, {})
             return {
                 "provider": self.provider_name,
                 "request": request.to_dict(),
                 "status": "live" if quote else "quote_unavailable",
+                "diagnostics": diagnostics,
                 **quote,
             }
         except Exception as exc:
