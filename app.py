@@ -3025,7 +3025,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         default_spx_source = "manual_fallback"
 
     with st.sidebar:
-        st.header(f"{APP_TITLE} {APP_VERSION}")
+        st.header(APP_TITLE)
         prior_session_date = st.date_input("Prior NY session date", value=default_prior)
         next_trading_date = st.date_input("Next trading date", value=default_next)
         data_mode_options = ["Auto-fetch", "Manual input"]
@@ -4520,11 +4520,9 @@ def main() -> None:
     initialize_app_state()
     inject_app_styles()
     settings, settings_message = load_settings()
-    st.title(f"{APP_TITLE} {APP_VERSION}")
-    st.caption("Decision-focused futures and options operator dashboard.")
+    st.title(APP_TITLE)
     if settings_message:
         st.warning(settings_message)
-    render_release_hygiene()
 
     inputs = get_inputs(settings)
     validation = validate_app_inputs(inputs)
