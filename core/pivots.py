@@ -297,7 +297,7 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
         )
     ny_session_window = filter_time_range(
         normalized,
-        start_time=at_central(session_date, 8, 30),
+        start_time=at_central(session_date, 8, 0),
         end_time=at_central(session_date, 16, 0),
     )
 
