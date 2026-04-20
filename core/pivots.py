@@ -187,29 +187,17 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
 
 
 def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
-    """Find the full-session red-high and green-low wick anchors."""
+    """Find the full-session highest bearish wick and lowest bullish wick anchors."""
 
-    red_candles = []
-    green_candles = []
+    all_candles = [row_to_candle_metadata(row) for _, row in window.iterrows()]
+    if not all_candles:
+        raise ValueError("At least one candle is required to detect session wick extremes")
 
-    for _, row in window.iterrows():
-        metadata = row_to_candle_metadata(row)
-        if metadata["color"] == "red":
-            red_candles.append(metadata)
-        elif metadata["color"] == "green":
-            green_candles.append(metadata)
+    bearish_candles = [candle for candle in all_candles if candle["color"] == "red"]
+    bullish_candles = [candle for candle in all_candles if candle["color"] == "green"]
 
-    # Match the working Spx-Prophet repo: if one color is absent, fall back to
-    # the absolute session extreme rather than failing the whole anchor build.
-    if red_candles:
-        hw_source = max(red_candles, key=lambda candle: candle["high"])
-    else:
-        hw_source = max((row_to_candle_metadata(row) for _, row in window.iterrows()), key=lambda candle: candle["high"])
-
-    if green_candles:
-        lw_source = min(green_candles, key=lambda candle: candle["low"])
-    else:
-        lw_source = min((row_to_candle_metadata(row) for _, row in window.iterrows()), key=lambda candle: candle["low"])
+    hw_source = max(bearish_candles or all_candles, key=lambda candle: candle["high"])
+    lw_source = min(bullish_candles or all_candles, key=lambda candle: candle["low"])
 
     return {
         "hw_anchor": {
@@ -219,7 +207,8 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
-            "description": "Highest HIGH of a bearish candle in the 8:30 AM-3:00 PM NY session",
+            "description": "Highest wick of any bearish candle in the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "bearish_session_high",
         },
         "lw_anchor": {
             "price": float(lw_source["low"]),
@@ -228,67 +217,62 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": lw_source,
             "direction": "descending",
             "label": "LW",
-            "description": "Lowest LOW of a bullish candle in the 8:30 AM-3:00 PM NY session",
+            "description": "Lowest wick of any bullish candle in the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "bullish_session_low",
         },
     }
 
 
 def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Resolve the four channel anchors from the detected pivots.
+    """Resolve the four channel anchors from the detected pivots."""
 
-    Candle counting begins from the pivot timestamp, not the neighboring candle
-    timestamp that supplied the green or red wick.
-    """
-
-    pivot_high_time = to_central_time(pivot_high["pivot_time"])
-    pivot_low_time = to_central_time(pivot_low["pivot_time"])
-    pivot_high_extreme = pivot_high["pivot_extreme"]
-    pivot_low_extreme = pivot_low["pivot_extreme"]
-    pivot_high_extreme_price = float(pivot_high_extreme["high"])
-    pivot_low_extreme_price = float(pivot_low_extreme["low"])
+    pivot_high_red = pivot_high["red_candle"]
+    pivot_high_green = pivot_high["green_candle"]
+    pivot_low_red = pivot_low["red_candle"]
+    pivot_low_green = pivot_low["green_candle"]
 
     return {
         "asc_ceiling_anchor": {
-            "price": pivot_high_extreme_price,
-            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
-            "projection_start_time": pivot_high_time,
-            "source": pivot_high_extreme,
-            "associated_context_candle": pivot_high["red_candle"],
-            "pivot_extreme": pivot_high_extreme,
-            "anchor_basis": "pivot_high_extreme",
+            "price": float(pivot_high_red["high"]),
+            "timestamp": to_central_time(pivot_high_red["timestamp"]),
+            "projection_start_time": to_central_time(pivot_high_red["timestamp"]),
+            "source": pivot_high_red,
+            "associated_context_candle": pivot_high_red,
+            "pivot_extreme": pivot_high["pivot_extreme"],
+            "anchor_basis": "pivot_high_red_candle_high",
             "direction": "ascending",
             "label": "ASC Ceiling",
         },
         "desc_ceiling_anchor": {
-            "price": pivot_high_extreme_price,
-            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
-            "projection_start_time": pivot_high_time,
-            "source": pivot_high_extreme,
-            "associated_context_candle": pivot_high["green_candle"],
-            "pivot_extreme": pivot_high_extreme,
-            "anchor_basis": "pivot_high_extreme",
+            "price": float(pivot_high_green["high"]),
+            "timestamp": to_central_time(pivot_high_green["timestamp"]),
+            "projection_start_time": to_central_time(pivot_high_green["timestamp"]),
+            "source": pivot_high_green,
+            "associated_context_candle": pivot_high_green,
+            "pivot_extreme": pivot_high["pivot_extreme"],
+            "anchor_basis": "pivot_high_green_candle_high",
             "direction": "descending",
             "label": "DESC Ceiling",
         },
         "asc_floor_anchor": {
-            "price": pivot_low_extreme_price,
-            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
-            "projection_start_time": pivot_low_time,
-            "source": pivot_low_extreme,
-            "associated_context_candle": pivot_low["red_candle"],
-            "pivot_extreme": pivot_low_extreme,
-            "anchor_basis": "pivot_low_extreme",
+            "price": float(pivot_low_red["low"]),
+            "timestamp": to_central_time(pivot_low_red["timestamp"]),
+            "projection_start_time": to_central_time(pivot_low_red["timestamp"]),
+            "source": pivot_low_red,
+            "associated_context_candle": pivot_low_red,
+            "pivot_extreme": pivot_low["pivot_extreme"],
+            "anchor_basis": "pivot_low_red_candle_low",
             "direction": "ascending",
             "label": "ASC Floor",
         },
         "desc_floor_anchor": {
-            "price": pivot_low_extreme_price,
-            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
-            "projection_start_time": pivot_low_time,
-            "source": pivot_low_extreme,
-            "associated_context_candle": pivot_low["green_candle"],
-            "pivot_extreme": pivot_low_extreme,
-            "anchor_basis": "pivot_low_extreme",
+            "price": float(pivot_low_green["low"]),
+            "timestamp": to_central_time(pivot_low_green["timestamp"]),
+            "projection_start_time": to_central_time(pivot_low_green["timestamp"]),
+            "source": pivot_low_green,
+            "associated_context_candle": pivot_low_green,
+            "pivot_extreme": pivot_low["pivot_extreme"],
+            "anchor_basis": "pivot_low_green_candle_low",
             "direction": "descending",
             "label": "DESC Floor",
         },
@@ -315,7 +299,7 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
     ny_session_window = filter_time_range(
         normalized,
         start_time=at_central(session_date, 8, 30),
-        end_time=at_central(session_date, 15, 0),
+        end_time=at_central(session_date, 16, 0),
     )
 
     pivot_high = _find_last_pivot(afternoon_window, "high")
@@ -354,6 +338,32 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
         "session_date": session_date,
         "afternoon_window_rows": len(afternoon_window),
         "ny_session_rows": len(ny_session_window),
+        "source_points": {
+            "pivot_high": {
+                "timestamp": pivot_high["pivot_extreme"]["timestamp"],
+                "price": float(pivot_high["pivot_extreme"]["high"]),
+                "source": pivot_high["pivot_extreme"],
+                "search_window": "12:00 PM CT to 4:00 PM CT",
+            },
+            "pivot_highest_wick": {
+                "timestamp": session_extremes["hw_anchor"]["timestamp"],
+                "price": float(session_extremes["hw_anchor"]["price"]),
+                "source": session_extremes["hw_anchor"]["source"],
+                "search_window": "8:30 AM CT to 4:00 PM CT",
+            },
+            "pivot_low": {
+                "timestamp": pivot_low["pivot_extreme"]["timestamp"],
+                "price": float(pivot_low["pivot_extreme"]["low"]),
+                "source": pivot_low["pivot_extreme"],
+                "search_window": "12:00 PM CT to 4:00 PM CT",
+            },
+            "pivot_lowest_wick": {
+                "timestamp": session_extremes["lw_anchor"]["timestamp"],
+                "price": float(session_extremes["lw_anchor"]["price"]),
+                "source": session_extremes["lw_anchor"]["source"],
+                "search_window": "8:30 AM CT to 4:00 PM CT",
+            },
+        },
         "pivot_high": pivot_high,
         "pivot_low": pivot_low,
         "session_extremes": session_extremes,

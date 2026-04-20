@@ -88,8 +88,8 @@ class ValidationCaseTest(unittest.TestCase):
         expected = {
             "asc_ceiling": "6880.30",
             "asc_floor": "6867.47",
-            "desc_ceiling": "6838.70",
-            "desc_floor": "6830.03",
+            "desc_ceiling": "6836.90",
+            "desc_floor": "6832.28",
         }
 
         self.assertDictEqual(formatted, expected)

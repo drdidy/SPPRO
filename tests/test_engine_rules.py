@@ -103,7 +103,7 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(line["raw_anchor_timestamp"].hour, 14)
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6859.50")
 
-    def test_pivot_derived_anchors_use_true_pivot_extremes(self) -> None:
+    def test_pivot_derived_anchors_use_separate_context_candle_wicks(self) -> None:
         pivot_high = {
             "pivot_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
             "pivot_extreme": {
@@ -161,16 +161,16 @@ class EngineRuleTests(unittest.TestCase):
 
         anchors = resolve_anchor_prices(pivot_high, pivot_low)
 
-        self.assertEqual(anchors["asc_ceiling_anchor"]["price"], 110.0)
-        self.assertEqual(anchors["desc_ceiling_anchor"]["price"], 110.0)
-        self.assertEqual(anchors["asc_floor_anchor"]["price"], 94.0)
-        self.assertEqual(anchors["desc_floor_anchor"]["price"], 94.0)
-        self.assertEqual(anchors["asc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(anchors["asc_ceiling_anchor"]["price"], 109.0)
+        self.assertEqual(anchors["desc_ceiling_anchor"]["price"], 108.0)
+        self.assertEqual(anchors["asc_floor_anchor"]["price"], 95.0)
+        self.assertEqual(anchors["desc_floor_anchor"]["price"], 96.0)
+        self.assertEqual(anchors["asc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(anchors["desc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
-        self.assertEqual(anchors["asc_floor_anchor"]["anchor_basis"], "pivot_low_extreme")
-        self.assertEqual(anchors["desc_ceiling_anchor"]["anchor_basis"], "pivot_high_extreme")
+        self.assertEqual(anchors["asc_floor_anchor"]["anchor_basis"], "pivot_low_red_candle_low")
+        self.assertEqual(anchors["desc_ceiling_anchor"]["anchor_basis"], "pivot_high_green_candle_high")
 
-    def test_build_six_line_anchors_uses_true_pivot_extremes(self) -> None:
+    def test_build_six_line_anchors_uses_working_repo_anchor_rules(self) -> None:
         candles = pd.DataFrame(
             [
                 {"timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 104.0, "low": 99.0, "close": 103.0},
@@ -190,9 +190,9 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(result["pivot_high"]["pivot_extreme"]["timestamp"], datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(result["pivot_low"]["pivot_extreme"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(result["anchors"]["asc_ceiling"]["price"], 110.0)
-        self.assertEqual(result["anchors"]["desc_ceiling"]["price"], 110.0)
-        self.assertEqual(result["anchors"]["asc_floor"]["price"], 94.0)
-        self.assertEqual(result["anchors"]["desc_floor"]["price"], 94.0)
+        self.assertEqual(result["anchors"]["desc_ceiling"]["price"], 108.0)
+        self.assertEqual(result["anchors"]["asc_floor"]["price"], 101.0)
+        self.assertEqual(result["anchors"]["desc_floor"]["price"], 96.0)
         self.assertEqual(result["source_points"]["pivot_high"]["price"], 110.0)
         self.assertEqual(result["source_points"]["pivot_low"]["price"], 94.0)
 
@@ -233,7 +233,7 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
         self.assertLess(line["projected_price"], line["raw_anchor_price"])
 
-    def test_session_wick_extremes_use_830_am_to_400_pm_window(self) -> None:
+    def test_session_wick_extremes_use_bearish_and_bullish_filters(self) -> None:
         candles = pd.DataFrame(
             [
                 {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
@@ -250,12 +250,12 @@ class EngineRuleTests(unittest.TestCase):
 
         result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
 
-        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ))
         self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
-        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "107.00")
+        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "106.00")
         self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "90.00")
         self.assertEqual(result["ny_session_rows"], 9)
-        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 107.00)
+        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 106.00)
         self.assertEqual(result["source_points"]["pivot_lowest_wick"]["price"], 90.00)
 
     def test_hw_and_lw_projection_metadata_from_session_extremes(self) -> None:
