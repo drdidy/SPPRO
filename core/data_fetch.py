@@ -23,34 +23,39 @@ def _normalize_price_frame(frame):
 
     if isinstance(normalized.columns, pd.MultiIndex):
         flattened_columns = []
-        seen: dict[str, int] = {}
         for column in normalized.columns.to_flat_index():
-            base_name = str(column[0])
-            count = seen.get(base_name, 0)
-            flattened_columns.append(base_name if count == 0 else f"{base_name}_{count}")
-            seen[base_name] = count + 1
+            if not isinstance(column, tuple):
+                flattened_columns.append(str(column))
+                continue
+
+            parts = [str(part) for part in column]
+            matched_name = next(
+                (part for part in parts if part.lower() in {"open", "high", "low", "close", "adj close", "volume"}),
+                parts[0],
+            )
+            flattened_columns.append(matched_name)
         normalized.columns = flattened_columns
 
-    normalized = normalized.rename(
-        columns={
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Open_1": "open_alt",
-            "High_1": "high_alt",
-            "Low_1": "low_alt",
-            "Close_1": "close_alt",
-        }
-    )
-    for canonical, alternate in [
-        ("open", "open_alt"),
-        ("high", "high_alt"),
-        ("low", "low_alt"),
-        ("close", "close_alt"),
-    ]:
-        if canonical not in normalized.columns and alternate in normalized.columns:
-            normalized[canonical] = normalized[alternate]
+    normalized.columns = [str(column).strip() for column in normalized.columns]
+    lowered_to_original = {str(column).strip().lower(): str(column).strip() for column in normalized.columns}
+    rename_map: dict[str, str] = {}
+    for source_name, target_name in {
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+    }.items():
+        if source_name in lowered_to_original:
+            rename_map[lowered_to_original[source_name]] = target_name
+    normalized = normalized.rename(columns=rename_map)
+
+    missing = [name for name in ["open", "high", "low", "close"] if name not in normalized.columns]
+    if missing:
+        raise ValueError(
+            f"Normalized Yahoo frame is missing required OHLC columns: {missing}. "
+            f"Available columns: {[str(column) for column in normalized.columns]}"
+        )
+
     normalized["timestamp"] = pd.to_datetime(normalized.index).map(market_time_to_central)
     normalized = normalized.loc[:, ["timestamp", "open", "high", "low", "close"]]
     normalized = normalized.dropna().reset_index(drop=True)
@@ -253,16 +258,22 @@ def fetch_es_hourly_candles_with_diagnostics(prior_session_date: date, next_trad
                     chosen_attempt_record = attempt_record
         except Exception as exc:
             attempt_record["status"] = "error"
-            attempt_record["error"] = str(exc)
+            attempt_record["error"] = f"{exc.__class__.__name__}: {exc}"
 
         diagnostics["fetch_attempts"].append(attempt_record)
 
     if chosen_frame is None:
         diagnostics["all_attempts_returned_empty_data"] = True
-        diagnostics["fetch_error"] = "Yahoo returned no usable intraday ES=F data across all fetch attempts."
-        diagnostics["explicit_error_message_if_dataframe_is_empty"] = (
-            "Yahoo returned no usable intraday ES=F data across all fetch attempts."
-        )
+        error_attempts = [attempt for attempt in diagnostics["fetch_attempts"] if attempt.get("status") == "error"]
+        if error_attempts:
+            first_error = error_attempts[0].get("error")
+            diagnostics["fetch_error"] = f"Yahoo ES=F intraday fetch attempts failed. First error: {first_error}"
+            diagnostics["explicit_error_message_if_dataframe_is_empty"] = diagnostics["fetch_error"]
+        else:
+            diagnostics["fetch_error"] = "Yahoo returned no usable intraday ES=F data across all fetch attempts."
+            diagnostics["explicit_error_message_if_dataframe_is_empty"] = (
+                "Yahoo returned no usable intraday ES=F data across all fetch attempts."
+            )
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"]), diagnostics
 
     diagnostics["successful_fetch_attempt"] = chosen_attempt_record["name"]
