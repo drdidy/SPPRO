@@ -3022,6 +3022,60 @@ def fetch_live_spx_price() -> tuple[float | None, str]:
     return None, "unavailable"
 
 
+def resolve_live_input_defaults(
+    configured_offset: float,
+    live_es_price: float | None,
+    live_es_source: str,
+    live_spx_price: float | None,
+    live_spx_source: str,
+) -> dict[str, Any]:
+    """Resolve sidebar price defaults without inventing fake market prices."""
+
+    es_available = live_es_price is not None
+    spx_available = live_spx_price is not None
+
+    default_es_price = float(live_es_price) if es_available else 0.0
+    default_spx_price = float(live_spx_price) if spx_available else 0.0
+    open_reference = default_spx_price if spx_available else 0.0
+    derived_live_offset = (
+        round_price(float(live_es_price) - float(live_spx_price))
+        if es_available and spx_available
+        else None
+    )
+
+    return {
+        "default_es_price": default_es_price,
+        "default_spx_price": default_spx_price,
+        "default_open_reference": open_reference,
+        "es_source": live_es_source if es_available else "manual_required_no_live_es_quote",
+        "spx_source": live_spx_source if spx_available else "manual_required_no_live_spx_quote",
+        "es_available": es_available,
+        "spx_available": spx_available,
+        "configured_offset": round_price(configured_offset),
+        "derived_live_offset": derived_live_offset,
+    }
+
+
+def describe_current_spx_source(
+    current_spx_price: float,
+    current_es_price: float,
+    current_offset: float,
+    default_spx_price: float,
+    live_spx_available: bool,
+) -> str:
+    """Describe the active SPX input source for the operator."""
+
+    if not is_valid_price_input(current_spx_price):
+        return "unavailable"
+    if live_spx_available and abs(float(current_spx_price) - float(default_spx_price)) < 0.005:
+        return "live SPX quote"
+    if is_valid_price_input(current_es_price):
+        derived_spx = round_price(float(current_es_price) - float(current_offset))
+        if abs(float(current_spx_price) - derived_spx) < 0.005:
+            return "derived from ES minus offset"
+    return "manual entry"
+
+
 def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     """Collect sidebar inputs for Tab 1."""
 
@@ -3031,16 +3085,16 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     live_es_price, live_es_source = fetch_live_es_price()
     live_spx_price, live_spx_source = fetch_live_spx_price()
     configured_offset = float(settings.get("es_spx_offset", DEFAULT_SETTINGS["es_spx_offset"]))
-    default_es_price = float(live_es_price if live_es_price is not None else 5320.00)
-    if live_es_price is not None:
-        default_spx_price = float(round_price(live_es_price - configured_offset))
-        default_spx_source = f"derived_from_es_minus_offset ({configured_offset:.2f})"
-    elif live_spx_price is not None:
-        default_spx_price = float(live_spx_price)
-        default_spx_source = live_spx_source
-    else:
-        default_spx_price = 5300.00
-        default_spx_source = "manual_fallback"
+    live_defaults = resolve_live_input_defaults(
+        configured_offset,
+        live_es_price,
+        live_es_source,
+        live_spx_price,
+        live_spx_source,
+    )
+    default_es_price = float(live_defaults["default_es_price"])
+    default_spx_price = float(live_defaults["default_spx_price"])
+    default_open_reference = float(live_defaults["default_open_reference"])
 
     with st.sidebar:
         st.header(APP_TITLE)
@@ -3052,9 +3106,19 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         st.subheader("Session Inputs")
         current_spx_price = st.number_input("9:00 AM SPX price", value=default_spx_price, step=0.25, format="%.2f")
         current_es_price = st.number_input("Current ES price", value=default_es_price, step=0.25, format="%.2f")
-        open_reference = st.number_input("9:00 AM open reference", value=current_spx_price, step=0.25, format="%.2f")
+        open_reference = st.number_input("9:00 AM open reference", value=default_open_reference, step=0.25, format="%.2f")
+        if not live_defaults["es_available"] or not live_defaults["spx_available"]:
+            st.warning("Live quote unavailable. Enter current prices manually.")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
+        current_spx_source_label = describe_current_spx_source(
+            current_spx_price=current_spx_price,
+            current_es_price=current_es_price,
+            current_offset=es_spx_offset,
+            default_spx_price=default_spx_price,
+            live_spx_available=live_defaults["spx_available"],
+        )
+        st.caption(f"Current SPX source: {current_spx_source_label}")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
@@ -3091,6 +3155,12 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "current_spx_price": current_spx_price,
         "current_es_price": current_es_price,
         "open_reference": open_reference,
+        "current_spx_source": live_defaults["spx_source"],
+        "current_es_source": live_defaults["es_source"],
+        "current_spx_source_label": current_spx_source_label,
+        "live_es_available": live_defaults["es_available"],
+        "live_spx_available": live_defaults["spx_available"],
+        "derived_live_offset": live_defaults["derived_live_offset"],
         "news_day": news_day,
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
@@ -3435,7 +3505,6 @@ def render_play_card(
         """,
         unsafe_allow_html=True,
     )
-
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
@@ -4686,10 +4755,14 @@ def main() -> None:
             current_es_price=inputs["current_es_price"],
             effective_offset=effective_offset,
         )
+        if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
+            st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
+        if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
+            st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
         if signal_package is not None:
             render_trade_decision_summary(signal_package, final_projected_lines)
         if signal_package is None:
-            st.warning("Current SPX price is required for the Tab 1 decision workflow. Projected lines and debug data are still available below.")
+            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
             primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
