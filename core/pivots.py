@@ -54,30 +54,20 @@ def select_pivot_context(
 ) -> dict[str, dict[str, Any]]:
     """Resolve the pivot, green, and red candles around a pivot.
 
-    Rules:
-    - Green candle: whichever is bullish among the pivot candle or the candle
-      before it. Use the pivot candle as fallback.
-    - Red candle: whichever is bearish among the pivot candle or the candle
-      after it. Use the pivot candle as fallback.
+    This mirrors the working `drdidy/Spx-Prophet` repo behavior:
+    search candles in the order {i-1, i, i+1} and take the first bullish
+    candle as green and the first bearish candle as red. If a color is not
+    found in that 3-candle window, fall back to the pivot candle itself.
     """
 
     previous_meta = row_to_candle_metadata(previous_candle)
     pivot_meta = row_to_candle_metadata(pivot_candle)
     next_meta = row_to_candle_metadata(next_candle)
 
-    if pivot_meta["color"] == "green":
-        green_meta = pivot_meta
-    elif previous_meta["color"] == "green":
-        green_meta = previous_meta
-    else:
-        green_meta = pivot_meta
+    candidates = [previous_meta, pivot_meta, next_meta]
 
-    if pivot_meta["color"] == "red":
-        red_meta = pivot_meta
-    elif next_meta["color"] == "red":
-        red_meta = next_meta
-    else:
-        red_meta = pivot_meta
+    green_meta = next((candle for candle in candidates if candle["color"] == "green"), pivot_meta)
+    red_meta = next((candle for candle in candidates if candle["color"] == "red"), pivot_meta)
 
     return {
         "previous_candle": previous_meta,
