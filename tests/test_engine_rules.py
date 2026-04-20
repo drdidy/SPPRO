@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from core.pivots import build_six_line_anchors, select_pivot_context
+from core.pivots import build_six_line_anchors, resolve_anchor_prices, select_pivot_context
 from core.projections import apply_overnight_pivot_overrides, convert_projected_lines, project_anchor_line
 from core.scenarios import (
     build_profit_management_plan,
@@ -102,6 +102,97 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(line["projection_start_time"].hour, 12)
         self.assertEqual(line["raw_anchor_timestamp"].hour, 14)
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6859.50")
+
+    def test_pivot_derived_anchors_use_true_pivot_extremes(self) -> None:
+        pivot_high = {
+            "pivot_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+            "pivot_extreme": {
+                "timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                "high": 110.0,
+                "low": 101.0,
+                "open": 103.0,
+                "close": 102.0,
+                "color": "red",
+            },
+            "green_candle": {
+                "timestamp": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
+                "high": 108.0,
+                "low": 100.0,
+                "open": 100.5,
+                "close": 105.0,
+                "color": "green",
+            },
+            "red_candle": {
+                "timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
+                "high": 109.0,
+                "low": 101.0,
+                "open": 108.5,
+                "close": 102.0,
+                "color": "red",
+            },
+        }
+        pivot_low = {
+            "pivot_time": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+            "pivot_extreme": {
+                "timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ),
+                "high": 103.0,
+                "low": 94.0,
+                "open": 96.0,
+                "close": 97.0,
+                "color": "green",
+            },
+            "red_candle": {
+                "timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ),
+                "high": 101.0,
+                "low": 95.0,
+                "open": 100.0,
+                "close": 96.0,
+                "color": "red",
+            },
+            "green_candle": {
+                "timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ),
+                "high": 103.0,
+                "low": 96.0,
+                "open": 96.0,
+                "close": 97.0,
+                "color": "green",
+            },
+        }
+
+        anchors = resolve_anchor_prices(pivot_high, pivot_low)
+
+        self.assertEqual(anchors["asc_ceiling_anchor"]["price"], 110.0)
+        self.assertEqual(anchors["desc_ceiling_anchor"]["price"], 110.0)
+        self.assertEqual(anchors["asc_floor_anchor"]["price"], 94.0)
+        self.assertEqual(anchors["desc_floor_anchor"]["price"], 94.0)
+        self.assertEqual(anchors["asc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(anchors["desc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(anchors["asc_floor_anchor"]["anchor_basis"], "pivot_low_extreme")
+        self.assertEqual(anchors["desc_ceiling_anchor"]["anchor_basis"], "pivot_high_extreme")
+
+    def test_build_six_line_anchors_uses_true_pivot_extremes(self) -> None:
+        candles = pd.DataFrame(
+            [
+                {"timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 104.0, "low": 99.0, "close": 103.0},
+                {"timestamp": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ), "open": 103.0, "high": 108.0, "low": 102.0, "close": 107.0},
+                {"timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ), "open": 107.0, "high": 109.0, "low": 103.0, "close": 108.0},
+                {"timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ), "open": 108.0, "high": 110.0, "low": 101.0, "close": 104.0},
+                {"timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ), "open": 101.0, "high": 103.0, "low": 94.0, "close": 95.0},
+                {"timestamp": datetime(2020, 4, 10, 16, 0, tzinfo=CENTRAL_TZ), "open": 95.0, "high": 99.0, "low": 96.0, "close": 98.0},
+                {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 99.0, "high": 100.0, "low": 98.0, "close": 99.5},
+                {"timestamp": datetime(2020, 4, 10, 9, 30, tzinfo=CENTRAL_TZ), "open": 99.5, "high": 101.0, "low": 97.5, "close": 100.0},
+                {"timestamp": datetime(2020, 4, 10, 10, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
+            ]
+        )
+
+        result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
+
+        self.assertEqual(result["pivot_high"]["pivot_extreme"]["timestamp"], datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["pivot_low"]["pivot_extreme"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["anchors"]["asc_ceiling"]["price"], 110.0)
+        self.assertEqual(result["anchors"]["desc_ceiling"]["price"], 110.0)
+        self.assertEqual(result["anchors"]["asc_floor"]["price"], 94.0)
+        self.assertEqual(result["anchors"]["desc_floor"]["price"], 94.0)
 
     def test_hw_projects_upward_across_friday_to_monday(self) -> None:
         target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)

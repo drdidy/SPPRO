@@ -3648,6 +3648,68 @@ def render_projection_verification(
         if not warnings:
             st.caption("Verification passed: projected display values differ from raw anchors when candle counts are non-zero.")
 
+        pivot_high = anchor_bundle.get("pivot_high")
+        pivot_low = anchor_bundle.get("pivot_low")
+        if pivot_high and pivot_low:
+            pivot_anchor_rows = [
+                {
+                    "Line": "ASC Ceiling",
+                    "Pivot Extreme Used": format_price(pivot_high["pivot_extreme"]["high"]),
+                    "Associated Context Candle": "red_candle",
+                    "Associated Candle Value": format_price(pivot_high["red_candle"]["high"]),
+                    "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_ceiling"]["price"]),
+                    "Projected Value": format_price(final_projected_lines_spx["asc_ceiling"]["projected_price"]),
+                },
+                {
+                    "Line": "DESC Ceiling",
+                    "Pivot Extreme Used": format_price(pivot_high["pivot_extreme"]["high"]),
+                    "Associated Context Candle": "green_candle",
+                    "Associated Candle Value": format_price(pivot_high["green_candle"]["high"]),
+                    "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_ceiling"]["price"]),
+                    "Projected Value": format_price(final_projected_lines_spx["desc_ceiling"]["projected_price"]),
+                },
+                {
+                    "Line": "ASC Floor",
+                    "Pivot Extreme Used": format_price(pivot_low["pivot_extreme"]["low"]),
+                    "Associated Context Candle": "red_candle",
+                    "Associated Candle Value": format_price(pivot_low["red_candle"]["low"]),
+                    "Raw Anchor": format_price(anchor_bundle["anchors"]["asc_floor"]["price"]),
+                    "Projected Value": format_price(final_projected_lines_spx["asc_floor"]["projected_price"]),
+                },
+                {
+                    "Line": "DESC Floor",
+                    "Pivot Extreme Used": format_price(pivot_low["pivot_extreme"]["low"]),
+                    "Associated Context Candle": "green_candle",
+                    "Associated Candle Value": format_price(pivot_low["green_candle"]["low"]),
+                    "Raw Anchor": format_price(anchor_bundle["anchors"]["desc_floor"]["price"]),
+                    "Projected Value": format_price(final_projected_lines_spx["desc_floor"]["projected_price"]),
+                },
+            ]
+            st.dataframe(pivot_anchor_rows, use_container_width=True, hide_index=True)
+            st.json(
+                {
+                    "pivot_high_context": {
+                        "i_minus_1": pivot_high["previous_candle"],
+                        "i": pivot_high["pivot_candle"],
+                        "i_plus_1": pivot_high["next_candle"],
+                        "selected_pivot_candle": pivot_high["pivot_candle"],
+                        "pivot_extreme": pivot_high["pivot_extreme"],
+                        "associated_green_candle": pivot_high["green_candle"],
+                        "associated_red_candle": pivot_high["red_candle"],
+                    },
+                    "pivot_low_context": {
+                        "i_minus_1": pivot_low["previous_candle"],
+                        "i": pivot_low["pivot_candle"],
+                        "i_plus_1": pivot_low["next_candle"],
+                        "selected_pivot_candle": pivot_low["pivot_candle"],
+                        "pivot_extreme": pivot_low["pivot_extreme"],
+                        "associated_green_candle": pivot_low["green_candle"],
+                        "associated_red_candle": pivot_low["red_candle"],
+                    },
+                },
+                expanded=False,
+            )
+
 
 def build_confirmation_detail(
     confirmation: dict[str, Any],

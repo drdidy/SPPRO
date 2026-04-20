@@ -26,6 +26,14 @@ class ValidationCaseTest(unittest.TestCase):
 
         pivot_high = {
             "pivot_time": friday_noon,
+            "pivot_extreme": {
+                "timestamp": friday_two_pm,
+                "high": 6859.50,
+                "low": 6856.50,
+                "open": 6859.10,
+                "close": 6857.25,
+                "color": "red",
+            },
             "green_candle": {
                 "timestamp": friday_noon,
                 "high": 6857.70,
@@ -44,6 +52,14 @@ class ValidationCaseTest(unittest.TestCase):
 
         pivot_low = {
             "pivot_time": friday_two_pm,
+            "pivot_extreme": {
+                "timestamp": friday_two_pm,
+                "low": 6848.75,
+                "high": 6851.90,
+                "open": 6851.90,
+                "close": 6849.25,
+                "color": "red",
+            },
             "red_candle": {
                 "timestamp": friday_two_pm,
                 "low": 6848.75,
@@ -72,8 +88,8 @@ class ValidationCaseTest(unittest.TestCase):
         expected = {
             "asc_ceiling": "6880.30",
             "asc_floor": "6867.47",
-            "desc_ceiling": "6836.90",
-            "desc_floor": "6832.28",
+            "desc_ceiling": "6838.70",
+            "desc_floor": "6830.03",
         }
 
         self.assertDictEqual(formatted, expected)

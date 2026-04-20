@@ -94,6 +94,19 @@ def _select_pivot_context_candles(window: "pd.DataFrame", pivot_index: int) -> d
     return select_pivot_context(previous_row, pivot_row, next_row)
 
 
+def _resolve_pivot_extreme(context: dict[str, dict[str, Any]], pivot_type: str) -> dict[str, Any]:
+    """Resolve the true pivot extreme across the full three-candle context."""
+
+    candidates = [
+        context["previous_candle"],
+        context["pivot_candle"],
+        context["next_candle"],
+    ]
+    if pivot_type == "high":
+        return max(candidates, key=lambda candle: float(candle["high"]))
+    return min(candidates, key=lambda candle: float(candle["low"]))
+
+
 def _is_pivot_high(window: "pd.DataFrame", index: int) -> bool:
     """Return True when close[i] is a pivot high by the house rule."""
 
@@ -138,6 +151,7 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
             "next_candle": context["next_candle"],
             "green_candle": context["green_candle"],
             "red_candle": context["red_candle"],
+            "pivot_extreme": _resolve_pivot_extreme(context, pivot_type),
         }
 
     if last_match is None:
@@ -164,6 +178,7 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
             "next_candle": context["next_candle"],
             "green_candle": context["green_candle"],
             "red_candle": context["red_candle"],
+            "pivot_extreme": _resolve_pivot_extreme(context, pivot_type),
             "confirmed": False,
             "fallback_reason": "no_strict_pivot_in_window",
         }
@@ -227,37 +242,53 @@ def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any])
 
     pivot_high_time = to_central_time(pivot_high["pivot_time"])
     pivot_low_time = to_central_time(pivot_low["pivot_time"])
+    pivot_high_extreme = pivot_high["pivot_extreme"]
+    pivot_low_extreme = pivot_low["pivot_extreme"]
+    pivot_high_extreme_price = float(pivot_high_extreme["high"])
+    pivot_low_extreme_price = float(pivot_low_extreme["low"])
 
     return {
         "asc_ceiling_anchor": {
-            "price": float(pivot_high["red_candle"]["high"]),
-            "timestamp": to_central_time(pivot_high["red_candle"]["timestamp"]),
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
             "projection_start_time": pivot_high_time,
-            "source": pivot_high["red_candle"],
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["red_candle"],
+            "pivot_extreme": pivot_high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "ascending",
             "label": "ASC Ceiling",
         },
         "desc_ceiling_anchor": {
-            "price": float(pivot_high["green_candle"]["high"]),
-            "timestamp": to_central_time(pivot_high["green_candle"]["timestamp"]),
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
             "projection_start_time": pivot_high_time,
-            "source": pivot_high["green_candle"],
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["green_candle"],
+            "pivot_extreme": pivot_high_extreme,
+            "anchor_basis": "pivot_high_extreme",
             "direction": "descending",
             "label": "DESC Ceiling",
         },
         "asc_floor_anchor": {
-            "price": float(pivot_low["red_candle"]["low"]),
-            "timestamp": to_central_time(pivot_low["red_candle"]["timestamp"]),
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
             "projection_start_time": pivot_low_time,
-            "source": pivot_low["red_candle"],
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["red_candle"],
+            "pivot_extreme": pivot_low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "ascending",
             "label": "ASC Floor",
         },
         "desc_floor_anchor": {
-            "price": float(pivot_low["green_candle"]["low"]),
-            "timestamp": to_central_time(pivot_low["green_candle"]["timestamp"]),
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
             "projection_start_time": pivot_low_time,
-            "source": pivot_low["green_candle"],
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["green_candle"],
+            "pivot_extreme": pivot_low_extreme,
+            "anchor_basis": "pivot_low_extreme",
             "direction": "descending",
             "label": "DESC Floor",
         },
