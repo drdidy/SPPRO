@@ -2496,7 +2496,9 @@ def render_options_provider_preview(
 
         chain_snapshot = provider.get_option_chain_snapshot(option_request) if provider is not None else {"status": "unavailable", "contracts": []}
         chain_status = chain_snapshot.get("status", "unavailable")
-        preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts")) or normalize_option_candidate_rows(provider.find_candidate_contracts(option_request))
+        preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
+        if not preview_candidates and not provider_status.get("live_mode_available", False):
+            preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(option_request))
 
         if provider_status.get("bridge_only", True):
             st.info("Provider bridge is available, but live options chain and quotes are not active yet.")
@@ -2504,6 +2506,8 @@ def render_options_provider_preview(
         st.markdown("**Prepared Lookup Request**")
         st.json(request_payload, expanded=False)
         st.caption(f"Connection/data status: {chain_status}")
+        if chain_snapshot.get("message"):
+            st.write(chain_snapshot["message"])
 
         st.markdown("**Candidate Contracts**")
         if preview_candidates:
