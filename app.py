@@ -2955,29 +2955,40 @@ def validate_trade_form_payload(payload: dict[str, Any]) -> list[str]:
 def fetch_live_es_price() -> tuple[float | None, str]:
     """Fetch a current ES price for the sidebar input default."""
 
-    try:
-        import yfinance as yf
+    import yfinance as yf
 
-        ticker = yf.Ticker("ES=F")
+    ticker = yf.Ticker("ES=F")
+    failures: list[str] = []
+
+    try:
+        fast_info = getattr(ticker, "fast_info", {}) or {}
+        for key in ("lastPrice", "regularMarketPrice"):
+            candidate = fast_info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"fast_info.{key}"
+    except Exception as exc:
+        failures.append(f"fast_info: {exc.__class__.__name__}: {exc}")
+
+    try:
         info = getattr(ticker, "info", {}) or {}
         for key in ("regularMarketPrice", "currentPrice", "postMarketPrice", "preMarketPrice"):
             candidate = info.get(key)
             if candidate:
                 return round_price(float(candidate)), f"info.{key}"
+    except Exception as exc:
+        failures.append(f"info: {exc.__class__.__name__}: {exc}")
 
-        fast_info = getattr(ticker, "fast_info", {}) or {}
-        for key in ("regularMarketPrice", "lastPrice"):
-            candidate = fast_info.get(key)
-            if candidate:
-                return round_price(float(candidate)), f"fast_info.{key}"
-
+    try:
         intraday = ticker.history(period="1d", interval="1m", prepost=True)
         if not intraday.empty:
             if "Close" in intraday.columns:
                 return round_price(float(intraday["Close"].dropna().iloc[-1])), "1m_history"
             if "close" in intraday.columns:
                 return round_price(float(intraday["close"].dropna().iloc[-1])), "1m_history"
+    except Exception as exc:
+        failures.append(f"1m_history: {exc.__class__.__name__}: {exc}")
 
+    try:
         hourly = ticker.history(period="5d", interval="60m", prepost=True)
         if not hourly.empty:
             if "Close" in hourly.columns:
@@ -2985,31 +2996,40 @@ def fetch_live_es_price() -> tuple[float | None, str]:
             if "close" in hourly.columns:
                 return round_price(float(hourly["close"].dropna().iloc[-1])), "60m_history"
     except Exception as exc:
-        return None, f"unavailable: {exc.__class__.__name__}: {exc}"
+        failures.append(f"60m_history: {exc.__class__.__name__}: {exc}")
 
-    return None, "unavailable: yfinance returned no usable ES quote"
+    failure_suffix = f" | {'; '.join(failures)}" if failures else ""
+    return None, f"unavailable: yfinance returned no usable ES quote{failure_suffix}"
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_spx_price() -> tuple[float | None, str]:
     """Fetch a current SPX price for the sidebar input default."""
 
+    import yfinance as yf
+
+    ticker = yf.Ticker("^GSPC")
+    failures: list[str] = []
+
     try:
-        import yfinance as yf
-
-        ticker = yf.Ticker("^GSPC")
-        info = getattr(ticker, "info", {}) or {}
-        for key in ("regularMarketPrice", "currentPrice", "postMarketPrice", "preMarketPrice"):
-            candidate = info.get(key)
-            if candidate:
-                return round_price(float(candidate)), f"info.{key}"
-
         fast_info = getattr(ticker, "fast_info", {}) or {}
         for key in ("regularMarketPrice", "lastPrice", "previousClose"):
             candidate = fast_info.get(key)
             if candidate:
                 return round_price(float(candidate)), f"fast_info.{key}"
+    except Exception as exc:
+        failures.append(f"fast_info: {exc.__class__.__name__}: {exc}")
 
+    try:
+        info = getattr(ticker, "info", {}) or {}
+        for key in ("regularMarketPrice", "currentPrice", "postMarketPrice", "preMarketPrice"):
+            candidate = info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"info.{key}"
+    except Exception as exc:
+        failures.append(f"info: {exc.__class__.__name__}: {exc}")
+
+    try:
         recent = ticker.history(period="5d", interval="1d", auto_adjust=False)
         if not recent.empty:
             if "Close" in recent.columns:
@@ -3017,9 +3037,10 @@ def fetch_live_spx_price() -> tuple[float | None, str]:
             if "close" in recent.columns:
                 return round_price(float(recent["close"].dropna().iloc[-1])), "1d_history"
     except Exception as exc:
-        return None, f"unavailable: {exc.__class__.__name__}: {exc}"
+        failures.append(f"1d_history: {exc.__class__.__name__}: {exc}")
 
-    return None, "unavailable: yfinance returned no usable SPX quote"
+    failure_suffix = f" | {'; '.join(failures)}" if failures else ""
+    return None, f"unavailable: yfinance returned no usable SPX quote{failure_suffix}"
 
 
 def resolve_live_input_defaults(
