@@ -2412,10 +2412,17 @@ def fetch_live_es_price() -> tuple[float | None, str]:
         import yfinance as yf
 
         ticker = yf.Ticker("ES=F")
+        info = getattr(ticker, "info", {}) or {}
+        for key in ("regularMarketPrice", "currentPrice", "postMarketPrice", "preMarketPrice"):
+            candidate = info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"info.{key}"
+
         fast_info = getattr(ticker, "fast_info", {}) or {}
-        last_price = fast_info.get("lastPrice") or fast_info.get("regularMarketPrice")
-        if last_price:
-            return round_price(float(last_price)), "fast_info"
+        for key in ("regularMarketPrice", "lastPrice"):
+            candidate = fast_info.get(key)
+            if candidate:
+                return round_price(float(candidate)), f"fast_info.{key}"
 
         intraday = ticker.history(period="1d", interval="1m", prepost=True)
         if not intraday.empty:
@@ -2423,6 +2430,13 @@ def fetch_live_es_price() -> tuple[float | None, str]:
                 return round_price(float(intraday["Close"].dropna().iloc[-1])), "1m_history"
             if "close" in intraday.columns:
                 return round_price(float(intraday["close"].dropna().iloc[-1])), "1m_history"
+
+        hourly = ticker.history(period="5d", interval="60m", prepost=True)
+        if not hourly.empty:
+            if "Close" in hourly.columns:
+                return round_price(float(hourly["Close"].dropna().iloc[-1])), "60m_history"
+            if "close" in hourly.columns:
+                return round_price(float(hourly["close"].dropna().iloc[-1])), "60m_history"
     except Exception as exc:
         return None, f"unavailable: {exc.__class__.__name__}"
 
