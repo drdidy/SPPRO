@@ -1308,7 +1308,7 @@ def render_key_levels_card(
 
     current_label = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
     chips = "".join(
-        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])}</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
+        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])} (SPX)</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
         for name in LINE_DISPLAY_ORDER
     )
     st.markdown(
@@ -1323,7 +1323,7 @@ def render_key_levels_card(
             </div>
             <div class="spx-card-grid">
                 <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Current SPX</div>
+                    <div class="spx-card-stat-label">Current Price (SPX)</div>
                     <div class="spx-card-stat-value">{current_label}</div>
                 </div>
                 <div class="spx-card-stat">
@@ -1508,7 +1508,7 @@ def render_spatial_ladder(
         <div class="spx-shell">
             <div class="spx-section-title">Spatial Ladder</div>
             <div class="spx-section-subtitle">
-                Live structure map shown in {price_space_label} terms. Trade scenarios and options decisions below remain SPX-based.
+                Live structure map shown in {price_space_label} terms. Ladder and visible line table use the same unit.
             </div>
         </div>
         """,
@@ -1527,7 +1527,7 @@ def render_spatial_ladder(
     for item in items:
         top = item["top"]
         raw_top = item["raw_top"]
-        value_label = format_price(item["value"])
+        value_label = f"{format_price(item['value'])} ({price_space_label})"
         color = item["color"]
         marker_class = f"ladder-marker {item['side']} {item['kind']}"
         label_class = f"ladder-label {item['side']} {item['kind']}"
@@ -3283,14 +3283,14 @@ def build_line_rows(
 
         rows.append(
             {
-                "line": final_line["label"],
-                "projected_level": format_price(final_line["projected_price"]),
-                "raw_anchor": format_price(final_line.get("raw_anchor_price", final_line["anchor_price"])),
-                "candle_count": final_line["candle_count"],
-                "direction": final_line["direction"],
-                "source": source_label,
-                "original_projected": format_price(original_line["projected_price"]) if applied else "",
-                "override_projected": format_price(final_line["projected_price"]) if applied else "",
+                "Line": final_line["label"],
+                "Projected Level (SPX)": format_price(final_line["projected_price"]),
+                "Raw Anchor (SPX)": format_price(final_line.get("raw_anchor_price", final_line["anchor_price"])),
+                "Candle Count": final_line["candle_count"],
+                "Direction": final_line["direction"],
+                "Source": source_label,
+                "Original Projected (SPX)": format_price(original_line["projected_price"]) if applied else "",
+                "Override Projected (SPX)": format_price(final_line["projected_price"]) if applied else "",
             }
         )
 
@@ -3309,7 +3309,7 @@ def render_six_lines_panel(
         <div class="spx-shell">
             <div class="spx-section-title">Projected Lines</div>
             <div class="spx-section-subtitle">
-                Ordered display follows the house structure: HW, ASC Ceiling, ASC Floor, DESC Ceiling, DESC Floor, LW.
+                Ordered display follows the house structure: HW, ASC Ceiling, ASC Floor, DESC Ceiling, DESC Floor, LW. All values below are shown in SPX terms.
             </div>
         </div>
         """,
@@ -3437,31 +3437,45 @@ def render_play_card(
     )
 
 
-def render_projection_verification(final_projected_lines: dict[str, dict[str, Any]]) -> None:
-    """Temporary verification block proving all displayed levels use projected prices."""
+def render_projection_verification(
+    anchor_bundle: dict[str, Any],
+    final_projected_lines_spx: dict[str, dict[str, Any]],
+    final_projected_lines_es: dict[str, dict[str, Any]],
+    displayed_lines: dict[str, dict[str, Any]],
+    displayed_unit_label: str,
+) -> None:
+    """Temporary verification block proving Tab 1 structure uses a single unit system."""
 
     verification_rows: list[dict[str, Any]] = []
     warnings: list[str] = []
 
     for name in LINE_DISPLAY_ORDER:
-        details = final_projected_lines[name]
-        projected_price = float(details["projected_price"])
-        raw_anchor_price = float(details.get("raw_anchor_price", details["anchor_price"]))
-        candle_count = int(details["candle_count"])
+        displayed_details = displayed_lines[name]
+        spx_details = final_projected_lines_spx[name]
+        es_details = final_projected_lines_es[name]
+        raw_es_value = float(anchor_bundle["anchors"][name]["price"])
+        raw_spx_value = float(spx_details.get("raw_anchor_price", spx_details["anchor_price"]))
+        projected_es_value = float(es_details["projected_price"])
+        projected_spx_value = float(spx_details["projected_price"])
+        displayed_value = float(displayed_details["projected_price"])
+        candle_count = int(spx_details["candle_count"])
 
         verification_rows.append(
             {
-                "line_label": details["label"],
-                "projected_price": format_price(projected_price),
-                "raw_anchor_price": format_price(raw_anchor_price),
+                "line_label": displayed_details["label"],
+                "raw_es_value": f"{format_price(raw_es_value)} (ES)",
+                "converted_spx_value": f"{format_price(raw_spx_value)} (SPX)",
+                "projected_es_value": f"{format_price(projected_es_value)} (ES)",
+                "projected_spx_value": f"{format_price(projected_spx_value)} (SPX)",
+                "final_displayed_value": f"{format_price(displayed_value)} ({displayed_unit_label})",
                 "candle_count": candle_count,
-                "direction": details["direction"],
+                "direction": spx_details["direction"],
             }
         )
 
-        if name in {"hw", "lw"} and candle_count > 0 and abs(projected_price - raw_anchor_price) < 1e-9:
+        if name in {"hw", "lw"} and candle_count > 0 and abs(projected_spx_value - raw_spx_value) < 1e-9:
             warnings.append(
-                f"{details['label']} has candle_count={candle_count} but projected_price still matches raw_anchor_price."
+                f"{displayed_details['label']} has candle_count={candle_count} but projected_price still matches raw_anchor_price in SPX terms."
             )
 
     with st.expander("Projection Verification", expanded=False):
@@ -4719,9 +4733,9 @@ def main() -> None:
                 render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines)
 
         render_spatial_ladder(
-            final_projected_lines_es,
-            inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
-            price_space_label="ES",
+            final_projected_lines,
+            inputs["current_spx_price"] if is_valid_price_input(inputs["current_spx_price"]) else None,
+            price_space_label="SPX",
         )
 
         if signal_package is not None:
@@ -4735,12 +4749,24 @@ def main() -> None:
                 render_sit_out_section(signal_package["sit_out"])
                 render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
-                render_projection_verification(final_projected_lines)
+                render_projection_verification(
+                    anchor_bundle,
+                    final_projected_lines,
+                    final_projected_lines_es,
+                    final_projected_lines,
+                    "SPX",
+                )
         else:
             with st.expander("Structure", expanded=False):
                 render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
-                render_projection_verification(final_projected_lines)
+                render_projection_verification(
+                    anchor_bundle,
+                    final_projected_lines,
+                    final_projected_lines_es,
+                    final_projected_lines,
+                    "SPX",
+                )
     with tab_asian:
         st.markdown(
             """
