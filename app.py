@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, timedelta
+from html import escape
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -650,124 +651,411 @@ def fetch_es_candles_for_app(prior_session_date: date, next_trading_date: date) 
 
 
 def inject_app_styles() -> None:
-    """Apply light global styling to improve hierarchy and scanability."""
+    """Apply the premium SPX Prophet visual system."""
 
     st.markdown(
         """
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        :root {
+            --spx-bg: #04070d;
+            --spx-bg-soft: #0b1120;
+            --spx-card: rgba(10, 15, 26, 0.86);
+            --spx-card-strong: rgba(13, 19, 33, 0.94);
+            --spx-border: rgba(255, 255, 255, 0.08);
+            --spx-text: #ecf4ff;
+            --spx-muted: #8ea1bc;
+            --spx-muted-2: #5e708d;
+            --spx-cyan: #00d4ff;
+            --spx-green: #00e676;
+            --spx-red: #ff5a76;
+            --spx-gold: #ffd740;
+            --spx-purple: #b388ff;
+        }
         .stApp {
-            background: linear-gradient(180deg, #060910 0%, #0b1120 100%);
+            background:
+                radial-gradient(circle at top left, rgba(0, 212, 255, 0.08), transparent 24%),
+                radial-gradient(circle at top right, rgba(179, 136, 255, 0.06), transparent 18%),
+                linear-gradient(180deg, #04070d 0%, #09111e 58%, #05080f 100%);
+            color: var(--spx-text);
         }
         .main .block-container {
-            padding-top: 1.25rem;
-            padding-bottom: 2rem;
+            padding-top: 1rem;
+            padding-bottom: 2.4rem;
             max-width: 1400px;
         }
-        h1, h2, h3 {
+        h1, h2, h3, h4 {
+            font-family: "Outfit", "Segoe UI", sans-serif !important;
             letter-spacing: 0.01em;
+            color: var(--spx-text);
+        }
+        p, li, label, div[data-testid="stMarkdownContainer"] {
+            color: var(--spx-text);
         }
         .spx-shell {
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 18px;
-            padding: 1rem 1.1rem;
-            background: rgba(9, 14, 24, 0.82);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--spx-border);
+            border-radius: 22px;
+            padding: 1.05rem 1.2rem;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+                var(--spx-card);
             margin-bottom: 1rem;
-            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+            box-shadow:
+                0 12px 40px rgba(0, 0, 0, 0.28),
+                inset 0 1px 0 rgba(255,255,255,0.03);
+            animation: spxFadeUp 0.45s ease both;
+        }
+        .spx-shell::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto auto 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+            opacity: 0.45;
         }
         .spx-section-title {
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0.12em;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.16em;
             text-transform: uppercase;
-            color: #8aa0bf;
-            margin-bottom: 0.3rem;
+            color: var(--spx-muted);
+            margin-bottom: 0.35rem;
         }
         .spx-section-subtitle {
-            color: #c9d4e5;
-            font-size: 0.95rem;
+            color: #d3deef;
+            font-size: 0.98rem;
             margin-bottom: 0.15rem;
+            line-height: 1.55;
         }
         .spx-summary {
-            border: 1px solid rgba(0, 212, 255, 0.26);
-            background: linear-gradient(135deg, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0.04));
-            border-radius: 18px;
-            padding: 1rem 1.1rem;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(0, 212, 255, 0.22);
+            background:
+                radial-gradient(circle at 15% 25%, rgba(0, 212, 255, 0.18), transparent 28%),
+                linear-gradient(135deg, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0.03) 55%, rgba(255,255,255,0.02));
+            border-radius: 22px;
+            padding: 1.05rem 1.2rem;
             margin-bottom: 1rem;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25), 0 0 24px rgba(0, 212, 255, 0.08);
+            animation: spxFadeUp 0.45s ease both;
         }
         .spx-summary-title {
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             text-transform: uppercase;
-            letter-spacing: 0.14em;
-            color: #7ad7f0;
+            letter-spacing: 0.16em;
+            color: #7fe7ff;
             font-weight: 800;
             margin-bottom: 0.45rem;
         }
         .spx-summary-body {
-            color: #edf4ff;
-            font-size: 1rem;
-            line-height: 1.55;
+            color: #f4fbff;
+            font-size: 1.03rem;
+            line-height: 1.65;
             font-weight: 600;
         }
+        .spx-hero {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 28px;
+            padding: 1.35rem 1.35rem 1.1rem 1.35rem;
+            background:
+                radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.16), transparent 24%),
+                radial-gradient(circle at 88% 0%, rgba(255, 90, 118, 0.12), transparent 22%),
+                linear-gradient(145deg, rgba(13, 20, 34, 0.97), rgba(7, 11, 20, 0.98));
+            margin-bottom: 1rem;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.34);
+            animation: spxFadeUp 0.5s ease both;
+        }
+        .spx-hero::after {
+            content: "";
+            position: absolute;
+            inset: auto -10% -45% auto;
+            width: 42%;
+            height: 75%;
+            background: radial-gradient(circle, rgba(0,212,255,0.10), transparent 68%);
+            pointer-events: none;
+        }
+        .spx-hero-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .spx-hero-kicker {
+            color: var(--spx-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            font-size: 0.75rem;
+            font-weight: 800;
+            margin-bottom: 0.35rem;
+        }
+        .spx-hero-title {
+            font-family: "Outfit", "Segoe UI", sans-serif;
+            font-size: 2rem;
+            font-weight: 800;
+            line-height: 1.05;
+            color: #f8fbff;
+            margin: 0 0 0.35rem 0;
+        }
+        .spx-hero-subtitle {
+            color: #bdd0e8;
+            font-size: 1rem;
+            line-height: 1.55;
+            max-width: 760px;
+        }
+        .spx-hero-status {
+            min-width: 220px;
+            text-align: right;
+        }
+        .spx-hero-status-label {
+            color: var(--spx-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-size: 0.72rem;
+            margin-bottom: 0.35rem;
+            font-weight: 800;
+        }
+        .spx-status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.75rem 1rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            font-weight: 800;
+            color: #f8fbff;
+            background: rgba(255,255,255,0.04);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        .spx-status-chip.good {
+            background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.05));
+            border-color: rgba(0,230,118,0.26);
+        }
+        .spx-status-chip.bad {
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.18), rgba(255, 23, 68, 0.06));
+            border-color: rgba(255,23,68,0.28);
+            animation: spxPulseAlert 2.8s ease-in-out infinite;
+        }
+        .spx-hero-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.9rem;
+        }
+        .spx-hero-stat {
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px;
+            padding: 0.95rem 1rem;
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(8px);
+        }
+        .spx-hero-stat-label {
+            color: var(--spx-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.72rem;
+            font-weight: 800;
+            margin-bottom: 0.35rem;
+        }
+        .spx-hero-stat-value {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 1.28rem;
+            font-weight: 700;
+            color: #f8fbff;
+            line-height: 1.2;
+        }
+        .spx-hero-stat-note {
+            color: var(--spx-muted);
+            font-size: 0.85rem;
+            margin-top: 0.3rem;
+        }
         .spx-banner {
-            border-radius: 18px;
-            padding: 1rem 1.1rem;
+            position: relative;
+            overflow: hidden;
+            border-radius: 22px;
+            padding: 1.1rem 1.15rem;
             margin-bottom: 1rem;
             border: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(14, 20, 32, 0.88);
+            background:
+                radial-gradient(circle at top left, rgba(0,212,255,0.11), transparent 24%),
+                linear-gradient(135deg, rgba(18, 26, 42, 0.96), rgba(9, 14, 24, 0.94));
+            box-shadow: 0 16px 42px rgba(0,0,0,0.26);
+            animation: spxFadeUp 0.45s ease both;
         }
         .spx-banner-name {
-            font-size: 1.12rem;
+            font-family: "Outfit", "Segoe UI", sans-serif;
+            font-size: 1.36rem;
             font-weight: 800;
             color: #f8fbff;
             margin-bottom: 0.35rem;
         }
         .spx-banner-meta {
-            color: #8aa0bf;
+            color: var(--spx-muted);
             font-size: 0.9rem;
             margin-bottom: 0.35rem;
         }
         .spx-banner-text {
             color: #d8e1ee;
-            font-size: 0.95rem;
-            line-height: 1.5;
+            font-size: 0.96rem;
+            line-height: 1.58;
         }
         .spx-pill {
-            display: inline-block;
-            padding: 0.22rem 0.55rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.62rem;
             border-radius: 999px;
-            font-size: 0.74rem;
+            font-size: 0.72rem;
             font-weight: 800;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             margin-right: 0.45rem;
             margin-bottom: 0.2rem;
             border: 1px solid rgba(255, 255, 255, 0.08);
             color: #f8fbff;
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(6px);
         }
+        .spx-pill.conf-high { background: rgba(0,230,118,0.14); border-color: rgba(0,230,118,0.24); }
+        .spx-pill.conf-medium { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.24); }
+        .spx-pill.conf-low { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.28); color: #fff2bf; }
+        .spx-pill.scenario-bullish { background: rgba(0,230,118,0.12); border-color: rgba(0,230,118,0.22); }
+        .spx-pill.scenario-bearish { background: rgba(255,90,118,0.14); border-color: rgba(255,90,118,0.24); }
+        .spx-pill.scenario-neutral { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.24); }
+        .spx-pill.scenario-warning { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.24); color: #fff4c5; }
+        .spx-pill.scenario-compression { background: rgba(179,136,255,0.14); border-color: rgba(179,136,255,0.24); }
         .spx-play-note, .spx-muted {
-            color: #8aa0bf;
+            color: var(--spx-muted);
             font-size: 0.88rem;
             line-height: 1.45;
         }
+        .spx-card {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 1.05rem 1.1rem;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012)),
+                var(--spx-card-strong);
+            box-shadow: 0 14px 34px rgba(0,0,0,0.22);
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+            animation: spxFadeUp 0.45s ease both;
+        }
+        .spx-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 42px rgba(0,0,0,0.28);
+        }
+        .spx-card.primary { border-color: rgba(0,212,255,0.16); }
+        .spx-card.alternate { border-color: rgba(255,255,255,0.08); }
+        .spx-card.levels { border-color: rgba(255,212,64,0.16); }
+        .spx-card-title {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            margin-bottom: 0.9rem;
+        }
+        .spx-card-icon {
+            width: 2.55rem;
+            height: 2.55rem;
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            font-weight: 800;
+            background: rgba(255,255,255,0.05);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+        .spx-card-heading {
+            font-family: "Outfit", "Segoe UI", sans-serif;
+            font-size: 1.16rem;
+            font-weight: 700;
+            color: #f8fbff;
+            line-height: 1.2;
+        }
+        .spx-card-subtitle {
+            color: var(--spx-muted);
+            font-size: 0.88rem;
+            margin-top: 0.15rem;
+        }
+        .spx-card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.7rem;
+            margin-bottom: 0.9rem;
+        }
+        .spx-card-stat {
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 16px;
+            padding: 0.78rem 0.82rem;
+            background: rgba(255,255,255,0.025);
+        }
+        .spx-card-stat-label {
+            color: var(--spx-muted);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 800;
+            margin-bottom: 0.25rem;
+        }
+        .spx-card-stat-value {
+            color: #f8fbff;
+            font-size: 1rem;
+            font-family: "JetBrains Mono", monospace;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+        .spx-card-copy {
+            color: #d7e2f1;
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+        .spx-inline-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+        .spx-mini-line {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.46rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+            font-size: 0.82rem;
+            color: #deebff;
+        }
+        .spx-mini-line .mono {
+            font-family: "JetBrains Mono", monospace;
+            font-weight: 700;
+        }
         .spx-status-good {
             border: 1px solid rgba(0, 230, 118, 0.2);
-            background: rgba(0, 230, 118, 0.08);
-            border-radius: 16px;
-            padding: 0.95rem 1rem;
+            background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 230, 118, 0.04));
+            border-radius: 18px;
+            padding: 1rem 1.05rem;
             margin-bottom: 1rem;
         }
         .spx-status-bad {
             border: 1px solid rgba(255, 23, 68, 0.25);
-            background: rgba(255, 23, 68, 0.08);
-            border-radius: 16px;
-            padding: 0.95rem 1rem;
+            background: linear-gradient(135deg, rgba(255, 23, 68, 0.13), rgba(255, 23, 68, 0.05));
+            border-radius: 18px;
+            padding: 1rem 1.05rem;
             margin-bottom: 1rem;
+            box-shadow: 0 0 26px rgba(255,23,68,0.08);
         }
         .spx-status-title {
             color: #f8fbff;
             font-weight: 800;
             margin-bottom: 0.35rem;
+            font-size: 1rem;
         }
         .spx-reference {
             border-left: 3px solid rgba(255, 212, 64, 0.9);
@@ -783,23 +1071,106 @@ def inject_app_styles() -> None:
         .spx-spacer-md {
             height: 0.75rem;
         }
-        div[data-testid="stMetric"] {
-            background: rgba(10, 16, 28, 0.85);
-            border: 1px solid rgba(255, 255, 255, 0.07);
+        div[data-testid="stForm"] {
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 22px;
+            padding: 1rem 1rem 0.4rem 1rem;
+            background: rgba(8, 12, 22, 0.72);
+        }
+        div[data-testid="stTextInput"] label,
+        div[data-testid="stNumberInput"] label,
+        div[data-testid="stSelectbox"] label,
+        div[data-testid="stDateInput"] label,
+        div[data-testid="stMultiSelect"] label,
+        div[data-testid="stTextArea"] label {
+            color: var(--spx-muted) !important;
+            font-size: 0.8rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-weight: 700 !important;
+        }
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div,
+        textarea {
+            background: rgba(7, 11, 20, 0.94) !important;
+            border-color: rgba(255,255,255,0.08) !important;
+            border-radius: 14px !important;
+        }
+        div[data-testid="stButton"] > button,
+        div[data-testid="stDownloadButton"] > button {
             border-radius: 14px;
-            padding: 0.85rem 0.9rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: linear-gradient(135deg, rgba(20,28,45,0.96), rgba(10,16,28,0.96));
+            color: #f4f8ff;
+            font-weight: 700;
+            transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+            box-shadow: 0 10px 22px rgba(0,0,0,0.16);
+        }
+        div[data-testid="stButton"] > button:hover,
+        div[data-testid="stDownloadButton"] > button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0,212,255,0.22);
+            box-shadow: 0 16px 30px rgba(0,0,0,0.22);
+        }
+        div[data-testid="stMetric"] {
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+                rgba(10, 16, 28, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 18px;
+            padding: 0.9rem 0.95rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        }
+        div[data-testid="stMetricLabel"] {
+            color: var(--spx-muted);
+        }
+        div[data-testid="stMetricValue"] {
+            font-family: "JetBrains Mono", monospace;
         }
         div[data-testid="stDataFrame"] {
-            border-radius: 14px;
+            border-radius: 18px;
             overflow: hidden;
         }
         div[data-testid="stExpander"] {
             border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 14px;
-            background: rgba(8, 12, 22, 0.75);
+            border-radius: 18px;
+            background: rgba(8, 12, 22, 0.76);
+            overflow: hidden;
         }
         div[data-testid="stTabs"] button {
+            font-family: "JetBrains Mono", monospace !important;
             font-weight: 700;
+            letter-spacing: 0.04em;
+            border-radius: 12px 12px 0 0;
+        }
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, rgba(10,15,25,0.98), rgba(6,10,18,0.98));
+            border-right: 1px solid rgba(255,255,255,0.06);
+        }
+        [data-testid="stSidebar"] .block-container {
+            padding-top: 1rem;
+        }
+        @keyframes spxFadeUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes spxPulseAlert {
+            0%, 100% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
+            50% { box-shadow: 0 0 28px rgba(255,23,68,0.16); }
+        }
+        @media (max-width: 1080px) {
+            .spx-hero-top {
+                flex-direction: column;
+            }
+            .spx-hero-status {
+                text-align: left;
+            }
+            .spx-hero-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .spx-card-grid {
+                grid-template-columns: 1fr;
+            }
         }
         </style>
         """,
@@ -851,6 +1222,148 @@ def render_release_hygiene() -> None:
         st.write(f"Current storage mode: local JSON files.")
         st.write("Future migration target: SQLite or another database-backed storage layer.")
         st.write(f"Current release: {APP_TITLE} {APP_VERSION}.")
+
+
+def get_scenario_tone(scenario_name: str) -> str:
+    """Map a scenario name to a visual tone."""
+
+    name = str(scenario_name or "").upper()
+    if "OVERLAP" in name or "COMPRESSION" in name:
+        return "compression"
+    if "EXTREME" in name or "SIT OUT" in name:
+        return "warning"
+    if "ASCENDING" in name or "GAP UP" in name or "PUT" in name:
+        return "bearish"
+    if "DESCENDING" in name or "GAP DOWN" in name or "CALL" in name:
+        return "bullish"
+    return "neutral"
+
+
+def get_confidence_tone(confidence: str) -> str:
+    """Map a confidence label to a CSS tone."""
+
+    normalized = str(confidence or "").strip().lower()
+    if normalized == "high":
+        return "high"
+    if normalized == "low":
+        return "low"
+    return "medium"
+
+
+def render_tab1_hero(
+    signal_package: dict[str, Any] | None,
+    current_spx_price: float | None,
+    current_es_price: float | None,
+    effective_offset: float,
+) -> None:
+    """Render the premium Tab 1 hero header."""
+
+    if signal_package is None:
+        scenario_name = "Awaiting Valid SPX Input"
+        confidence = "Pending"
+        status_label = "Workflow Limited"
+        status_class = "bad"
+        status_icon = "!"
+        summary = "Enter a valid 9:00 AM SPX price to unlock the decision engine. Projected structure stays visible below."
+    else:
+        scenario = signal_package["scenario"]
+        sit_out = signal_package["sit_out"]
+        scenario_name = scenario["scenario_name"]
+        confidence = scenario["confidence_level"]
+        status_label = "Sit Out Active" if sit_out["sit_out"] else "Eligible To Trade"
+        status_class = "bad" if sit_out["sit_out"] else "good"
+        status_icon = "!" if sit_out["sit_out"] else "●"
+        summary = scenario["description"]
+
+    scenario_tone = get_scenario_tone(scenario_name)
+    confidence_tone = get_confidence_tone(confidence)
+    spx_display = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
+    es_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
+
+    st.markdown(
+        f"""
+        <div class="spx-hero">
+            <div class="spx-hero-top">
+                <div>
+                    <div class="spx-hero-kicker">SPX Prophet Operator Screen</div>
+                    <div class="spx-hero-title">{escape(APP_TITLE)}</div>
+                    <div class="spx-banner-meta">
+                        <span class="spx-pill scenario-{scenario_tone}">Scenario</span>
+                        <span class="spx-pill scenario-{scenario_tone}">{escape(scenario_name)}</span>
+                        <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
+                    </div>
+                    <div class="spx-hero-subtitle">{escape(summary)}</div>
+                </div>
+                <div class="spx-hero-status">
+                    <div class="spx-hero-status-label">Decision Status</div>
+                    <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(status_label)}</span></div>
+                </div>
+            </div>
+            <div class="spx-hero-grid">
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Current SPX</div>
+                    <div class="spx-hero-stat-value">{spx_display}</div>
+                    <div class="spx-hero-stat-note">Primary NY decision space</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Current ES</div>
+                    <div class="spx-hero-stat-value">{es_display}</div>
+                    <div class="spx-hero-stat-note">Live operator ladder space</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Effective Offset</div>
+                    <div class="spx-hero-stat-value">{format_price(effective_offset)}</div>
+                    <div class="spx-hero-stat-note">Used for ES/SPX translation</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Engine Mode</div>
+                    <div class="spx-hero-stat-value">SPX Logic</div>
+                    <div class="spx-hero-stat-note">Ladder shown in ES terms</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_key_levels_card(
+    final_lines: dict[str, dict[str, Any]],
+    current_spx_price: float | None,
+    effective_offset: float,
+) -> None:
+    """Render a compact key-levels summary card."""
+
+    current_label = format_price(current_spx_price) if is_valid_price_input(current_spx_price) else "Not entered"
+    chips = "".join(
+        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])}</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
+        for name in LINE_DISPLAY_ORDER
+    )
+    st.markdown(
+        f"""
+        <div class="spx-card levels">
+            <div class="spx-card-title">
+                <div class="spx-card-icon">◆</div>
+                <div>
+                    <div class="spx-card-heading">Key Levels Summary</div>
+                    <div class="spx-card-subtitle">Fast scan of the full projected stack in SPX decision terms.</div>
+                </div>
+            </div>
+            <div class="spx-card-grid">
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Current SPX</div>
+                    <div class="spx-card-stat-value">{current_label}</div>
+                </div>
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Effective Offset</div>
+                    <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
+                </div>
+            </div>
+            <div class="spx-inline-list">{chips}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def build_ladder_items(
@@ -2840,14 +3353,17 @@ def render_trade_decision_summary(signal_package: dict[str, Any]) -> None:
 def render_scenario_section(scenario: dict[str, Any]) -> None:
     """Render the scenario banner and summary."""
 
+    scenario_tone = get_scenario_tone(scenario["scenario_name"])
+    confidence_tone = get_confidence_tone(scenario["confidence_level"])
     st.markdown(
         f"""
         <div class="spx-banner">
-            <div class="spx-section-title">Scenario</div>
+            <div class="spx-section-title">Scenario State</div>
             <div class="spx-banner-name">{scenario['scenario_name']}</div>
             <div class="spx-banner-meta">
-                <span class="spx-pill">Confidence: {scenario['confidence_level']}</span>
-                <span class="spx-pill">Price: {format_price(scenario['current_price'])}</span>
+                <span class="spx-pill scenario-{scenario_tone}">Scenario Live</span>
+                <span class="spx-pill conf-{confidence_tone}">Confidence {scenario['confidence_level']}</span>
+                <span class="spx-pill scenario-neutral">Price {format_price(scenario['current_price'])}</span>
             </div>
             <div class="spx-banner-text">{scenario['description']}</div>
         </div>
@@ -2859,46 +3375,70 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
 def render_play_card(title: str, play: dict[str, Any] | None) -> None:
     """Render a single structured play card."""
 
-    with st.container(border=True):
-        st.markdown(f"#### {title}")
-        if play is None:
-            st.markdown('<div class="spx-muted">No alternate play.</div>', unsafe_allow_html=True)
-            return
+    card_class = "primary" if "Primary" in title else "alternate"
+    icon = "▲" if title == "Primary Trade" else "◇"
+    subtitle = "Main trade expression from the active scenario." if "Primary" in title else "Reference fallback if the primary setup is not the one price respects."
 
-        profit_plan = build_profit_management_plan(play["contracts"])
+    if play is None:
         st.markdown(
             f"""
-            <div class="spx-banner-meta">
-                <span class="spx-pill">{play['direction']}</span>
-                <span class="spx-pill">Strike {play['strike']}</span>
-                <span class="spx-pill">{play['contracts']} Contract(s)</span>
+            <div class="spx-card {card_class}">
+                <div class="spx-card-title">
+                    <div class="spx-card-icon">{icon}</div>
+                    <div>
+                        <div class="spx-card-heading">{escape(title)}</div>
+                        <div class="spx-card-subtitle">{escape(subtitle)}</div>
+                    </div>
+                </div>
+                <div class="spx-muted">No alternate play.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+        return
 
-        row1, row2, row3 = st.columns(3)
-        row1.metric("Entry", f"{play['entry']['label']} @ {format_price(play['entry']['price'])}")
-        row2.metric("Stop", f"{play['stop']['label']} @ {format_price(play['stop']['price'])}")
-        row3.metric("Strike", str(play["strike"]))
-
-        row4, row5, row6 = st.columns(3)
-        row4.metric("TP1", f"{play['tp1']['label']} @ {format_price(play['tp1']['price'])}")
-        row5.metric("TP2", f"{play['tp2']['label']} @ {format_price(play['tp2']['price'])}")
-        row6.metric("Contracts", str(play["contracts"]))
-
-        st.markdown("**Target Rule**")
-        st.write(f"Target 1 uses `{play['tp1']['label']}`. Target 2 uses `{play['tp2']['label']}`.")
-
-        st.markdown("**Profit Management**")
-        st.write(
-            f"TP1: close {profit_plan['tp1_action']['contracts_to_close']} | "
-            f"TP2: close {profit_plan['tp2_action']['contracts_to_close']} | "
-            f"Stop: close all | Time stop: {profit_plan['time_stop']}"
-        )
-
-        if play.get("note"):
-            st.markdown(f'<div class="spx-play-note">{play["note"]}</div>', unsafe_allow_html=True)
+    profit_plan = build_profit_management_plan(play["contracts"])
+    st.markdown(
+        f"""
+        <div class="spx-card {card_class}">
+            <div class="spx-card-title">
+                <div class="spx-card-icon">{icon}</div>
+                <div>
+                    <div class="spx-card-heading">{escape(title)}</div>
+                    <div class="spx-card-subtitle">{escape(subtitle)}</div>
+                </div>
+            </div>
+            <div class="spx-banner-meta">
+                <span class="spx-pill scenario-neutral">{escape(play['direction'])}</span>
+                <span class="spx-pill">Strike {play['strike']}</span>
+                <span class="spx-pill">{play['contracts']} Contracts</span>
+            </div>
+            <div class="spx-card-grid">
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Entry</div>
+                    <div class="spx-card-stat-value">{escape(play['entry']['label'])} @ {format_price(play['entry']['price'])}</div>
+                </div>
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Stop</div>
+                    <div class="spx-card-stat-value">{escape(play['stop']['label'])} @ {format_price(play['stop']['price'])}</div>
+                </div>
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Target 1</div>
+                    <div class="spx-card-stat-value">{escape(play['tp1']['label'])} @ {format_price(play['tp1']['price'])}</div>
+                </div>
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">Target 2</div>
+                    <div class="spx-card-stat-value">{escape(play['tp2']['label'])} @ {format_price(play['tp2']['price'])}</div>
+                </div>
+            </div>
+            <div class="spx-card-copy"><strong>Target rule:</strong> Target 1 uses {escape(play['tp1']['label'])}. Target 2 uses {escape(play['tp2']['label'])}.</div>
+            <div class="spx-spacer-sm"></div>
+            <div class="spx-card-copy"><strong>Profit management:</strong> TP1 close {profit_plan['tp1_action']['contracts_to_close']}, TP2 close {profit_plan['tp2_action']['contracts_to_close']}, stop closes all, time stop {profit_plan['time_stop']}.</div>
+            {f'<div class="spx-spacer-sm"></div><div class="spx-play-note">{escape(play["note"])}</div>' if play.get("note") else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def build_confirmation_detail(
@@ -2996,43 +3536,50 @@ def render_confirmation_card(
 ) -> None:
     """Render the 8:30 confirmation card with explanation."""
 
-    with st.container(border=True):
-        detail = build_confirmation_detail(confirmation, primary_play)
-        st.markdown(
-            f"""
-            <div class="spx-banner-meta">
-                <span class="spx-pill">8:30 Confirmation</span>
-                <span class="spx-pill">{detail['status_label']}</span>
+    detail = build_confirmation_detail(confirmation, primary_play)
+    tone = "conf-high" if detail["status_label"] == "CONFIRMED" else "conf-low" if detail["status_label"] == "FAILED" else "conf-medium"
+    st.markdown(
+        f"""
+        <div class="spx-card">
+            <div class="spx-card-title">
+                <div class="spx-card-icon">◉</div>
+                <div>
+                    <div class="spx-card-heading">8:30 Confirmation</div>
+                    <div class="spx-card-subtitle">SPX candle test against the active entry line.</div>
+                </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.write(f"Line tested: {detail['line_tested']}")
-        st.write(detail["reason"])
+            <div class="spx-banner-meta">
+                <span class="spx-pill {tone}">{detail['status_label']}</span>
+                <span class="spx-pill">Line {escape(detail['line_tested'])}</span>
+            </div>
+            <div class="spx-card-copy">{escape(detail['reason'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if confirmation.get("available"):
+        candle = confirmation["candle"]
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Open", format_price(candle["open"]))
+        col2.metric("High", format_price(candle["high"]))
+        col3.metric("Low", format_price(candle["low"]))
+        col4.metric("Close", format_price(candle["close"]))
+        col5.metric("Color", str(candle["color"]).upper())
+    else:
+        st.info("No 8:30 candle data available.")
 
-        if confirmation.get("available"):
-            candle = confirmation["candle"]
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Open", format_price(candle["open"]))
-            col2.metric("High", format_price(candle["high"]))
-            col3.metric("Low", format_price(candle["low"]))
-            col4.metric("Close", format_price(candle["close"]))
-            col5.metric("Color", str(candle["color"]).upper())
-        else:
-            st.info("No 8:30 candle data available.")
-
-        st.caption(f"Engine status: {confirmation['status']} | Timing: {confirmation['entry_timing']}")
+    st.caption(f"Engine status: {confirmation['status']} | Timing: {confirmation['entry_timing']}")
 
 
 def render_sit_out_section(sit_out: dict[str, Any]) -> None:
     """Render the sit-out or eligible-to-trade status block."""
 
     if sit_out["sit_out"]:
-        st.markdown('<div class="spx-status-bad"><div class="spx-status-title">SIT OUT - DO NOT TRADE</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="spx-status-bad"><div class="spx-status-title">⚠ SIT OUT — DO NOT TRADE</div><div class="spx-muted">One or more risk filters are active. Preserve capital and wait for cleaner structure.</div></div>', unsafe_allow_html=True)
         for reason in sit_out["reasons"]:
             st.write(f"- {reason}")
     else:
-        st.markdown('<div class="spx-status-good"><div class="spx-status-title">Eligible to Trade</div><div class="spx-muted">No sit-out condition is currently active.</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="spx-status-good"><div class="spx-status-title">● Eligible To Trade</div><div class="spx-muted">No sit-out condition is currently active. Focus stays on confirmation and line behavior.</div></div>', unsafe_allow_html=True)
 
 
 def render_debug_section(
@@ -3220,8 +3767,21 @@ def render_checkpoint_views(checkpoint_views: list[dict[str, Any]]) -> None:
     columns = st.columns(len(checkpoint_views))
     for column, checkpoint in zip(columns, checkpoint_views, strict=False):
         with column:
-            with st.container(border=True):
-                st.markdown(f"#### {checkpoint['label']}")
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div class="spx-card">
+                        <div class="spx-card-title">
+                            <div class="spx-card-icon">◌</div>
+                            <div>
+                                <div class="spx-card-heading">{escape(checkpoint['label'])}</div>
+                                <div class="spx-card-subtitle">Reference checkpoint for ES monitoring, not a forced execution window.</div>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
                 st.dataframe(
                     [
                         {
@@ -3295,8 +3855,21 @@ def render_evening_location_panel(current_es_price: float, selected_checkpoint: 
 def render_evening_decision_framework() -> None:
     """Render the checkpoint-based evening monitoring workflow."""
 
-    with st.container(border=True):
-        st.markdown("#### Evening Decision Framework")
+    with st.container():
+        st.markdown(
+            """
+            <div class="spx-card">
+                <div class="spx-card-title">
+                    <div class="spx-card-icon">◍</div>
+                    <div>
+                        <div class="spx-card-heading">Evening Decision Framework</div>
+                        <div class="spx-card-subtitle">Checkpoint-based monitoring for delayed touches and delayed reactions.</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.write("Session open / observe: 5:00 PM CT")
         st.write("First checkpoint: 6:00 PM CT")
         st.write("Second checkpoint: 7:00 PM CT")
@@ -3308,8 +3881,21 @@ def render_evening_decision_framework() -> None:
 def render_evening_line_ladder(selected_checkpoint: dict[str, Any]) -> None:
     """Render the ES line ladder from highest to lowest."""
 
-    with st.container(border=True):
-        st.markdown("#### Ordered ES Line Ladder")
+    with st.container():
+        st.markdown(
+            """
+            <div class="spx-card">
+                <div class="spx-card-title">
+                    <div class="spx-card-icon">▥</div>
+                    <div>
+                        <div class="spx-card-heading">Ordered ES Line Ladder</div>
+                        <div class="spx-card-subtitle">Highest to lowest structure for faster evening scanning.</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.dataframe(
             [
                 {
@@ -3369,9 +3955,40 @@ def render_trade_log_tab(
 
     st.markdown(
         """
-        <div class="spx-shell">
-            <div class="spx-section-title">Trade Log</div>
-            <div class="spx-section-subtitle">Journal trades, review history, and track basic performance.</div>
+        <div class="spx-hero">
+            <div class="spx-hero-top">
+                <div>
+                    <div class="spx-hero-kicker">Trade Journal + Intelligence</div>
+                    <div class="spx-hero-title">Review The Edge</div>
+                    <div class="spx-hero-subtitle">Capture execution quality, review snapshots, and track which scenarios actually pay you over time.</div>
+                </div>
+                <div class="spx-hero-status">
+                    <div class="spx-hero-status-label">Mode</div>
+                    <div class="spx-status-chip good"><span>◉</span><span>Journal Ready</span></div>
+                </div>
+            </div>
+            <div class="spx-hero-grid">
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Entry</div>
+                    <div class="spx-hero-stat-value">Log Trades</div>
+                    <div class="spx-hero-stat-note">Capture scenario, confirmation, and notes.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Review</div>
+                    <div class="spx-hero-stat-value">Snapshots</div>
+                    <div class="spx-hero-stat-note">Connect structure to outcome quality.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Analytics</div>
+                    <div class="spx-hero-stat-value">Expectancy</div>
+                    <div class="spx-hero-stat-note">Find the setups that truly hold edge.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Storage</div>
+                    <div class="spx-hero-stat-value">Local JSON</div>
+                    <div class="spx-hero-stat-note">Backed up and exportable.</div>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3409,8 +4026,8 @@ def render_trade_log_tab(
         available_snapshot_options.append(option_label)
         snapshot_lookup[option_label] = (snapshot["id"], snapshot["snapshot_date"])
 
+    render_section_header("Trade Entry", "Capture the execution details while the trade context is still fresh.")
     with st.container(border=True):
-        st.markdown("#### Trade Entry")
         if st.session_state.get("trade_form_notice"):
             st.info(st.session_state["trade_form_notice"])
             if st.button("Clear Prefill", type="secondary", use_container_width=False):
@@ -3505,7 +4122,7 @@ def render_trade_log_tab(
         min_trade_date = current_central_time().date()
         max_trade_date = current_central_time().date()
 
-    st.markdown("#### Filters")
+    render_section_header("Filters", "Shape the journal view by date, session, scenario, confirmation, and tags.")
     with st.container(border=True):
         filter_col1, filter_col2, filter_col3 = st.columns(3)
         with filter_col1:
@@ -3561,7 +4178,7 @@ def render_trade_log_tab(
     )
     filtered_snapshots = filter_snapshots_by_date(normalized_snapshots, filter_date_from, filter_date_to)
 
-    st.markdown("#### Performance Dashboard")
+    render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.")
     stats = compute_trade_statistics(filtered_trades)
     stat1, stat2, stat3 = st.columns(3)
     stat1.metric("Total Trades", str(stats["total_trades"]))
@@ -3573,7 +4190,7 @@ def render_trade_log_tab(
     stat5.metric("Total P&L", format_price(stats["total_pnl"]))
     stat6.metric("Average P&L / Trade", format_price(stats["average_pnl"]))
 
-    st.markdown("#### Version 2 Strategy Intelligence")
+    render_section_header("Version 2 Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
     st.caption("Analytics update live from the filtered trade set below.")
     breakdown_tabs = st.tabs(["By Scenario", "By Confluence", "By Session", "By Confirmation", "By Tag"])
     breakdown_dimensions = [
@@ -3591,7 +4208,7 @@ def render_trade_log_tab(
             else:
                 st.dataframe(breakdown, use_container_width=True, hide_index=True)
 
-    st.markdown("#### V2.1 Decision-Filter Intelligence")
+    render_section_header("Version 2.1 Decision-Filter Intelligence", "Review which filters and confirmations actually improve outcomes.")
     best_worst = compute_best_worst_summary(filtered_trades)
     best_col1, best_col2, best_col3 = st.columns(3)
     best_col1.metric("Best Scenario by Win Rate", best_worst["best_scenario_win_rate"])
@@ -3657,7 +4274,7 @@ def render_trade_log_tab(
         else:
             st.dataframe(session_confirmation, use_container_width=True, hide_index=True)
 
-    st.markdown("#### V3 Edge Proof")
+    render_section_header("V3 Edge Proof", "Expectancy, frequency, and periodic performance for deeper strategy validation.")
     expectancy_tabs = st.tabs(["Expectancy", "Weekly", "Monthly", "Scenario Frequency", "Advanced Breakdowns"])
     with expectancy_tabs[0]:
         expectancy_col1, expectancy_col2 = st.columns(2)
@@ -3722,7 +4339,7 @@ def render_trade_log_tab(
             else:
                 st.dataframe(session_confirmation_pnl, use_container_width=True, hide_index=True)
 
-    st.markdown("#### Setup Quality Dashboard")
+    render_section_header("Setup Quality Dashboard", "Spot the strongest and weakest edges in the filtered record set.")
     setup_quality = build_setup_quality_summary(filtered_trades)
     quality_col1, quality_col2, quality_col3 = st.columns(3)
     quality_col1.metric("Highest Expectancy Scenario", setup_quality["highest_expectancy_scenario"])
@@ -4031,6 +4648,12 @@ def main() -> None:
     tab_signal, tab_asian, tab_trade_log = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION", "TRADE LOG"])
 
     with tab_signal:
+        render_tab1_hero(
+            signal_package=signal_package,
+            current_spx_price=inputs["current_spx_price"],
+            current_es_price=inputs["current_es_price"],
+            effective_offset=effective_offset,
+        )
         if signal_package is None:
             st.warning("Current SPX price is required for the Tab 1 decision workflow. Projected lines and debug data are still available below.")
         else:
@@ -4070,27 +4693,36 @@ def main() -> None:
                 trade_date=inputs["next_trading_date"],
                 scenario_name=signal_package["scenario"]["scenario_name"],
             )
-        render_options_provider_preview(options_provider, options_provider_status, option_lookup_request)
+        decision_col1, decision_col2, decision_col3 = st.columns([1.15, 1.15, 0.95], gap="large")
+        if signal_package is not None:
+            with decision_col1:
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"])
+            with decision_col2:
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"])
+            with decision_col3:
+                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
+        else:
+            with decision_col3:
+                render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
 
         render_spatial_ladder(
             final_projected_lines_es,
             inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
             price_space_label="ES",
         )
-        render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
         if signal_package is not None:
             render_scenario_section(signal_package["scenario"])
             render_sit_out_section(signal_package["sit_out"])
-
-            primary_col, alternate_col = st.columns(2)
-            with primary_col:
-                render_play_card("Primary Play", signal_package["scenario"]["primary_play"])
-            with alternate_col:
-                render_play_card("Alternate Play", signal_package["scenario"]["alternate_play"])
-
-            render_confirmation_card(confirmation, signal_package["scenario"]["primary_play"])
+            secondary_col1, secondary_col2 = st.columns([1.1, 1.2], gap="large")
+            with secondary_col1:
+                render_confirmation_card(confirmation, signal_package["scenario"]["primary_play"])
+            with secondary_col2:
+                render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
         else:
             st.info("Enter a valid current SPX price to unlock scenario, play, sit-out, and confirmation sections.")
+            render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
+        with st.expander("Options Data Preview", expanded=False):
+            render_options_provider_preview(options_provider, options_provider_status, option_lookup_request)
         render_debug_section(
             anchor_bundle=anchor_bundle,
             final_projected_lines=final_projected_lines,
@@ -4104,12 +4736,19 @@ def main() -> None:
     with tab_asian:
         st.markdown(
             """
-            <div class="spx-banner">
-                <div class="spx-section-title">Asian Session</div>
-                <div class="spx-banner-name">Evening ES Monitoring Dashboard</div>
-                <div class="spx-banner-text">
-                    Compare checkpoint structures quickly, monitor delayed evening touches, and use the scenario engine only as a
-                    reference framework based on line location.
+            <div class="spx-hero">
+                <div class="spx-hero-top">
+                    <div>
+                        <div class="spx-hero-kicker">Asian Session Console</div>
+                        <div class="spx-hero-title">Evening ES Monitoring</div>
+                        <div class="spx-hero-subtitle">
+                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
+                        </div>
+                    </div>
+                    <div class="spx-hero-status">
+                        <div class="spx-hero-status-label">Framework</div>
+                        <div class="spx-status-chip good"><span>◌</span><span>Observation First</span></div>
+                    </div>
                 </div>
             </div>
             """,
