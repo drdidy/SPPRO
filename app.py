@@ -3011,24 +3011,9 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         st.subheader("Session Inputs")
         current_spx_price = st.number_input("9:00 AM SPX price", value=default_spx_price, step=0.25, format="%.2f")
         current_es_price = st.number_input("Current ES price", value=default_es_price, step=0.25, format="%.2f")
-        if live_es_price is not None:
-            st.caption(f"Auto-filled SPX from ES minus offset ({configured_offset:.2f}): {format_price(default_spx_price)}")
-            if live_spx_price is not None:
-                st.caption(f"Yahoo SPX reference quote ({live_spx_source}): {format_price(live_spx_price)}")
-        elif live_spx_price is not None:
-            st.caption(f"Auto-filled SPX from live quote ({live_spx_source}): {format_price(live_spx_price)}")
-        else:
-            st.caption(f"SPX live fetch unavailable. Using {default_spx_source.replace('_', ' ')}.")
-        if live_es_price is not None:
-            st.caption(f"Auto-filled from live ES ({live_es_source}): {format_price(live_es_price)}")
-        else:
-            st.caption("Live ES fetch unavailable. Using manual fallback default.")
         open_reference = st.number_input("9:00 AM open reference", value=current_spx_price, step=0.25, format="%.2f")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
-        if is_valid_price_input(current_es_price) and is_valid_price_input(current_spx_price):
-            implied_offset = round_price(float(current_es_price) - float(current_spx_price))
-            st.caption(f"Implied live offset from current inputs: {format_price(implied_offset)}")
         price_space_options = ["SPX", "ES"]
         manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
 
@@ -4534,22 +4519,11 @@ def main() -> None:
 
     if data_error:
         if fetch_diagnostics and fetch_diagnostics.get("anchor_build_error"):
-            st.warning(
-                "Auto-fetch returned ES candles, but the fetched data could not produce valid anchors. "
-                f"Manual anchors are being used. Details: {fetch_diagnostics['anchor_build_error']}"
-            )
+            st.warning("Auto-fetch returned ES candles, but the app could not build anchors. Manual anchors are being used.")
         else:
-            best_detail = (
-                (fetch_diagnostics or {}).get("explicit_error_message_if_dataframe_is_empty")
-                or (fetch_diagnostics or {}).get("fetch_error")
-                or data_error
-            )
             st.warning(
-                "Auto-fetch failed because Yahoo returned no usable intraday ES=F data. "
-                f"Manual anchors are being used. Details: {best_detail}"
+                "Auto-fetch failed because Yahoo returned no usable intraday ES=F data. Manual anchors are being used."
             )
-    if fetch_diagnostics and fetch_diagnostics.get("explicit_error_message_if_dataframe_is_empty"):
-        st.warning(fetch_diagnostics["explicit_error_message_if_dataframe_is_empty"])
 
     nine_am_target = at_central(inputs["next_trading_date"], 9, 0)
     try:
@@ -4688,18 +4662,6 @@ def main() -> None:
             with st.expander("Structure", expanded=False):
                 render_key_levels_card(final_projected_lines, inputs["current_spx_price"], effective_offset)
                 render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
-        with st.expander("Diagnostics", expanded=False):
-            render_options_provider_preview(options_provider, options_provider_status, option_lookup_request)
-            render_debug_section(
-                anchor_bundle=anchor_bundle,
-                final_projected_lines=final_projected_lines,
-                original_projected_lines=projected_spx_9,
-                override_result=override_result,
-                overnight_high=overnight_high,
-                overnight_low=overnight_low,
-                fetch_diagnostics=fetch_diagnostics,
-            )
-
     with tab_asian:
         st.markdown(
             """
@@ -4751,11 +4713,6 @@ def main() -> None:
                 st.info("Enter a valid current ES price to enable the Tab 2 reference framework and trade-log handoff.")
             render_evening_decision_framework()
             render_evening_line_ladder(selected_checkpoint)
-            render_evening_debug(
-                es_spx_offset=inputs["es_spx_offset"],
-                current_es_price=inputs["current_es_price"],
-                checkpoint_views=checkpoint_views,
-            )
 
     with tab_trade_log:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
