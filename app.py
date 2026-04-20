@@ -968,6 +968,7 @@ def compute_ladder_layout(
 def render_spatial_ladder(
     projected_lines: dict[str, dict[str, Any]],
     current_price: float | None,
+    price_space_label: str = "SPX",
 ) -> None:
     """Render the spatial ladder visualization with custom HTML/CSS."""
 
@@ -976,7 +977,7 @@ def render_spatial_ladder(
         <div class="spx-shell">
             <div class="spx-section-title">Spatial Ladder</div>
             <div class="spx-section-subtitle">
-                Vertical structure map showing the current price relative to the projected line stack.
+                Vertical structure map in {price_space_label} terms. Decision logic below remains SPX-based.
             </div>
         </div>
         """,
@@ -3976,6 +3977,7 @@ def main() -> None:
         overnight_low=overnight_low,
     )
     final_projected_lines = override_result["projected_lines"]
+    final_projected_lines_es = convert_projected_lines(final_projected_lines, effective_offset, "es")
     line_values_spx = {name: details["projected_price"] for name, details in final_projected_lines.items()}
 
     spx_830_candle = None
@@ -4070,7 +4072,11 @@ def main() -> None:
             )
         render_options_provider_preview(options_provider, options_provider_status, option_lookup_request)
 
-        render_spatial_ladder(final_projected_lines, inputs["current_spx_price"] if is_valid_price_input(inputs["current_spx_price"]) else None)
+        render_spatial_ladder(
+            final_projected_lines_es,
+            inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None,
+            price_space_label="ES",
+        )
         render_six_lines_panel(projected_spx_9, final_projected_lines, override_result["decisions"])
         if signal_package is not None:
             render_scenario_section(signal_package["scenario"])
