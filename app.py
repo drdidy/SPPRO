@@ -915,6 +915,10 @@ def inject_app_styles() -> None:
             background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.05));
             border-color: rgba(0,230,118,0.26);
         }
+        .spx-status-chip.warn {
+            background: linear-gradient(135deg, rgba(255, 212, 64, 0.18), rgba(255, 212, 64, 0.06));
+            border-color: rgba(255,212,64,0.28);
+        }
         .spx-status-chip.bad {
             background: linear-gradient(135deg, rgba(255, 23, 68, 0.18), rgba(255, 23, 68, 0.06));
             border-color: rgba(255,23,68,0.28);
@@ -1356,11 +1360,23 @@ def get_confidence_tone(confidence: str) -> str:
     return "medium"
 
 
+def status_chip_class(status_label: str) -> tuple[str, str]:
+    """Map a final status label to the existing hero chip styles."""
+
+    normalized = str(status_label or "").upper()
+    if normalized == "ELIGIBLE":
+        return "good", "●"
+    if normalized == "ELIGIBLE WITH CAUTION":
+        return "warn", "!"
+    return "bad", "!"
+
+
 def render_tab1_hero(
     signal_package: dict[str, Any] | None,
     current_spx_price: float | None,
     current_es_price: float | None,
     effective_offset: float,
+    final_status: str | None = None,
 ) -> None:
     """Render the compact Tab 1 hero header."""
 
@@ -1372,11 +1388,11 @@ def render_tab1_hero(
         status_icon = "!"
     else:
         scenario = signal_package["scenario"]
-        sit_out = signal_package["sit_out"]
         scenario_name = scenario["scenario_name"]
         confidence = scenario["confidence_level"]
-        status_label = "Sit Out Active" if sit_out["sit_out"] else "Eligible To Trade"
-        status_class = "bad" if sit_out["sit_out"] else "good"
+        status_label = final_status or "ELIGIBLE"
+        status_class, status_icon = status_chip_class(status_label)
+        sit_out = {"sit_out": status_label != "ELIGIBLE"}
         status_icon = "●" if not sit_out["sit_out"] else "!"
 
     confidence_tone = get_confidence_tone(confidence)
@@ -4360,19 +4376,21 @@ def render_six_lines_panel(
         )
 
 
-def render_trade_decision_summary(signal_package: dict[str, Any], projected_lines: dict[str, dict[str, Any]]) -> None:
+def render_trade_decision_summary(
+    signal_package: dict[str, Any],
+    projected_lines: dict[str, dict[str, Any]],
+    *,
+    final_status: str,
+) -> None:
     """Render the fastest single-line operator summary."""
 
     scenario = signal_package["scenario"]
     primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
-    sit_out = signal_package["sit_out"]["sit_out"]
-
     scenario_name = scenario["scenario_name"]
     primary_direction = primary_play["direction"] if primary_play else "None"
     entry_line = primary_play["entry"]["label"] if primary_play else "None"
     contracts = str(primary_play["contracts"]) if primary_play else "0"
     strike = str(primary_play["strike"]) if primary_play else "-"
-    sit_out_status = "SIT OUT" if sit_out else "ELIGIBLE"
 
     st.markdown(
         f"""
@@ -4380,7 +4398,7 @@ def render_trade_decision_summary(signal_package: dict[str, Any], projected_line
             <div class="spx-summary-title">Trade Decision Summary</div>
             <div class="spx-summary-body">
                 Scenario: {scenario_name} | Primary: {primary_direction} | Entry: {entry_line} |
-                Contracts: {contracts} | Strike: {strike} | Status: {sit_out_status}
+                Contracts: {contracts} | Strike: {strike} | Status: {final_status}
             </div>
         </div>
         """,
@@ -4491,6 +4509,31 @@ def assess_trade_intelligence(
     }
 
 
+def resolve_final_trade_status(
+    signal_package: dict[str, Any] | None,
+    play: dict[str, Any] | None,
+    lead_option_quote: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Resolve one final operator-facing status from structural and intelligence layers."""
+
+    structural_status = "NOT ELIGIBLE" if signal_package is None else ("NOT ELIGIBLE" if signal_package["sit_out"]["sit_out"] else "ELIGIBLE")
+    intelligence = assess_trade_intelligence(play, lead_option_quote)
+    intelligence_status = intelligence["status"]
+
+    if structural_status == "NOT ELIGIBLE" or intelligence_status == "NOT ELIGIBLE":
+        final_status = "NOT ELIGIBLE"
+    elif "CAUTION" in intelligence_status:
+        final_status = "ELIGIBLE WITH CAUTION"
+    else:
+        final_status = "ELIGIBLE"
+
+    return {
+        "structural_status": structural_status,
+        "intelligence_status": intelligence_status,
+        "final_status": final_status,
+    }
+
+
 def render_play_card(
     title: str,
     play_spx: dict[str, Any] | None,
@@ -4502,6 +4545,8 @@ def render_play_card(
     effective_offset: float | None = None,
     offset_diagnostics: dict[str, Any] | None = None,
     developer_mode: bool = False,
+    final_status: str | None = None,
+    status_breakdown: dict[str, str] | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -4542,6 +4587,7 @@ def render_play_card(
         expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
         rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
         contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
+        visible_status = final_status or intelligence["status"]
         detail_bits: list[str] = []
         if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
             detail_bits.append(
@@ -4550,41 +4596,15 @@ def render_play_card(
             )
 
         st.markdown(f"Option Mark `{mark_value}`")
-        st.caption(
-            " • ".join(
-                [
-                    f"Predicted Entry Mark {predicted_entry_mark}",
-                    f"Expected Gain {expected_gain}",
-                    f"Expected Loss {expected_loss}",
-                    f"RR {rr_value}" if intelligence.get("rr_ratio") is not None else "RR -",
-                ]
-            )
-        )
-        st.caption(
-            " • ".join(
-                [
-                    f"Stop Quality {stop_quality['label']}",
-                    f"Trade Quality {intelligence['quality']}",
-                    f"Status {intelligence['status']}",
-                    f"Best Contract {lead_option_quote.get('contract_symbol', '-')}" if lead_option_quote else "Best Contract -",
-                    f"Contract Score {contract_score}",
-                ]
-            )
-        )
+        st.caption(" | ".join([f"Pred Entry {predicted_entry_mark}", f"Gain {expected_gain}", f"Loss {expected_loss}", f"RR {rr_value}" if intelligence.get("rr_ratio") is not None else "RR -"]))
+        st.caption(" | ".join([f"Stop Quality {stop_quality['label']}", f"Trade Quality {intelligence['quality']}", f"Status {visible_status}", f"Score {contract_score}"]))
         if stop_price is not None and intelligence.get("suggested_stop") is not None:
-            st.caption(
-                " • ".join(
-                    [
-                        f"Structural Stop {format_price(stop_price)}",
-                        f"Suggested Stop {format_price(intelligence['suggested_stop'])}",
-                    ]
-                )
-            )
+            st.caption(" | ".join([f"Structural Stop {format_price(stop_price)}", f"Suggested Stop {format_price(intelligence['suggested_stop'])}"]))
         if detail_bits:
             st.caption(" | ".join(detail_bits))
 
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
-            st.caption(lead_option_quote["contract_symbol"])
+            st.caption(f"Best Contract {lead_option_quote['contract_symbol']}")
         if developer_mode and effective_offset is not None:
             entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
             with st.expander(f"{title} Conversion Check", expanded=False):
@@ -4605,7 +4625,9 @@ def render_play_card(
                 )
                 st.caption(
                     f"RR threshold: {intelligence['min_rr']:.2f} | "
-                    f"Status decision: {intelligence['status']} | "
+                    f"Structural: {(status_breakdown or {}).get('structural_status', '-') } | "
+                    f"Intelligence: {(status_breakdown or {}).get('intelligence_status', intelligence['status'])} | "
+                    f"Final: {(status_breakdown or {}).get('final_status', visible_status)} | "
                     f"Downgrade reason: {intelligence['downgrade_reason']}"
                 )
 
@@ -6305,40 +6327,10 @@ def render_live_mode_shell(
     live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
 
     with live_signal_tab:
-        render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset)
         if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
             st.warning("Live SPX price is unavailable. Enter the 9:00 AM SPX price manually before using the scenario engine.")
         if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
             st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
-        if signal_package is not None:
-            render_trade_decision_summary(signal_package, final_projected_lines)
-        else:
-            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
-
-        action_col1, action_col2 = st.columns(2)
-        with action_col1:
-            primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
-            if primary_play is None:
-                st.warning("No primary play is available to hand off into the Trade Log.")
-            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log"):
-                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
-                st.success("Trade Log prefilled from Live Mode.")
-        with action_col2:
-            if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
-                snapshot_payload = build_daily_snapshot(
-                    next_trading_date=inputs["next_trading_date"],
-                    projected_lines=final_projected_lines,
-                    scenario=signal_package["scenario"],
-                    sit_out=signal_package["sit_out"],
-                    confirmation=confirmation,
-                )
-                snapshot_saved, snapshot_error = append_snapshot(snapshot_payload)
-                if snapshot_saved:
-                    st.success("Daily snapshot saved.")
-                    if snapshot_error:
-                        st.warning(snapshot_error)
-                else:
-                    st.error(snapshot_error or "Unable to save daily snapshot.")
 
         primary_play_spx_raw = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
         primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
@@ -6396,6 +6388,37 @@ def render_live_mode_shell(
         }
         primary_lead_option = lead_option_map.get("Primary Contracts")
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
+        final_status_breakdown = resolve_final_trade_status(signal_package, primary_play_spx, primary_lead_option)
+        final_status = final_status_breakdown["final_status"]
+        render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset, final_status=final_status if signal_package is not None else None)
+        if signal_package is not None:
+            render_trade_decision_summary(signal_package, final_projected_lines, final_status=final_status)
+        else:
+            st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
+        action_col1, action_col2 = st.columns(2)
+        with action_col1:
+            primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
+            if primary_play is None:
+                st.warning("No primary play is available to hand off into the Trade Log.")
+            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log"):
+                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
+                st.success("Trade Log prefilled from Live Mode.")
+        with action_col2:
+            if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
+                snapshot_payload = build_daily_snapshot(
+                    next_trading_date=inputs["next_trading_date"],
+                    projected_lines=final_projected_lines,
+                    scenario=signal_package["scenario"],
+                    sit_out=signal_package["sit_out"],
+                    confirmation=confirmation,
+                )
+                snapshot_saved, snapshot_error = append_snapshot(snapshot_payload)
+                if snapshot_saved:
+                    st.success("Daily snapshot saved.")
+                    if snapshot_error:
+                        st.warning(snapshot_error)
+                else:
+                    st.error(snapshot_error or "Unable to save daily snapshot.")
         primary_contract_candidates = next((section["chain_snapshot"].get("contracts", []) for section in option_sections if section["title"] == "Primary Contracts"), [])
         st.session_state["tab1_primary_selected_contract"] = {
             "contract_symbol": primary_lead_option.get("contract_symbol", "") if primary_lead_option else "",
@@ -6412,9 +6435,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
@@ -6757,7 +6780,8 @@ def render_historical_projection_mode(
         render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset)
         render_historical_context_banner(inputs, nine_am_target, anchor_bundle)
         if signal_package is not None:
-            render_trade_decision_summary(signal_package, final_projected_lines)
+            historical_final_status = "NOT ELIGIBLE" if signal_package["sit_out"]["sit_out"] else "ELIGIBLE"
+            render_trade_decision_summary(signal_package, final_projected_lines, final_status=historical_final_status)
             decision_col1, decision_col2 = st.columns(2, gap="large")
             with decision_col1:
                 render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode)
