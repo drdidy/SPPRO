@@ -2038,17 +2038,6 @@ def resolve_effective_offset(inputs: dict[str, Any]) -> tuple[float, str, dict[s
         "effective_offset_source": "manual_offset",
     }
 
-    if (
-        not inputs.get("historical_mode")
-        and bool(inputs.get("live_es_available"))
-        and bool(inputs.get("live_spx_available"))
-        and live_inferred_offset is not None
-        and live_inferred_offset >= 0
-    ):
-        details["effective_offset"] = round_price(live_inferred_offset)
-        details["effective_offset_source"] = "live_inferred_offset"
-        return live_inferred_offset, "live_inferred_offset", details
-
     return manual_offset, "manual_offset", details
 
 
@@ -4003,13 +3992,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             if not historical_mode and live_defaults.get("es_available") and live_defaults.get("spx_available") and live_defaults.get("derived_live_offset") is not None
             else None
         )
-        if historical_mode:
-            es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
-        elif live_effective_offset is not None:
-            st.number_input("Effective ES-SPX offset", value=float(live_effective_offset), step=0.25, format="%.2f", disabled=True)
-            es_spx_offset = configured_offset
-        else:
-            es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
+        es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
         if historical_mode:
             current_spx_source_label = historical_defaults["spx_source"] if historical_defaults and historical_defaults["spx_available"] and abs(float(current_spx_price) - float(historical_defaults["default_spx_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_spx_price) else "unavailable")
             current_es_source_label = historical_defaults["es_source"] if historical_defaults and historical_defaults["es_available"] and abs(float(current_es_price) - float(historical_defaults["default_es_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_es_price) else "unavailable")
@@ -4018,7 +4001,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             current_spx_source_label = describe_current_spx_source(
                 current_spx_price=current_spx_price,
                 current_es_price=current_es_price,
-                current_offset=live_effective_offset if live_effective_offset is not None else es_spx_offset,
+                current_offset=es_spx_offset,
                 default_spx_price=live_defaults["default_spx_price"],
                 live_spx_available=live_defaults["spx_available"],
             )
@@ -4034,10 +4017,11 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             st.caption(f"9:00 AM open source: {open_reference_source_label}")
             if not historical_mode:
                 if live_effective_offset is not None:
-                    st.caption(f"Live inferred offset in use: {format_price(live_effective_offset)}")
-                    es_spx_offset = st.number_input("Manual fallback offset", value=configured_offset, step=0.25, format="%.2f")
+                    st.caption(f"Live inferred offset: {format_price(live_effective_offset)}")
+                    if abs(float(es_spx_offset) - float(live_effective_offset)) >= 0.01:
+                        st.caption("Manual offset override is active.")
                 else:
-                    st.caption("Live inferred offset unavailable. Manual offset is active.")
+                    st.caption("Live inferred offset unavailable.")
             price_space_options = ["SPX", "ES"]
             manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
             if visibility_mode == "Developer Mode":

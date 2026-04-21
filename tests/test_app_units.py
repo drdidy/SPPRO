@@ -81,7 +81,7 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn("invalid_stop", resolved["integrity_flags"])
         self.assertIn("stop_unavailable", resolved["integrity_flags"])
 
-    def test_live_effective_offset_prefers_live_inferred_offset(self) -> None:
+    def test_live_effective_offset_uses_manual_offset(self) -> None:
         effective_offset, source, details = resolve_effective_offset(
             {
                 "es_spx_offset": 20.0,
@@ -94,8 +94,8 @@ class AppUnitTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(effective_offset, 33.75)
-        self.assertEqual(source, "live_inferred_offset")
+        self.assertEqual(effective_offset, 20.0)
+        self.assertEqual(source, "manual_offset")
         self.assertEqual(details["manual_offset"], 20.0)
         self.assertEqual(details["live_inferred_offset"], 33.75)
 
