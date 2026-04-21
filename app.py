@@ -4403,6 +4403,24 @@ def render_scenario_section(scenario: dict[str, Any]) -> None:
     )
 
 
+def classify_stop_quality(entry_price: float | None, stop_price: float | None) -> dict[str, Any]:
+    """Classify stop distance in simple, operator-readable buckets."""
+
+    if entry_price is None or stop_price is None:
+        return {"label": "Unavailable", "distance": None}
+
+    stop_distance = abs(float(entry_price) - float(stop_price))
+    if stop_distance < 8.0:
+        label = "Tight"
+    elif stop_distance < 18.0:
+        label = "Balanced"
+    elif stop_distance < 30.0:
+        label = "Wide"
+    else:
+        label = "Very Wide"
+    return {"label": label, "distance": round_price(stop_distance)}
+
+
 def render_play_card(
     title: str,
     play_spx: dict[str, Any] | None,
@@ -4429,6 +4447,9 @@ def render_play_card(
         play = align_play_conversion_to_effective_offset(play, play_es, effective_offset)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
     entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else (_to_float_or_none(play_es.get("entry", {}).get("price")) if play_es else None)
+    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
+    entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play.get("entry"), dict) else None
+    stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -4445,6 +4466,11 @@ def render_play_card(
             st.caption("Setup incomplete until a structural stop is available.")
 
         mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
+        predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
+        expected_gain = format_price(lead_option_quote.get("expected_gain")) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else "-"
+        expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
+        rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
+        contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
         detail_bits: list[str] = []
         if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
             detail_bits.append(
@@ -4453,6 +4479,25 @@ def render_play_card(
             )
 
         st.markdown(f"Option Mark `{mark_value}`")
+        st.caption(
+            " • ".join(
+                [
+                    f"Predicted Entry Mark {predicted_entry_mark}",
+                    f"Expected Gain {expected_gain}",
+                    f"Expected Loss {expected_loss}",
+                    f"RR {rr_value}" if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "RR -",
+                ]
+            )
+        )
+        st.caption(
+            " • ".join(
+                [
+                    f"Stop Quality {stop_quality['label']}",
+                    f"Best Contract {lead_option_quote.get('contract_symbol', '-')}" if lead_option_quote else "Best Contract -",
+                    f"Contract Score {contract_score}",
+                ]
+            )
+        )
         if detail_bits:
             st.caption(" | ".join(detail_bits))
 
@@ -4472,6 +4517,10 @@ def render_play_card(
                 st.caption(f"Final displayed SPX entry: {format_price(entry_debug.get('final_displayed_spx')) if entry_debug.get('final_displayed_spx') is not None else format_price(play['entry']['price'])}")
                 if play.get("conversion_invalid"):
                     st.warning("Conversion check failed: ES - effective offset did not match the incoming SPX entry before alignment.")
+                st.caption(
+                    f"Stop distance: {format_price(stop_quality['distance']) if stop_quality['distance'] is not None else 'Unavailable'} | "
+                    f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
+                )
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
