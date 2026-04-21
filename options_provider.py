@@ -446,6 +446,32 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 deduped.append(symbol)
         return deduped
 
+    @staticmethod
+    def _select_nearest_contracts(options: list[Option], requested_strike: int, limit: int = 5) -> tuple[list[Option], list[int]]:
+        """Select a small nearest-strike slice around the requested strike."""
+
+        strike_map: dict[int, list[Option]] = {}
+        for option in options:
+            strike_key = int(float(option.strike_price))
+            strike_map.setdefault(strike_key, []).append(option)
+
+        available_strikes = sorted(strike_map.keys())
+        ranked_strikes = sorted(
+            available_strikes,
+            key=lambda strike_value: (abs(strike_value - int(requested_strike)), strike_value),
+        )
+        selected_strikes = ranked_strikes[:limit]
+
+        selected_options: list[Option] = []
+        for strike_value in selected_strikes:
+            selected_options.extend(
+                sorted(
+                    strike_map[strike_value],
+                    key=lambda option: (option.days_to_expiration, float(option.strike_price)),
+                )
+            )
+        return selected_options[:limit], selected_strikes
+
     async def _fetch_option_chain_async(self, request: OptionLookupRequest, diagnostics: dict[str, Any]) -> tuple[list[OptionCandidate], str]:
         """Fetch a real option chain slice and rank candidate contracts."""
 
@@ -510,14 +536,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                     last_status = "no_matching_contracts"
                     continue
 
-                filtered.sort(
-                    key=lambda option: (
-                        abs(float(option.strike_price) - float(request.strike)),
-                        option.days_to_expiration,
-                        float(option.strike_price),
-                    )
-                )
-                selected = filtered[:5]
+                selected, selected_strikes = self._select_nearest_contracts(filtered, int(request.strike), limit=5)
                 diagnostics["symbol_resolution"]["normalized_underlying_used"] = underlying_symbol
                 diagnostics["expiration_resolution"]["requested_date"] = request.trade_date
                 diagnostics["expiration_resolution"]["chosen_expiration"] = expiration_date.isoformat()
@@ -525,11 +544,12 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                     "requested_strike": request.strike,
                     "exact_strike_exists": int(request.strike) in available_strikes,
                     "available_nearby_strikes": available_strikes[:15],
-                    "selected_strikes": [int(float(option.strike_price)) for option in selected],
-                    "reason": "Sorted by nearest strike, then nearest expiration and strike value.",
+                    "selected_strikes": selected_strikes,
+                    "reason": "Nearest available strikes were selected around the requested strike. Exact strike is optional.",
                 }
                 attempt["status"] = "ok"
-                attempt["reason"] = "Contracts found."
+                attempt["reason"] = "Contracts found using nearest-strike fallback."
+                attempt["selected_strikes"] = selected_strikes
                 diagnostics["symbol_resolution"]["lookup_attempts"].append(attempt)
                 candidates = [
                     OptionCandidate(
