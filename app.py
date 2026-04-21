@@ -2829,6 +2829,10 @@ def rank_option_candidates(
         if quote_incomplete:
             integrity_flags.append("quote_incomplete")
             penalty_flags.append("quote_incomplete")
+        inefficient_stop = bool(expected_gain is not None and expected_loss is not None and expected_loss > expected_gain)
+        if inefficient_stop:
+            integrity_flags.append("inefficient_stop")
+            penalty_flags.append("inefficient_stop")
         if spread_penalty > 0:
             penalty_flags.append("wide_spread")
 
@@ -2843,6 +2847,8 @@ def rank_option_candidates(
             contract_score -= 0.25
         if quote_incomplete:
             contract_score -= 0.15
+        if inefficient_stop:
+            contract_score -= 0.10
         contract_score -= spread_penalty
         contract_score = max(contract_score, 0.0)
 
@@ -2861,10 +2867,11 @@ def rank_option_candidates(
                 "liquidity_score": round(liquidity_scores[idx], 4),
                 "spread_score": round(spread_scores[idx], 4),
                 "distance_score": round(distance_scores[idx], 4),
-                "score_penalty": round((0.25 if not stop_valid else 0.0) + (0.15 if quote_incomplete else 0.0) + spread_penalty, 4),
+                "score_penalty": round((0.25 if not stop_valid else 0.0) + (0.15 if quote_incomplete else 0.0) + (0.10 if inefficient_stop else 0.0) + spread_penalty, 4),
                 "penalty_flags": penalty_flags,
                 "integrity_flags": sorted(set(integrity_flags)),
                 "stop_unavailable": not stop_valid,
+                "inefficient_stop": inefficient_stop,
             }
         )
         ranked_candidates.append(enriched)
@@ -4421,6 +4428,69 @@ def classify_stop_quality(entry_price: float | None, stop_price: float | None) -
     return {"label": label, "distance": round_price(stop_distance)}
 
 
+def assess_trade_intelligence(
+    play: dict[str, Any] | None,
+    lead_option_quote: dict[str, Any] | None,
+    *,
+    min_rr: float = 1.0,
+) -> dict[str, Any]:
+    """Assess forward-facing trade quality without changing scenario logic."""
+
+    entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play, dict) else None
+    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
+    target_leg = play.get("tp1") if isinstance(play, dict) and isinstance(play.get("tp1"), dict) else None
+    if not target_leg:
+        target_leg = play.get("tp2") if isinstance(play, dict) and isinstance(play.get("tp2"), dict) else None
+    target_price = _to_float_or_none(target_leg.get("price")) if isinstance(target_leg, dict) else None
+    rr_ratio = _to_float_or_none(lead_option_quote.get("rr_ratio")) if lead_option_quote else None
+    expected_gain = _to_float_or_none(lead_option_quote.get("expected_gain")) if lead_option_quote else None
+    expected_loss = _to_float_or_none(lead_option_quote.get("expected_loss")) if lead_option_quote else None
+    stop_distance = abs(entry_price - stop_price) if entry_price is not None and stop_price is not None else None
+    target_move = abs(target_price - entry_price) if entry_price is not None and target_price is not None else None
+    stop_valid = bool(stop_price is not None and entry_price is not None and abs(entry_price - stop_price) >= 1e-9 and not play.get("invalid_stop"))
+    inefficient_stop = bool(expected_gain is not None and expected_loss is not None and expected_loss > expected_gain)
+
+    if not stop_valid or rr_ratio is None:
+        status = "NOT ELIGIBLE"
+        quality = "Low Quality"
+        downgrade_reason = "stop_unavailable"
+    elif rr_ratio < 0.5:
+        status = "NOT ELIGIBLE"
+        quality = "Low Quality"
+        downgrade_reason = "rr_below_0_5"
+    elif rr_ratio < min_rr:
+        status = "ELIGIBLE (LOW QUALITY)"
+        quality = "Low Quality"
+        downgrade_reason = "rr_below_min"
+    elif inefficient_stop:
+        status = "ELIGIBLE"
+        quality = "Acceptable"
+        downgrade_reason = "inefficient_stop"
+    else:
+        status = "ELIGIBLE"
+        quality = "High"
+        downgrade_reason = "none"
+
+    suggested_stop = None
+    if entry_price is not None and target_move is not None and play.get("direction") in {"CALL", "PUT"}:
+        suggested_stop_distance = target_move / max(min_rr, 1e-9)
+        suggested_stop = round_price(entry_price - suggested_stop_distance) if play.get("direction") == "CALL" else round_price(entry_price + suggested_stop_distance)
+
+    return {
+        "status": status,
+        "quality": quality,
+        "rr_ratio": rr_ratio,
+        "expected_gain": expected_gain,
+        "expected_loss": expected_loss,
+        "stop_distance": round_price(stop_distance) if stop_distance is not None else None,
+        "target_move": round_price(target_move) if target_move is not None else None,
+        "inefficient_stop": inefficient_stop,
+        "downgrade_reason": downgrade_reason,
+        "min_rr": min_rr,
+        "suggested_stop": suggested_stop,
+    }
+
+
 def render_play_card(
     title: str,
     play_spx: dict[str, Any] | None,
@@ -4450,6 +4520,7 @@ def render_play_card(
     stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
     entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play.get("entry"), dict) else None
     stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
+    intelligence = assess_trade_intelligence(play, lead_option_quote)
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -4485,7 +4556,7 @@ def render_play_card(
                     f"Predicted Entry Mark {predicted_entry_mark}",
                     f"Expected Gain {expected_gain}",
                     f"Expected Loss {expected_loss}",
-                    f"RR {rr_value}" if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "RR -",
+                    f"RR {rr_value}" if intelligence.get("rr_ratio") is not None else "RR -",
                 ]
             )
         )
@@ -4493,11 +4564,22 @@ def render_play_card(
             " • ".join(
                 [
                     f"Stop Quality {stop_quality['label']}",
+                    f"Trade Quality {intelligence['quality']}",
+                    f"Status {intelligence['status']}",
                     f"Best Contract {lead_option_quote.get('contract_symbol', '-')}" if lead_option_quote else "Best Contract -",
                     f"Contract Score {contract_score}",
                 ]
             )
         )
+        if stop_price is not None and intelligence.get("suggested_stop") is not None:
+            st.caption(
+                " • ".join(
+                    [
+                        f"Structural Stop {format_price(stop_price)}",
+                        f"Suggested Stop {format_price(intelligence['suggested_stop'])}",
+                    ]
+                )
+            )
         if detail_bits:
             st.caption(" | ".join(detail_bits))
 
@@ -4520,6 +4602,11 @@ def render_play_card(
                 st.caption(
                     f"Stop distance: {format_price(stop_quality['distance']) if stop_quality['distance'] is not None else 'Unavailable'} | "
                     f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
+                )
+                st.caption(
+                    f"RR threshold: {intelligence['min_rr']:.2f} | "
+                    f"Status decision: {intelligence['status']} | "
+                    f"Downgrade reason: {intelligence['downgrade_reason']}"
                 )
 
 def render_projection_verification(
