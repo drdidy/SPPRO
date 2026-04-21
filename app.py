@@ -722,12 +722,22 @@ def inject_app_styles() -> None:
             font-family: var(--spx-font-sans) !important;
         }
         [data-testid="stSidebar"] .block-container {
-            padding-top: 0.85rem;
+            padding-top: 0.7rem;
         }
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
             font-size: 0.88rem !important;
             line-height: 1.35 !important;
+            font-weight: 500 !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox,
+        [data-testid="stSidebar"] .stDateInput,
+        [data-testid="stSidebar"] .stNumberInput,
+        [data-testid="stSidebar"] .stTextInput,
+        [data-testid="stSidebar"] .stRadio,
+        [data-testid="stSidebar"] .stCheckbox,
+        [data-testid="stSidebar"] .stExpander {
+            margin-bottom: 0.35rem !important;
         }
         [data-testid="stMetric"] {
             background: linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0.01));
@@ -940,8 +950,8 @@ def inject_app_styles() -> None:
             position: relative;
             overflow: hidden;
             border-radius: 22px;
-            padding: 1.1rem 1.15rem;
-            margin-bottom: 1rem;
+            padding: 0.9rem 1rem;
+            margin-bottom: 0.8rem;
             border: 1px solid rgba(255, 255, 255, 0.08);
             background:
                 radial-gradient(circle at top left, rgba(0,212,255,0.11), transparent 24%),
@@ -951,20 +961,20 @@ def inject_app_styles() -> None:
         }
         .spx-banner-name {
             font-family: var(--spx-font-sans);
-            font-size: 1.22rem;
-            font-weight: 800;
+            font-size: 1.14rem;
+            font-weight: 760;
             color: #f8fbff;
-            margin-bottom: 0.35rem;
+            margin-bottom: 0.22rem;
         }
         .spx-banner-meta {
             color: var(--spx-muted);
-            font-size: 0.82rem;
-            margin-bottom: 0.35rem;
+            font-size: 0.78rem;
+            margin-bottom: 0.22rem;
         }
         .spx-banner-text {
             color: #d8e1ee;
-            font-size: 0.91rem;
-            line-height: 1.58;
+            font-size: 0.88rem;
+            line-height: 1.48;
         }
         .spx-pill {
             display: inline-flex;
@@ -1400,6 +1410,12 @@ def render_key_levels_card(
 
     current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
     subtitle = "Projected ES stack." if compact else "Fast scan of the full projected stack in ES source terms."
+    groups = [
+        ("Top", ["hw", "asc_ceiling"]),
+        ("Mid", ["asc_floor"]),
+        ("Lower", ["desc_ceiling", "desc_floor"]),
+        ("Extreme", ["lw"]),
+    ]
 
     with st.container(border=True):
         st.markdown("**Key Levels Summary**")
@@ -1410,17 +1426,13 @@ def render_key_levels_card(
             header_bits.append(f"Offset {format_price(effective_offset)}")
         st.markdown(" | ".join(header_bits))
 
-        first_row: list[str] = []
-        second_row: list[str] = []
-        for idx, name in enumerate(LINE_DISPLAY_ORDER):
-            details = final_lines[name]
-            item = f"{details['label']} (ES) `{format_price(details['projected_price'])}`"
-            if idx < 3:
-                first_row.append(item)
-            else:
-                second_row.append(item)
-        st.markdown(" | ".join(first_row))
-        st.markdown(" | ".join(second_row))
+        for group_name, line_names in groups:
+            items = []
+            for name in line_names:
+                details = final_lines[name]
+                items.append(f"{details['label']} `{format_price(details['projected_price'])}`")
+            st.caption(group_name)
+            st.markdown(" | ".join(items))
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -4048,33 +4060,28 @@ def render_play_card(
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
-        headline_bits = [
-            f"**{play['direction']}**",
-            f"ES {format_price(entry_es_value) if entry_es_value is not None else '-'}",
-            f"SPX {format_price(play['entry']['price'])}",
-            f"Strike {play['strike']}",
-        ]
-        if lead_option_quote and lead_option_quote.get("price") is not None:
-            headline_bits.append(f"Mark {format_price(lead_option_quote['price'])}")
-        st.markdown(" | ".join(headline_bits))
+        st.markdown(f"**{play['direction']}** | Strike `{play['strike']}` | `{play['contracts']}` contracts")
+        st.markdown(
+            "Entry "
+            f"`{format_price(play['entry']['price'])} SPX`"
+            f" | ES `{format_price(entry_es_value) if entry_es_value is not None else '-'}`"
+        )
+        st.markdown(f"Stop `{format_price(play['stop']['price'])} SPX`")
 
-        details = [
-            ("Contracts", str(play["contracts"])),
-            ("Stop", f"{format_price(play['stop']['price'])} SPX"),
-            ("Option Mark", format_price(lead_option_quote.get("price")) if lead_option_quote else "-"),
-        ]
+        mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
+        detail_bits: list[str] = []
         if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
-            details.append((
-                "Bid / Ask",
+            detail_bits.append(
+                "Bid/Ask "
                 f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}",
-            ))
+            )
 
-        st.caption(" | ".join(f"{label} {value}" for label, value in details))
+        st.markdown(f"Option Mark `{mark_value}`")
+        if detail_bits:
+            st.caption(" | ".join(detail_bits))
 
-        footnote = play["entry"]["label"]
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
-            footnote = f"{footnote} | {lead_option_quote['contract_symbol']}"
-        st.caption(footnote)
+            st.caption(lead_option_quote["contract_symbol"])
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
@@ -6183,7 +6190,6 @@ def render_historical_projection_mode(
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
-        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
         render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
         if developer_mode:
             with st.expander("Historical Structure Details", expanded=False):
