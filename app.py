@@ -1327,6 +1327,16 @@ def render_key_levels_card(
     """Render a compact key-levels summary card."""
 
     current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
+    offset_stat_html = (
+        ""
+        if compact
+        else f"""
+                <div class="spx-card-stat">
+                    <div class="spx-card-stat-label">ES-SPX Offset</div>
+                    <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
+                </div>
+        """
+    )
     chips = "".join(
         f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])} (ES)</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
         for name in LINE_DISPLAY_ORDER
@@ -1346,12 +1356,7 @@ def render_key_levels_card(
                     <div class="spx-card-stat-label">Current Price (ES)</div>
                     <div class="spx-card-stat-value">{current_label}</div>
                 </div>
-                {'' if compact else f'''
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">ES-SPX Offset</div>
-                    <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
-                </div>
-                '''}
+                {offset_stat_html}
             </div>
             <div class="spx-inline-list">{chips}</div>
         </div>
