@@ -3599,7 +3599,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
 def resolve_anchor_bundle(
     inputs: dict[str, Any],
     conversion_offset: float,
-) -> tuple[dict[str, Any], Any | None, str | None, dict[str, Any] | None]:
+) -> tuple[dict[str, Any] | None, Any | None, str | None, dict[str, Any] | None]:
     """Resolve auto-fetched or manual anchors."""
 
     es_candles = None
@@ -3657,21 +3657,7 @@ def resolve_anchor_bundle(
                 or "Yahoo returned no usable intraday ES=F data across all fetch attempts."
             )
         return (
-            build_manual_anchor_bundle(
-                prior_session_date=inputs["prior_session_date"],
-                pivot_high_time=inputs["pivot_high_time"],
-                pivot_green_high=inputs["pivot_green_high"],
-                pivot_red_high=inputs["pivot_red_high"],
-                pivot_low_time=inputs["pivot_low_time"],
-                pivot_red_low=inputs["pivot_red_low"],
-                pivot_green_low=inputs["pivot_green_low"],
-                hw_time=inputs["hw_time"],
-                hw_price=inputs["hw_price"],
-                lw_time=inputs["lw_time"],
-                lw_price=inputs["lw_price"],
-                price_space=inputs["manual_price_space"],
-                es_spx_offset=conversion_offset,
-            ),
+            None,
             es_candles,
             diagnostics.get("explicit_error_message_if_dataframe_is_empty") or diagnostics.get("fetch_error") or f"{exc.__class__.__name__}: {exc}",
             diagnostics,
@@ -3689,21 +3675,7 @@ def resolve_anchor_bundle(
         diagnostics["anchor_build_error"] = f"{exc.__class__.__name__}: {exc}"
         diagnostics["fetch_error"] = diagnostics.get("fetch_error")
         return (
-            build_manual_anchor_bundle(
-                prior_session_date=inputs["prior_session_date"],
-                pivot_high_time=inputs["pivot_high_time"],
-                pivot_green_high=inputs["pivot_green_high"],
-                pivot_red_high=inputs["pivot_red_high"],
-                pivot_low_time=inputs["pivot_low_time"],
-                pivot_red_low=inputs["pivot_red_low"],
-                pivot_green_low=inputs["pivot_green_low"],
-                hw_time=inputs["hw_time"],
-                hw_price=inputs["hw_price"],
-                lw_time=inputs["lw_time"],
-                lw_price=inputs["lw_price"],
-                price_space=inputs["manual_price_space"],
-                es_spx_offset=conversion_offset,
-            ),
+            None,
             es_candles,
             f"Auto-fetch returned ES candles, but anchor extraction failed: {diagnostics['anchor_build_error']}",
             diagnostics,
@@ -6120,11 +6092,13 @@ def main() -> None:
 
     if data_error:
         if fetch_diagnostics and fetch_diagnostics.get("anchor_build_error"):
-            st.warning("Auto-fetch returned ES candles, but the app could not build anchors. Manual anchors are being used.")
+            st.warning("Auto-fetch returned ES candles, but the app could not build anchors for the selected session. No projected structure is being shown.")
         else:
             st.warning(
-                "Auto-fetch failed because Yahoo returned no usable intraday ES=F data. Manual anchors are being used."
+                "Auto-fetch failed because Yahoo returned no usable intraday ES=F data for the selected session. No projected structure is being shown."
             )
+        if inputs["data_mode"] == "Auto-fetch" and anchor_bundle is None:
+            st.stop()
 
     nine_am_target = build_projection_target(inputs["next_trading_date"])
     try:
