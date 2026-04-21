@@ -2020,6 +2020,7 @@ def render_tab1_hero(
     primary_play: dict[str, Any] | None = None,
     lead_option_quote: dict[str, Any] | None = None,
     intelligence_summary: dict[str, Any] | None = None,
+    adaptive_overlay: dict[str, Any] | None = None,
 ) -> None:
     """Render the compact live decision center."""
 
@@ -2057,6 +2058,9 @@ def render_tab1_hero(
         hero_entry_value = primary_play["entry"]["price"]
     entry_spx = format_price(hero_entry_value) if hero_entry_value is not None else "-"
     strike_value = str(primary_play["strike"]) if primary_play and primary_play.get("strike") is not None else "-"
+    adaptive_label = (adaptive_overlay or {}).get("adaptive_recommendation", "NO_ADAPTATION")
+    adaptive_evidence = (adaptive_overlay or {}).get("adaptive_evidence_level", "None")
+    adaptive_reason = (adaptive_overlay or {}).get("adaptive_reason", "No adaptive overlay")
 
     st.markdown(
         f"""
@@ -2070,8 +2074,11 @@ def render_tab1_hero(
                         <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
                         <span class="spx-pill scenario-neutral">Quality {escape(quality_label)}</span>
                         <span class="spx-pill scenario-neutral">Timing {escape(timing_label)}</span>
+                        <span class="spx-pill scenario-neutral">Adaptive {escape(adaptive_label)}</span>
+                        <span class="spx-pill scenario-neutral">Evidence {escape(adaptive_evidence)}</span>
                     </div>
                     <div class="spx-hero-subtitle">Reason: {escape(decision_reason)}</div>
+                    <div class="spx-hero-subtitle">Adaptive: {escape(adaptive_reason)}</div>
                 </div>
                 <div class="spx-hero-status">
                     <div class="spx-hero-status-label">Current Price (ES)</div>
@@ -3852,6 +3859,11 @@ CONFIDENCE_RELIABILITY_THRESHOLDS = {
     "MEDIUM": 0.20,
     "LOW": 0.35,
 }
+ADAPTIVE_ENGINE_MIN_SAMPLES = 10
+ADAPTATION_STRENGTH_FACTOR = 0.5
+ADAPTIVE_RR_VARIANCE_THRESHOLD = 1.0
+ADAPTIVE_CHASE_VARIANCE_THRESHOLD = 36.0
+ADAPTIVE_CONFIDENCE_VARIANCE_THRESHOLD = 0.23
 
 
 def build_bias_breakdown_dataframe(
@@ -4022,6 +4034,298 @@ def resolve_calibration_preview(
         "slippage_sample_count": slippage_sample_count,
         "evidence_label": evidence_label,
         "sufficient_data": calibrated_entry_mark is not None,
+    }
+
+
+def adaptive_evidence_label(sample_count: int) -> str:
+    """Convert sample counts into operator-facing evidence labels."""
+
+    if sample_count >= ADAPTIVE_ENGINE_MIN_SAMPLES * 2:
+        return "Strong"
+    if sample_count >= ADAPTIVE_ENGINE_MIN_SAMPLES:
+        return "Moderate"
+    if sample_count > 0:
+        return "Weak"
+    return "None"
+
+
+def compute_series_variance(values: pd.Series) -> float | None:
+    """Safely compute variance for adaptive stability checks."""
+
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if len(numeric) < 2:
+        return 0.0 if len(numeric) == 1 else None
+    return float(numeric.var())
+
+
+def resolve_adaptive_metric(
+    enriched: pd.DataFrame,
+    *,
+    metric_field: str,
+    candidates: list[tuple[str | None, str | None, str]],
+    min_samples: int,
+    variance_threshold: float,
+) -> dict[str, Any]:
+    """Resolve a stable grouped metric with fallback and no-adaptation safety."""
+
+    fallback_path: list[str] = []
+    if enriched.empty or metric_field not in enriched.columns:
+        return {
+            "state": "NO_ADAPTATION",
+            "value": None,
+            "source": "unavailable",
+            "sample_count": 0,
+            "variance": None,
+            "evidence_level": "None",
+            "fallback_path": fallback_path,
+        }
+
+    usable = enriched.loc[enriched[metric_field].notna()].copy()
+    if usable.empty:
+        return {
+            "state": "NO_ADAPTATION",
+            "value": None,
+            "source": "unavailable",
+            "sample_count": 0,
+            "variance": None,
+            "evidence_level": "None",
+            "fallback_path": fallback_path,
+        }
+
+    for field_name, field_value, label in candidates:
+        if label != "overall":
+            fallback_path.append(label)
+            if not field_name or not field_value or field_name not in usable.columns:
+                continue
+            subset = usable.loc[usable[field_name].astype(str) == str(field_value)]
+        else:
+            fallback_path.append("overall")
+            subset = usable
+
+        sample_count = int(len(subset))
+        if sample_count < min_samples:
+            continue
+
+        variance = compute_series_variance(subset[metric_field])
+        if variance is not None and variance > variance_threshold:
+            continue
+
+        return {
+            "state": "ADAPTED",
+            "value": round_price(float(pd.to_numeric(subset[metric_field], errors="coerce").dropna().mean())),
+            "source": label,
+            "sample_count": sample_count,
+            "variance": round_price(variance) if variance is not None else None,
+            "evidence_level": adaptive_evidence_label(sample_count),
+            "fallback_path": fallback_path,
+        }
+
+    weak_sample_count = int(len(usable))
+    return {
+        "state": "NO_ADAPTATION",
+        "value": None,
+        "source": "insufficient",
+        "sample_count": weak_sample_count,
+        "variance": compute_series_variance(usable[metric_field]),
+        "evidence_level": adaptive_evidence_label(weak_sample_count),
+        "fallback_path": fallback_path,
+    }
+
+
+def build_adaptive_edge_metrics(enriched: pd.DataFrame) -> dict[str, float]:
+    """Estimate where adaptive filtering may recover edge or reduce risk."""
+
+    wrong_skips = enriched.loc[enriched["decision_correctness"] == "WRONG_SKIP"].copy() if not enriched.empty and "decision_correctness" in enriched.columns else pd.DataFrame()
+    reviewed_skips = enriched.loc[enriched["decision_correctness"].isin(["WRONG_SKIP", "CORRECT_SKIP"])].copy() if not enriched.empty and "decision_correctness" in enriched.columns else pd.DataFrame()
+    wrong_entries = enriched.loc[enriched["decision_correctness"] == "WRONG_ENTRY"].copy() if not enriched.empty and "decision_correctness" in enriched.columns else pd.DataFrame()
+    reviewed_entries = enriched.loc[enriched["decision_correctness"].isin(["WRONG_ENTRY", "CORRECT_ENTRY"])].copy() if not enriched.empty and "decision_correctness" in enriched.columns else pd.DataFrame()
+
+    return {
+        "adaptive_edge_gain_estimate": round_price((len(wrong_skips) / len(reviewed_skips)) * 100.0) if not reviewed_skips.empty else 0.0,
+        "adaptive_risk_reduction_estimate": round_price((len(wrong_entries) / len(reviewed_entries)) * 100.0) if not reviewed_entries.empty else 0.0,
+    }
+
+
+def resolve_adaptive_overlay(
+    trades: list[dict[str, Any]],
+    *,
+    scenario_name: str,
+    regime: str,
+    raw_prediction_confidence: str,
+    raw_final_decision: str,
+    rr_ratio: float | None,
+    distance_to_entry: float | None,
+    stop_valid: bool,
+) -> dict[str, Any]:
+    """Build a safe adaptive recommendation overlay without overriding raw logic."""
+
+    enriched = pd.DataFrame([derive_outcome_tracking_fields(trade) | trade for trade in trades])
+    if enriched.empty:
+        return {
+            "adaptive_recommendation": "NO_ADAPTATION",
+            "override_flag": False,
+            "adaptive_reason": "Insufficient data",
+            "adaptive_evidence_level": "None",
+            "base_rr_threshold": INTELLIGENCE_MIN_RR,
+            "adaptive_rr_threshold": None,
+            "adaptive_rr_source": "NO_ADAPTATION",
+            "adaptive_rr_evidence_level": "None",
+            "adaptive_rr_sample_count": 0,
+            "base_chase_tolerance": ENTRY_ZONE_APPROACHING_THRESHOLD,
+            "adaptive_chase_tolerance": None,
+            "chase_adaptation_source": "NO_ADAPTATION",
+            "chase_adaptation_evidence_level": "None",
+            "chase_sample_count": 0,
+            "raw_prediction_confidence": raw_prediction_confidence,
+            "effective_prediction_confidence": raw_prediction_confidence,
+            "confidence_adjustment_reason": "Insufficient data",
+            "confidence_evidence_level": "None",
+            "confidence_sample_count": 0,
+            "confidence_source": "NO_ADAPTATION",
+            "rr_variance": None,
+            "chase_variance": None,
+            "confidence_variance": None,
+            "rr_fallback_path": [],
+            "chase_fallback_path": [],
+            "confidence_fallback_path": [],
+            "adaptive_edge_gain_estimate": 0.0,
+            "adaptive_risk_reduction_estimate": 0.0,
+        }
+
+    rr_rows = enriched.loc[enriched["locked_rr_ratio"].notna() & enriched["actual_rr_if_available"].notna()].copy()
+    if not rr_rows.empty:
+        rr_rows["rr_bias"] = pd.to_numeric(rr_rows["locked_rr_ratio"], errors="coerce") - pd.to_numeric(rr_rows["actual_rr_if_available"], errors="coerce")
+    chase_rows = enriched.loc[enriched["plan_vs_actual_entry_gap"].notna()].copy()
+    if not chase_rows.empty:
+        chase_rows["chase_gap_abs"] = pd.to_numeric(chase_rows["plan_vs_actual_entry_gap"], errors="coerce").abs()
+        chase_rows["chase_bias"] = chase_rows["chase_gap_abs"] - ENTRY_ZONE_APPROACHING_THRESHOLD
+    confidence_rows = enriched.loc[enriched["prediction_error_pct"].notna() & enriched["prediction_confidence"].notna()].copy()
+    if not confidence_rows.empty:
+        threshold = CONFIDENCE_RELIABILITY_THRESHOLDS.get(str(raw_prediction_confidence).upper(), CONFIDENCE_RELIABILITY_THRESHOLDS["MEDIUM"])
+        confidence_rows["confidence_correct"] = (
+            pd.to_numeric(confidence_rows["prediction_error_pct"], errors="coerce") <= threshold
+        ).astype(float)
+
+    adaptive_candidates = [
+        ("scenario_name", scenario_name, "scenario"),
+        ("regime", regime, "regime"),
+        (None, None, "overall"),
+    ]
+
+    rr_resolution = resolve_adaptive_metric(
+        rr_rows,
+        metric_field="rr_bias",
+        candidates=adaptive_candidates,
+        min_samples=ADAPTIVE_ENGINE_MIN_SAMPLES,
+        variance_threshold=ADAPTIVE_RR_VARIANCE_THRESHOLD,
+    )
+    chase_resolution = resolve_adaptive_metric(
+        chase_rows,
+        metric_field="chase_bias",
+        candidates=adaptive_candidates,
+        min_samples=ADAPTIVE_ENGINE_MIN_SAMPLES,
+        variance_threshold=ADAPTIVE_CHASE_VARIANCE_THRESHOLD,
+    )
+    confidence_filtered = confidence_rows.loc[confidence_rows["prediction_confidence"].astype(str).str.upper() == str(raw_prediction_confidence).upper()].copy() if not confidence_rows.empty else pd.DataFrame()
+    confidence_resolution = resolve_adaptive_metric(
+        confidence_filtered,
+        metric_field="confidence_correct",
+        candidates=adaptive_candidates,
+        min_samples=ADAPTIVE_ENGINE_MIN_SAMPLES,
+        variance_threshold=ADAPTIVE_CONFIDENCE_VARIANCE_THRESHOLD,
+    )
+
+    base_rr_threshold = INTELLIGENCE_MIN_RR
+    adaptive_rr_threshold = (
+        round_price(max(INTELLIGENCE_MIN_RR_HARD_FLOOR, base_rr_threshold + (float(rr_resolution["value"]) * ADAPTATION_STRENGTH_FACTOR)))
+        if rr_resolution["state"] == "ADAPTED" and rr_resolution["value"] is not None
+        else None
+    )
+    base_chase_tolerance = ENTRY_ZONE_APPROACHING_THRESHOLD
+    adaptive_chase_tolerance = (
+        round_price(max(2.0, base_chase_tolerance + (float(chase_resolution["value"]) * ADAPTATION_STRENGTH_FACTOR)))
+        if chase_resolution["state"] == "ADAPTED" and chase_resolution["value"] is not None
+        else None
+    )
+
+    effective_prediction_confidence = str(raw_prediction_confidence or "LOW").upper() or "LOW"
+    confidence_adjustment_reason = "No stable adaptive evidence"
+    if confidence_resolution["state"] == "ADAPTED" and confidence_resolution["value"] is not None:
+        reliability = float(confidence_resolution["value"])
+        if effective_prediction_confidence == "HIGH":
+            effective_prediction_confidence = "HIGH" if reliability >= 0.75 else "MEDIUM" if reliability >= 0.55 else "LOW"
+        elif effective_prediction_confidence == "MEDIUM":
+            effective_prediction_confidence = "HIGH" if reliability >= 0.75 else "MEDIUM" if reliability >= 0.45 else "LOW"
+        else:
+            effective_prediction_confidence = "MEDIUM" if reliability >= 0.65 else "LOW"
+        confidence_adjustment_reason = f"Historical {confidence_resolution['source']} accuracy {round_price(reliability * 100.0)}%"
+
+    raw_action = str(raw_final_decision or "WAIT").upper()
+    if rr_resolution["state"] != "ADAPTED" and chase_resolution["state"] != "ADAPTED" and confidence_resolution["state"] != "ADAPTED":
+        adaptive_recommendation = "NO_ADAPTATION"
+        adaptive_reason = "Insufficient stable evidence"
+    elif not stop_valid:
+        adaptive_recommendation = "WAIT"
+        adaptive_reason = "No valid stop for adaptive overlay"
+    elif adaptive_rr_threshold is not None and rr_ratio is not None and rr_ratio < adaptive_rr_threshold:
+        adaptive_recommendation = "WAIT"
+        adaptive_reason = "Adaptive RR filter is tighter here"
+    elif adaptive_chase_tolerance is not None and distance_to_entry is not None and distance_to_entry > adaptive_chase_tolerance:
+        adaptive_recommendation = "WAIT"
+        adaptive_reason = "Historically this setup extends too far"
+    elif effective_prediction_confidence == "LOW":
+        adaptive_recommendation = "ENTER WITH CAUTION" if raw_action == "ENTER NOW" else "WAIT"
+        adaptive_reason = "Historical accuracy lowers confidence"
+    elif raw_action in {"ENTER NOW", "ENTER WITH CAUTION"}:
+        adaptive_recommendation = raw_action
+        adaptive_reason = "Adaptive layer agrees with current setup"
+    elif raw_action == "WAIT":
+        adaptive_recommendation = "ENTER WITH CAUTION"
+        adaptive_reason = "Adaptive history supports earlier execution"
+    else:
+        adaptive_recommendation = "ENTER WITH CAUTION"
+        adaptive_reason = "Adaptive history suggests missed edge"
+
+    evidence_rank = {"None": 0, "Weak": 1, "Moderate": 2, "Strong": 3}
+    adapted_evidence_levels = [
+        resolution["evidence_level"]
+        for resolution in [rr_resolution, chase_resolution, confidence_resolution]
+        if resolution["state"] == "ADAPTED"
+    ]
+    adaptive_evidence_level = min(adapted_evidence_levels, key=lambda label: evidence_rank.get(label, 0)) if adapted_evidence_levels else "None"
+
+    raw_for_compare = "WAIT" if raw_action == "SKIP TRADE" else raw_action
+    edge_metrics = build_adaptive_edge_metrics(enriched)
+
+    return {
+        "adaptive_recommendation": adaptive_recommendation,
+        "override_flag": adaptive_recommendation not in {"NO_ADAPTATION", raw_for_compare},
+        "adaptive_reason": adaptive_reason,
+        "adaptive_evidence_level": adaptive_evidence_level,
+        "base_rr_threshold": base_rr_threshold,
+        "adaptive_rr_threshold": adaptive_rr_threshold,
+        "adaptive_rr_source": rr_resolution["source"] if rr_resolution["state"] == "ADAPTED" else "NO_ADAPTATION",
+        "adaptive_rr_evidence_level": rr_resolution["evidence_level"],
+        "adaptive_rr_sample_count": rr_resolution["sample_count"],
+        "base_chase_tolerance": base_chase_tolerance,
+        "adaptive_chase_tolerance": adaptive_chase_tolerance,
+        "chase_adaptation_source": chase_resolution["source"] if chase_resolution["state"] == "ADAPTED" else "NO_ADAPTATION",
+        "chase_adaptation_evidence_level": chase_resolution["evidence_level"],
+        "chase_sample_count": chase_resolution["sample_count"],
+        "raw_prediction_confidence": raw_prediction_confidence,
+        "effective_prediction_confidence": effective_prediction_confidence,
+        "confidence_adjustment_reason": confidence_adjustment_reason,
+        "confidence_evidence_level": confidence_resolution["evidence_level"],
+        "confidence_sample_count": confidence_resolution["sample_count"],
+        "confidence_source": confidence_resolution["source"] if confidence_resolution["state"] == "ADAPTED" else "NO_ADAPTATION",
+        "rr_variance": rr_resolution["variance"],
+        "chase_variance": chase_resolution["variance"],
+        "confidence_variance": confidence_resolution["variance"],
+        "rr_fallback_path": rr_resolution["fallback_path"],
+        "chase_fallback_path": chase_resolution["fallback_path"],
+        "confidence_fallback_path": confidence_resolution["fallback_path"],
+        "adaptive_edge_gain_estimate": edge_metrics["adaptive_edge_gain_estimate"],
+        "adaptive_risk_reduction_estimate": edge_metrics["adaptive_risk_reduction_estimate"],
     }
 
 
@@ -6133,6 +6437,7 @@ def render_play_card(
     planned_anchor_key: str | None = None,
     session_plan: dict[str, Any] | None = None,
     calibration_preview: dict[str, Any] | None = None,
+    adaptive_overlay: dict[str, Any] | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -6207,6 +6512,10 @@ def render_play_card(
     expected_fill_mark = format_price(calibration_preview.get("expected_fill_mark")) if calibration_preview and calibration_preview.get("expected_fill_mark") is not None else "-"
     calibration_evidence = str(calibration_preview.get("evidence_label", "No Evidence")) if calibration_preview else "No Evidence"
     calibration_bias_note = build_calibration_bias_note(calibration_preview)
+    adaptive_recommendation = str((adaptive_overlay or {}).get("adaptive_recommendation", "NO_ADAPTATION"))
+    adaptive_evidence = str((adaptive_overlay or {}).get("adaptive_evidence_level", "None"))
+    adaptive_reason = str((adaptive_overlay or {}).get("adaptive_reason", "No adaptive overlay"))
+    effective_confidence = str((adaptive_overlay or {}).get("effective_prediction_confidence", intelligence.get("prediction_confidence", "-")))
     locked_entry_value = format_price(intelligence.get("locked_entry_spx")) if intelligence.get("locked_entry_spx") is not None else format_price(play["entry"]["price"])
     drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
     drift_text = (
@@ -6311,6 +6620,11 @@ def render_play_card(
             <span class="spx-chip {_chip_class(intelligence.get('prediction_confidence', '-'), 'confidence')}">{escape(str(intelligence.get('prediction_confidence', '-')))}</span>
             <span class="spx-chip {_chip_class(stop_quality['label'], 'confidence')}">{escape(str(stop_quality['label']))}</span>
         </div>
+        <div class="spx-badge-row">
+            <span class="spx-chip {_chip_class(adaptive_recommendation, 'chase')}">{escape('Adaptive ' + adaptive_recommendation)}</span>
+            <span class="spx-chip scenario-neutral">{escape('Evidence ' + adaptive_evidence)}</span>
+            <span class="spx-chip {_chip_class(effective_confidence, 'confidence')}">{escape('Eff ' + effective_confidence)}</span>
+        </div>
             <div class="spx-metric-grid">
                 <div class="spx-metric-block layer1">
                     <div class="spx-metric-label">Entry</div>
@@ -6359,6 +6673,16 @@ def render_play_card(
                 <div class="spx-metric-block layer3">
                     <div class="spx-metric-label">Zone</div>
                     <div class="spx-metric-value">{escape(zone_display)}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid tertiary">
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Adaptive</div>
+                    <div class="spx-metric-value">{escape(adaptive_recommendation)}</div>
+                </div>
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Adaptive Why</div>
+                    <div class="spx-metric-value">{escape(adaptive_reason)}</div>
                 </div>
             </div>
             <div class="spx-metric-grid tertiary">
@@ -6461,6 +6785,36 @@ def render_play_card(
                 f"Slippage source: {(calibration_preview or {}).get('slippage_bias_source', 'unavailable')} | "
                 f"Slippage samples: {(calibration_preview or {}).get('slippage_sample_count', 0)} | "
                 f"Slippage bias: {format_price((calibration_preview or {}).get('slippage_bias_used')) if (calibration_preview or {}).get('slippage_bias_used') is not None else 'Unavailable'}"
+            )
+            st.caption(
+                f"Adaptive RR: base {format_price((adaptive_overlay or {}).get('base_rr_threshold')) if (adaptive_overlay or {}).get('base_rr_threshold') is not None else 'Unavailable'} | "
+                f"adaptive {format_price((adaptive_overlay or {}).get('adaptive_rr_threshold')) if (adaptive_overlay or {}).get('adaptive_rr_threshold') is not None else 'NO_ADAPTATION'} | "
+                f"source {(adaptive_overlay or {}).get('adaptive_rr_source', 'NO_ADAPTATION')} | "
+                f"samples {(adaptive_overlay or {}).get('adaptive_rr_sample_count', 0)} | "
+                f"variance {format_price((adaptive_overlay or {}).get('rr_variance')) if (adaptive_overlay or {}).get('rr_variance') is not None else 'Unavailable'} | "
+                f"path {' > '.join((adaptive_overlay or {}).get('rr_fallback_path', [])) or '-'}"
+            )
+            st.caption(
+                f"Adaptive chase: base {format_price((adaptive_overlay or {}).get('base_chase_tolerance')) if (adaptive_overlay or {}).get('base_chase_tolerance') is not None else 'Unavailable'} | "
+                f"adaptive {format_price((adaptive_overlay or {}).get('adaptive_chase_tolerance')) if (adaptive_overlay or {}).get('adaptive_chase_tolerance') is not None else 'NO_ADAPTATION'} | "
+                f"source {(adaptive_overlay or {}).get('chase_adaptation_source', 'NO_ADAPTATION')} | "
+                f"samples {(adaptive_overlay or {}).get('chase_sample_count', 0)} | "
+                f"variance {format_price((adaptive_overlay or {}).get('chase_variance')) if (adaptive_overlay or {}).get('chase_variance') is not None else 'Unavailable'} | "
+                f"path {' > '.join((adaptive_overlay or {}).get('chase_fallback_path', [])) or '-'}"
+            )
+            st.caption(
+                f"Adaptive confidence: raw {(adaptive_overlay or {}).get('raw_prediction_confidence', intelligence.get('prediction_confidence', '-'))} | "
+                f"effective {(adaptive_overlay or {}).get('effective_prediction_confidence', intelligence.get('prediction_confidence', '-'))} | "
+                f"source {(adaptive_overlay or {}).get('confidence_source', 'NO_ADAPTATION')} | "
+                f"samples {(adaptive_overlay or {}).get('confidence_sample_count', 0)} | "
+                f"variance {format_price((adaptive_overlay or {}).get('confidence_variance')) if (adaptive_overlay or {}).get('confidence_variance') is not None else 'Unavailable'} | "
+                f"path {' > '.join((adaptive_overlay or {}).get('confidence_fallback_path', [])) or '-'} | "
+                f"Reason {(adaptive_overlay or {}).get('confidence_adjustment_reason', '-')}"
+            )
+            st.caption(
+                f"Adaptive edge gain est: {format_price((adaptive_overlay or {}).get('adaptive_edge_gain_estimate'))}% | "
+                f"Adaptive risk reduction est: {format_price((adaptive_overlay or {}).get('adaptive_risk_reduction_estimate'))}% | "
+                f"Override flag: {'Yes' if (adaptive_overlay or {}).get('override_flag') else 'No'}"
             )
 
 def render_projection_verification(
@@ -8491,6 +8845,34 @@ def render_live_mode_shell(
             session_plan=primary_session_plan,
         )
         final_status = final_status_breakdown["final_status"]
+        primary_adaptive_overlay = (
+            resolve_adaptive_overlay(
+                normalized_calibration_trades,
+                scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
+                regime=str(primary_pre_intelligence.get("regime", "")),
+                raw_prediction_confidence=str(primary_pre_intelligence.get("prediction_confidence", "")),
+                raw_final_decision=str(final_status_breakdown.get("final_decision", "")),
+                rr_ratio=_to_float_or_none(primary_lead_option.get("rr_ratio")) if primary_lead_option else None,
+                distance_to_entry=_to_float_or_none(primary_pre_intelligence.get("distance_to_entry")),
+                stop_valid=bool(primary_play_spx and primary_play_spx.get("stop") and not primary_play_spx.get("invalid_stop") and primary_pre_intelligence.get("rr_ratio") is not None),
+            )
+            if signal_package is not None and primary_play_spx is not None
+            else None
+        )
+        alternate_adaptive_overlay = (
+            resolve_adaptive_overlay(
+                normalized_calibration_trades,
+                scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
+                regime=str(alternate_pre_intelligence.get("regime", "")),
+                raw_prediction_confidence=str(alternate_pre_intelligence.get("prediction_confidence", "")),
+                raw_final_decision=str(final_status_to_action(alternate_pre_intelligence.get("status", "ELIGIBLE"), signal_package)),
+                rr_ratio=_to_float_or_none(alternate_lead_option.get("rr_ratio")) if alternate_lead_option else None,
+                distance_to_entry=_to_float_or_none(alternate_pre_intelligence.get("distance_to_entry")),
+                stop_valid=bool(alternate_play_spx and alternate_play_spx.get("stop") and not alternate_play_spx.get("invalid_stop") and alternate_pre_intelligence.get("rr_ratio") is not None),
+            )
+            if signal_package is not None and alternate_play_spx is not None
+            else None
+        )
         render_tab1_hero(
             signal_package,
             inputs["current_spx_price"],
@@ -8501,6 +8883,7 @@ def render_live_mode_shell(
             primary_play=primary_play_spx,
             lead_option_quote=primary_lead_option,
             intelligence_summary=final_status_breakdown.get("intelligence"),
+            adaptive_overlay=primary_adaptive_overlay,
         )
         if signal_package is not None:
             render_trade_decision_summary(
@@ -8563,9 +8946,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
