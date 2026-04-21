@@ -1361,40 +1361,26 @@ def render_key_levels_card(
 
     current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
     subtitle = "Projected ES stack." if compact else "Fast scan of the full projected stack in ES source terms."
-    offset_stat_html = ""
-    if not compact:
-        offset_stat_html = f"""
-            <div class="spx-card-stat"> 
-                <div class="spx-card-stat-label">ES-SPX Offset</div>
-                <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
-            </div>
-        """
-    chips = "".join(
-        f'<div class="spx-mini-line"><span>{escape(final_lines[name]["label"])} (ES)</span><span class="mono">{format_price(final_lines[name]["projected_price"])}</span></div>'
-        for name in LINE_DISPLAY_ORDER
-    )
-    st.markdown(
-        f"""
-        <div class="spx-card levels">
-            <div class="spx-card-title">
-                <div class="spx-card-icon">&#9670;</div>
-                <div>
-                    <div class="spx-card-heading">Key Levels Summary</div>
-                    <div class="spx-card-subtitle">{subtitle}</div>
-                </div>
-            </div>
-            <div class="spx-card-grid">
-                <div class="spx-card-stat">
-                    <div class="spx-card-stat-label">Current Price (ES)</div>
-                    <div class="spx-card-stat-value">{current_label}</div>
-                </div>
-                {offset_stat_html}
-            </div>
-            <div class="spx-inline-list">{chips}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    with st.container(border=True):
+        st.markdown("**Key Levels Summary**")
+        st.caption(subtitle)
+
+        if compact:
+            st.metric("Current Price (ES)", current_label)
+        else:
+            top_cols = st.columns(2)
+            top_cols[0].metric("Current Price (ES)", current_label)
+            top_cols[1].metric("ES-SPX Offset", format_price(effective_offset))
+
+        first_row = st.columns(3)
+        second_row = st.columns(3)
+        for idx, name in enumerate(LINE_DISPLAY_ORDER[:3]):
+            details = final_lines[name]
+            first_row[idx].metric(f"{details['label']} (ES)", format_price(details["projected_price"]))
+        for idx, name in enumerate(LINE_DISPLAY_ORDER[3:]):
+            details = final_lines[name]
+            second_row[idx].metric(f"{details['label']} (ES)", format_price(details["projected_price"]))
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -2606,14 +2592,7 @@ def render_options_provider_preview(
             "OAuth" if str(provider_status.get("auth_mode", "none")).startswith("oauth") else str(provider_status.get("auth_mode", "none")).replace("_", " ").title(),
             provider_status.get("status_label", "Unavailable"),
         ]
-        st.markdown(
-            f"""
-            <div class="spx-inline-status">
-                {' <span style="color:#8ea1bc;">•</span> '.join(f"<span>{escape(str(bit))}</span>" for bit in provider_bits if bit)}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.caption(" • ".join(str(bit) for bit in provider_bits if bit))
         if developer_mode:
             st.caption(
                 f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
@@ -2663,14 +2642,7 @@ def render_options_provider_preview(
             lead_quote = extract_lead_option_quote(chain_snapshot.get("contracts"))
             if lead_quote and lead_quote.get("price") is not None:
                 summary_bits.append(f"Mark {format_price(lead_quote['price'])}")
-            st.markdown(
-                f"""
-                <div class="spx-inline-summary">
-                    {' <span style="color:#8ea1bc;">•</span> '.join(f"<span>{escape(str(bit))}</span>" for bit in summary_bits if bit)}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.caption(" • ".join(str(bit) for bit in summary_bits if bit))
 
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
@@ -4025,78 +3997,42 @@ def render_play_card(
 ) -> None:
     """Render a single structured play card."""
 
-    card_class = "primary" if "Primary" in title else "alternate"
-    icon = "▲" if title == "Primary Trade" else "◇"
     if play_spx is None:
-        st.markdown(
-            f"""
-            <div class="spx-card {card_class}">
-                <div class="spx-card-title">
-                    <div class="spx-card-icon">{icon}</div>
-                    <div>
-                        <div class="spx-card-heading">{escape(title)}</div>
-                    </div>
-                </div>
-                <div class="spx-muted">No setup.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption("No setup.")
         return
 
     play = resolve_play_display_values(play_spx, projected_lines_spx)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
     entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
-    option_html = (
-        f"""<div><span class="spx-muted">Option Mark</span> """
-        f"""<span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">"""
-        f"""{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}"""
-        f"""</span></div>"""
-    )
-    bid_ask_html = ""
-    if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
-        bid_ask_html = (
-            f"""<div><span class="spx-muted">Bid/Ask</span> """
-            f"""<span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">"""
-            f"""{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / """
-            f"""{format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"""
-            f"""</span></div>"""
-        )
-    contract_html = ""
-    if lead_option_quote and lead_option_quote.get("contract_symbol"):
-        contract_html = f"""<div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">{escape(str(lead_option_quote.get("contract_symbol", "")))}</div>"""
 
-    st.markdown(
-        f"""
-        <div class="spx-card {card_class}">
-            <div class="spx-card-title">
-                <div class="spx-card-icon">{icon}</div>
-                <div>
-                    <div class="spx-card-heading">{escape(title)}</div>
-                </div>
-            </div>
-            <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
-                <div>
-                    <div style="font-family:'Outfit','Segoe UI',sans-serif; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1;">{escape(play['direction'])}</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])} <span style="font-size:1rem; color:#9cb0ca;">SPX</span></div>
-                </div>
-                <div class="spx-banner-meta" style="margin-bottom:0;">
-                    <span class="spx-pill scenario-neutral">{escape(play['entry']['label'])}</span>
-                </div>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:0.9rem 1.2rem; color:#d7e2f1; font-size:1rem; line-height:1.7;">
-                <div><span class="spx-muted">ES line</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(entry_es_value)} ES</span></div>
-                <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
-                <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
-                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
-                {option_html}
-                {bid_ask_html if not compact else ''}
-            </div>
-            {contract_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        hero_col1, hero_col2 = st.columns([2.3, 1.2])
+        hero_col1.metric(play["direction"], f"{format_price(play['entry']['price'])} SPX")
+        hero_col2.metric("Source ES Line", format_price(entry_es_value) if entry_es_value is not None else "-")
+
+        details = [
+            ("Strike", str(play["strike"])),
+            ("Contracts", str(play["contracts"])),
+            ("Stop", f"{format_price(play['stop']['price'])} SPX"),
+            ("Option Mark", format_price(lead_option_quote.get("price")) if lead_option_quote else "-"),
+        ]
+        if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
+            details.append((
+                "Bid / Ask",
+                f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}",
+            ))
+
+        detail_cols = st.columns(len(details))
+        for col, (label, value) in zip(detail_cols, details):
+            col.metric(label, value)
+
+        footnote = play["entry"]["label"]
+        if lead_option_quote and lead_option_quote.get("contract_symbol"):
+            footnote = f"{footnote} | {lead_option_quote['contract_symbol']}"
+        st.caption(footnote)
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
