@@ -706,7 +706,7 @@ def inject_app_styles() -> None:
             padding-bottom: 2.4rem;
             max-width: 1400px;
         }
-        html, body, [class*="css"] {
+        html, body, .stApp, .main .block-container {
             font-family: var(--spx-font-sans);
         }
         h1, h2, h3, h4 {
@@ -718,7 +718,13 @@ def inject_app_styles() -> None:
             color: var(--spx-text);
             line-height: 1.5;
         }
-        [data-testid="stSidebar"] * {
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] textarea,
+        [data-testid="stSidebar"] button,
+        [data-testid="stSidebar"] [data-baseweb="select"],
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
             font-family: var(--spx-font-sans) !important;
         }
         [data-testid="stSidebar"] .block-container {
@@ -1485,10 +1491,19 @@ def resolve_play_display_values(
         and stop_price is not None
         and abs(entry_price - stop_price) < 1e-9
     )
+    stop_unavailable = stop_price is None or invalid_stop
+    if stop_unavailable:
+        integrity_flags.append("stop_unavailable")
     if invalid_stop:
         integrity_flags.append("invalid_stop")
         resolved_play["stop"] = None
+    elif stop_price is None:
+        resolved_play["stop"] = None
     resolved_play["invalid_stop"] = invalid_stop
+    resolved_play["stop_unavailable"] = stop_unavailable
+    resolved_play["setup_complete"] = bool(entry_price is not None and not stop_unavailable)
+    resolved_play["setup_tradable"] = bool(entry_price is not None and not stop_unavailable)
+    resolved_play["setup_status"] = "tradable" if resolved_play["setup_tradable"] else "incomplete_stop_unavailable"
     resolved_play["integrity_flags"] = sorted(set(integrity_flags))
 
     return resolved_play
@@ -1958,19 +1973,34 @@ def to_internal_es_price(value: float, price_space: str, offset: float) -> float
     return round_price(float(value))
 
 
-def resolve_effective_offset(inputs: dict[str, Any]) -> tuple[float, str]:
+def resolve_effective_offset(inputs: dict[str, Any]) -> tuple[float, str, dict[str, Any]]:
     """Resolve the offset used for ES/SPX conversion in the app layer."""
 
-    configured_offset = float(inputs["es_spx_offset"])
-    current_es = inputs.get("current_es_price")
-    current_spx = inputs.get("current_spx_price")
+    manual_offset = float(inputs["es_spx_offset"])
+    live_inferred_offset = _to_float_or_none(inputs.get("derived_live_offset"))
+    current_es = _to_float_or_none(inputs.get("current_es_price"))
+    current_spx = _to_float_or_none(inputs.get("current_spx_price"))
+    details = {
+        "current_es": round_price(current_es) if current_es is not None else None,
+        "current_spx": round_price(current_spx) if current_spx is not None else None,
+        "manual_offset": round_price(manual_offset),
+        "live_inferred_offset": round_price(live_inferred_offset) if live_inferred_offset is not None else None,
+        "effective_offset": round_price(manual_offset),
+        "effective_offset_source": "manual_offset",
+    }
 
-    if is_valid_price_input(current_es) and is_valid_price_input(current_spx):
-        derived_offset = round_price(float(current_es) - float(current_spx))
-        if derived_offset >= 0:
-            return derived_offset, "derived_from_current_prices"
+    if (
+        not inputs.get("historical_mode")
+        and bool(inputs.get("live_es_available"))
+        and bool(inputs.get("live_spx_available"))
+        and live_inferred_offset is not None
+        and live_inferred_offset >= 0
+    ):
+        details["effective_offset"] = round_price(live_inferred_offset)
+        details["effective_offset_source"] = "live_inferred_offset"
+        return live_inferred_offset, "live_inferred_offset", details
 
-    return configured_offset, "configured_setting"
+    return manual_offset, "manual_offset", details
 
 
 def build_manual_anchor_bundle(
@@ -2754,10 +2784,15 @@ def rank_option_candidates(
         if spread_value is not None and mark_value not in {None, 0.0} and spread_value > max(1.0, mark_value * 0.25):
             spread_penalty = 0.12
         integrity_flags = list(candidate.get("integrity_flags", []))
+        penalty_flags: list[str] = []
         if not stop_valid:
             integrity_flags.append("stop_unavailable")
+            penalty_flags.append("stop_unavailable")
         if quote_incomplete:
             integrity_flags.append("quote_incomplete")
+            penalty_flags.append("quote_incomplete")
+        if spread_penalty > 0:
+            penalty_flags.append("wide_spread")
 
         contract_score = (
             (delta_fit[idx] or 0.0) * 0.30
@@ -2783,6 +2818,13 @@ def rank_option_candidates(
                 "expected_loss": round_price(expected_loss) if expected_loss is not None else None,
                 "rr_ratio": round(rr_ratio, 3) if rr_ratio is not None else None,
                 "contract_score": round(contract_score, 4),
+                "delta_score": round(delta_fit[idx] or 0.0, 4),
+                "gamma_score": round(gamma_scores[idx], 4),
+                "liquidity_score": round(liquidity_scores[idx], 4),
+                "spread_score": round(spread_scores[idx], 4),
+                "distance_score": round(distance_scores[idx], 4),
+                "score_penalty": round((0.25 if not stop_valid else 0.0) + (0.15 if quote_incomplete else 0.0) + spread_penalty, 4),
+                "penalty_flags": penalty_flags,
                 "integrity_flags": sorted(set(integrity_flags)),
                 "stop_unavailable": not stop_valid,
             }
@@ -2925,6 +2967,24 @@ def render_options_provider_preview(
             if lead_quote and lead_quote.get("price") is not None:
                 summary_bits.append(f"Mark {format_price(lead_quote['price'])}")
             st.markdown(" | ".join(str(bit) for bit in summary_bits if bit))
+            best_contract = (chain_snapshot.get("contracts") or [None])[0]
+            if best_contract:
+                best_mark_value = _to_float_or_none(best_contract.get("mark"))
+                if best_mark_value is None:
+                    best_mark_value = _to_float_or_none(best_contract.get("last"))
+                intelligence_bits = [
+                    "BEST CONTRACT",
+                    str(best_contract.get("symbol") or "-"),
+                    f"Pred Entry {format_price(best_contract.get('predicted_entry_price'))}" if best_contract.get("predicted_entry_price") is not None else "Pred Entry -",
+                    f"Mark {format_price(best_mark_value)}" if best_mark_value is not None else "Mark -",
+                    f"Gain {format_price(best_contract.get('expected_gain'))}" if best_contract.get("expected_gain") is not None else "Gain -",
+                    f"Loss {format_price(best_contract.get('expected_loss'))}" if best_contract.get("expected_loss") is not None else "Loss -",
+                    f"RR {best_contract.get('rr_ratio')}" if best_contract.get("rr_ratio") is not None else "RR -",
+                    f"Score {best_contract.get('contract_score')}" if best_contract.get("contract_score") is not None else "Score -",
+                ]
+                st.caption(" • ".join(intelligence_bits))
+                if best_contract.get("stop_unavailable"):
+                    st.caption("Setup incomplete: structural stop unavailable. RR stays blank until a valid stop exists.")
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
             if developer_mode and chain_snapshot.get("message"):
@@ -2939,7 +2999,7 @@ def render_options_provider_preview(
                     def _highlight_best(row):
                         return [
                             "background-color: rgba(0, 230, 118, 0.14); font-weight: 600;"
-                            if row.get("selection") == "BEST STRUCTURAL CONTRACT"
+                            if row.get("selection") == "BEST CONTRACT"
                             else ""
                             for _ in row
                         ]
@@ -2953,6 +3013,16 @@ def render_options_provider_preview(
                     st.dataframe(preview_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No live option candidates are available.")
+            if developer_mode and best_contract:
+                st.caption(
+                    "Scores | "
+                    f"delta {best_contract.get('delta_score', 0):.4f} | "
+                    f"gamma {best_contract.get('gamma_score', 0):.4f} | "
+                    f"liquidity {best_contract.get('liquidity_score', 0):.4f} | "
+                    f"spread {best_contract.get('spread_score', 0):.4f} | "
+                    f"distance {best_contract.get('distance_score', 0):.4f} | "
+                    f"penalties {', '.join(best_contract.get('penalty_flags', [])) or 'none'}"
+                )
             if developer_mode:
                 st.markdown("**Prepared Lookup Request**")
                 st.json(request_payload, expanded=False)
@@ -4315,7 +4385,8 @@ def render_play_card(
         if play.get("stop") and not play.get("invalid_stop"):
             st.markdown(f"Stop `{format_price(play['stop']['price'])} SPX`")
         else:
-            st.markdown("Stop `Not defined`")
+            st.markdown("**Stop** unavailable")
+            st.caption("Setup incomplete until a structural stop is available.")
 
         mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
         detail_bits: list[str] = []
@@ -6544,7 +6615,7 @@ def main() -> None:
             st.error(error)
         st.stop()
 
-    effective_offset, effective_offset_source = resolve_effective_offset(inputs)
+    effective_offset, effective_offset_source, offset_diagnostics = resolve_effective_offset(inputs)
 
     persisted_settings = {
         "es_spx_offset": inputs["es_spx_offset"],
@@ -6559,6 +6630,13 @@ def main() -> None:
     settings_saved, settings_save_error = save_settings(persisted_settings)
     if not settings_saved and settings_save_error:
         st.warning(settings_save_error)
+    if inputs.get("developer_mode"):
+        with st.sidebar.expander("Offset Diagnostics", expanded=False):
+            st.caption(f"Current ES: {format_price(offset_diagnostics.get('current_es')) if offset_diagnostics.get('current_es') is not None else 'Unavailable'}")
+            st.caption(f"Current SPX: {format_price(offset_diagnostics.get('current_spx')) if offset_diagnostics.get('current_spx') is not None else 'Unavailable'}")
+            st.caption(f"Live inferred offset: {format_price(offset_diagnostics.get('live_inferred_offset')) if offset_diagnostics.get('live_inferred_offset') is not None else 'Unavailable'}")
+            st.caption(f"Manual offset: {format_price(offset_diagnostics.get('manual_offset'))}")
+            st.caption(f"Effective offset: {format_price(offset_diagnostics.get('effective_offset'))} ({offset_diagnostics.get('effective_offset_source')})")
 
     options_provider = load_options_provider(
         provider_name=persisted_settings["options_provider"],

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app import build_line_rows, get_structure_assertion_warnings, resolve_play_display_values
+from app import build_line_rows, get_structure_assertion_warnings, resolve_effective_offset, resolve_play_display_values
 
 
 class AppUnitTests(unittest.TestCase):
@@ -76,7 +76,45 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(resolved["entry"]["price"], 7097.58)
         self.assertIsNone(resolved["stop"])
         self.assertTrue(resolved["invalid_stop"])
+        self.assertTrue(resolved["stop_unavailable"])
+        self.assertFalse(resolved["setup_tradable"])
         self.assertIn("invalid_stop", resolved["integrity_flags"])
+        self.assertIn("stop_unavailable", resolved["integrity_flags"])
+
+    def test_live_effective_offset_prefers_live_inferred_offset(self) -> None:
+        effective_offset, source, details = resolve_effective_offset(
+            {
+                "es_spx_offset": 20.0,
+                "derived_live_offset": 33.75,
+                "current_es_price": 7200.0,
+                "current_spx_price": 7100.0,
+                "historical_mode": False,
+                "live_es_available": True,
+                "live_spx_available": True,
+            }
+        )
+
+        self.assertEqual(effective_offset, 33.75)
+        self.assertEqual(source, "live_inferred_offset")
+        self.assertEqual(details["manual_offset"], 20.0)
+        self.assertEqual(details["live_inferred_offset"], 33.75)
+
+    def test_historical_effective_offset_uses_manual_offset(self) -> None:
+        effective_offset, source, details = resolve_effective_offset(
+            {
+                "es_spx_offset": 20.0,
+                "derived_live_offset": 33.75,
+                "current_es_price": 7200.0,
+                "current_spx_price": 7100.0,
+                "historical_mode": True,
+                "live_es_available": True,
+                "live_spx_available": True,
+            }
+        )
+
+        self.assertEqual(effective_offset, 20.0)
+        self.assertEqual(source, "manual_offset")
+        self.assertEqual(details["effective_offset"], 20.0)
 
 
 if __name__ == "__main__":
