@@ -5764,18 +5764,6 @@ def render_live_mode_shell(
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
 
         if developer_mode:
-            with st.expander("Confirmation", expanded=False):
-                render_confirmation_card(
-                    confirmation,
-                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
-                )
-        else:
-            render_confirmation_card(
-                confirmation,
-                resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
-                compact=True,
-            )
-        if developer_mode:
             with st.expander("Structure Details", expanded=False):
                 if signal_package is not None:
                     render_scenario_section(signal_package["scenario"])
