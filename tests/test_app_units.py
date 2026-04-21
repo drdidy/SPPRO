@@ -59,7 +59,7 @@ class AppUnitTests(unittest.TestCase):
         self.assertTrue(any("LW display mismatch" in warning for warning in warnings))
         self.assertTrue(any("single source of truth" in warning for warning in warnings))
 
-    def test_trade_entry_display_uses_spx_line_once(self) -> None:
+    def test_trade_entry_display_uses_spx_line_once_and_blocks_invalid_stop(self) -> None:
         projected_lines_spx = {
             "lw": {"label": "LW", "projected_price": 7097.58},
         }
@@ -74,7 +74,9 @@ class AppUnitTests(unittest.TestCase):
         resolved = resolve_play_display_values(play, projected_lines_spx)
 
         self.assertEqual(resolved["entry"]["price"], 7097.58)
-        self.assertEqual(resolved["stop"]["price"], 7097.58)
+        self.assertIsNone(resolved["stop"])
+        self.assertTrue(resolved["invalid_stop"])
+        self.assertIn("invalid_stop", resolved["integrity_flags"])
 
 
 if __name__ == "__main__":

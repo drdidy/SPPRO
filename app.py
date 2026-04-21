@@ -1477,6 +1477,20 @@ def resolve_play_display_values(
             resolved_leg["price"] = float(resolved_line["projected_price"])
         resolved_play[leg_name] = resolved_leg
 
+    integrity_flags = list(resolved_play.get("integrity_flags", []))
+    entry_price = _to_float_or_none(resolved_play.get("entry", {}).get("price"))
+    stop_price = _to_float_or_none(resolved_play.get("stop", {}).get("price"))
+    invalid_stop = bool(
+        entry_price is not None
+        and stop_price is not None
+        and abs(entry_price - stop_price) < 1e-9
+    )
+    if invalid_stop:
+        integrity_flags.append("invalid_stop")
+        resolved_play["stop"] = None
+    resolved_play["invalid_stop"] = invalid_stop
+    resolved_play["integrity_flags"] = sorted(set(integrity_flags))
+
     return resolved_play
 
 
@@ -2283,6 +2297,12 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "option_mark_at_decision": round_price(float(raw_trade.get("option_mark_at_decision", 0.0))),
         "predicted_entry_price": round_price(float(raw_trade.get("predicted_entry_price", 0.0))),
         "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
+        "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
+        "expected_gain": round_price(float(raw_trade.get("expected_gain", 0.0))),
+        "expected_loss": round_price(float(raw_trade.get("expected_loss", 0.0))),
+        "rr_ratio": round(float(raw_trade.get("rr_ratio", 0.0)), 3),
+        "contract_score": round(float(raw_trade.get("contract_score", 0.0)), 4),
+        "integrity_flags": list(raw_trade.get("integrity_flags", [])) if isinstance(raw_trade.get("integrity_flags", []), list) else [],
         "exit_value": round_price(float(raw_trade.get("exit_value", 0.0))),
         "contracts": int(raw_trade.get("contracts", 1)),
         "confluence_score": int(raw_trade.get("confluence_score", 0)),
@@ -2452,6 +2472,7 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "entry_line_label": primary_play["entry"]["label"] if primary_play else "",
         "entry_line_value": float(primary_play["entry"]["price"]) if primary_play else 0.0,
         "entry_value": 0.0,
+        "stop_value": 0.0,
         "contracts": int(primary_play["contracts"]) if primary_play else 1,
         "confidence_note": signal_package["scenario"]["confidence_level"] if signal_package else "",
         "confirmation_status": "Not Recorded",
@@ -2461,6 +2482,11 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "selected_contract_symbol": "",
         "option_mark_at_decision": 0.0,
         "predicted_entry_price": 0.0,
+        "expected_gain": 0.0,
+        "expected_loss": 0.0,
+        "rr_ratio": 0.0,
+        "contract_score": 0.0,
+        "integrity_flags": [],
     }
     merged = {**default_prefill, **st.session_state.get("trade_form_prefill", {})}
     try:
@@ -2486,6 +2512,10 @@ def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
         notes.append(f"Predicted entry price: {format_price(selected_contract['predicted_entry_price'])}")
     if selected_contract.get("contract_symbol"):
         notes.append(f"Selected contract: {selected_contract['contract_symbol']}")
+    if selected_contract.get("stop_value") is not None:
+        notes.append(f"Stop: {format_price(selected_contract['stop_value'])}")
+    if selected_contract.get("integrity_flags"):
+        notes.append(f"Flags: {', '.join(selected_contract['integrity_flags'])}")
 
     return {
         "source": "Tab 1 primary play",
@@ -2506,6 +2536,12 @@ def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
         "selected_contract_symbol": selected_contract.get("contract_symbol", ""),
         "option_mark_at_decision": float(selected_contract["option_mark_at_decision"]) if selected_contract.get("option_mark_at_decision") is not None else 0.0,
         "predicted_entry_price": float(selected_contract["predicted_entry_price"]) if selected_contract.get("predicted_entry_price") is not None else 0.0,
+        "stop_value": float(selected_contract["stop_value"]) if selected_contract.get("stop_value") is not None else 0.0,
+        "expected_gain": float(selected_contract["expected_gain"]) if selected_contract.get("expected_gain") is not None else 0.0,
+        "expected_loss": float(selected_contract["expected_loss"]) if selected_contract.get("expected_loss") is not None else 0.0,
+        "rr_ratio": float(selected_contract["rr_ratio"]) if selected_contract.get("rr_ratio") is not None else 0.0,
+        "contract_score": float(selected_contract["contract_score"]) if selected_contract.get("contract_score") is not None else 0.0,
+        "integrity_flags": list(selected_contract.get("integrity_flags", [])),
     }
 
 
@@ -2592,6 +2628,7 @@ def normalize_option_candidate_rows(candidates: list[dict[str, Any]] | None) -> 
                 "rr_ratio": candidate.get("rr_ratio", ""),
                 "contract_score": candidate.get("contract_score", ""),
                 "selection": candidate.get("selection_label", ""),
+                "integrity_flags": ", ".join(candidate.get("integrity_flags", [])),
             }
         )
     return normalized_rows
@@ -2645,13 +2682,14 @@ def rank_option_candidates(
     stop_price = _to_float_or_none(play_spx.get("stop", {}).get("price"))
     target_leg = play_spx.get("tp1") or play_spx.get("tp2") or {}
     target_price = _to_float_or_none(target_leg.get("price"))
-    if entry_price is None or stop_price is None or target_price is None:
+    stop_valid = not play_spx.get("invalid_stop") and stop_price is not None and entry_price is not None and abs(entry_price - stop_price) >= 1e-9
+    if entry_price is None or target_price is None:
         return list(candidates)
 
     strike_anchor = current_spx_price if is_valid_price_input(current_spx_price) else entry_price
     distance_to_entry_signed = (entry_price - float(current_spx_price)) if is_valid_price_input(current_spx_price) else 0.0
     target_move = abs(target_price - entry_price)
-    stop_move = abs(stop_price - entry_price)
+    stop_move = abs(stop_price - entry_price) if stop_valid and stop_price is not None else None
 
     deltas = [_to_float_or_none(candidate.get("delta")) for candidate in candidates]
     gammas = [_to_float_or_none(candidate.get("gamma")) for candidate in candidates]
@@ -2693,14 +2731,29 @@ def rank_option_candidates(
         if mark_value is None:
             mark_value = _to_float_or_none(candidate.get("bid"))
 
-        expected_gain = target_move * absolute_delta
-        expected_loss = stop_move * absolute_delta
-        rr_ratio = expected_gain / expected_loss if expected_loss > 0 else None
-        predicted_entry_price = (
-            mark_value + (distance_to_entry_signed * delta_value)
-            if mark_value is not None and delta_value is not None
+        expected_gain = target_move * absolute_delta if delta_value is not None else None
+        expected_loss = (stop_move * absolute_delta) if stop_move is not None and delta_value is not None else None
+        rr_ratio = (
+            expected_gain / expected_loss
+            if expected_gain is not None and expected_loss is not None and expected_loss > 0
             else None
         )
+        predicted_entry_price = (
+            mark_value + (distance_to_entry_signed * delta_value)
+            if mark_value is not None and delta_value is not None and entry_price is not None
+            else None
+        )
+        quote_incomplete = any(_to_float_or_none(candidate.get(field)) is None for field in ("bid", "ask", "mark"))
+        spread_penalty = 0.0
+        spread_value = spreads[idx]
+        if spread_value is not None and mark_value not in {None, 0.0} and spread_value > max(1.0, mark_value * 0.25):
+            spread_penalty = 0.12
+        integrity_flags = list(candidate.get("integrity_flags", []))
+        if not stop_valid:
+            integrity_flags.append("stop_unavailable")
+        if quote_incomplete:
+            integrity_flags.append("quote_incomplete")
+
         contract_score = (
             (delta_fit[idx] or 0.0) * 0.30
             + gamma_scores[idx] * 0.25
@@ -2708,6 +2761,12 @@ def rank_option_candidates(
             + spread_scores[idx] * 0.15
             + distance_scores[idx] * 0.10
         )
+        if not stop_valid:
+            contract_score -= 0.25
+        if quote_incomplete:
+            contract_score -= 0.15
+        contract_score -= spread_penalty
+        contract_score = max(contract_score, 0.0)
 
         enriched.update(
             {
@@ -2715,17 +2774,19 @@ def rank_option_candidates(
                 "target_move": target_move,
                 "stop_move": stop_move,
                 "predicted_entry_price": round_price(predicted_entry_price) if predicted_entry_price is not None else None,
-                "expected_gain": round_price(expected_gain),
-                "expected_loss": round_price(expected_loss),
+                "expected_gain": round_price(expected_gain) if expected_gain is not None else None,
+                "expected_loss": round_price(expected_loss) if expected_loss is not None else None,
                 "rr_ratio": round(rr_ratio, 3) if rr_ratio is not None else None,
                 "contract_score": round(contract_score, 4),
+                "integrity_flags": sorted(set(integrity_flags)),
+                "stop_unavailable": not stop_valid,
             }
         )
         ranked_candidates.append(enriched)
 
     ranked_candidates.sort(key=lambda row: row.get("contract_score", 0.0), reverse=True)
     for idx, candidate in enumerate(ranked_candidates):
-        candidate["selection_label"] = "BEST STRUCTURAL CONTRACT" if idx == 0 else ""
+        candidate["selection_label"] = "BEST CONTRACT" if idx == 0 else ""
     return ranked_candidates
 
 
@@ -4246,7 +4307,10 @@ def render_play_card(
             f"`{format_price(play['entry']['price'])} SPX`"
             f" | ES `{format_price(entry_es_value) if entry_es_value is not None else '-'}`"
         )
-        st.markdown(f"Stop `{format_price(play['stop']['price'])} SPX`")
+        if play.get("stop") and not play.get("invalid_stop"):
+            st.markdown(f"Stop `{format_price(play['stop']['price'])} SPX`")
+        else:
+            st.markdown("Stop `Not defined`")
 
         mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
         detail_bits: list[str] = []
@@ -5502,6 +5566,12 @@ def review_play_against_session(
     play = resolve_play_display_values(play_spx, projected_lines_spx)
     if play is None:
         return {"available": False, "summary": "Play could not be resolved."}
+    if play.get("invalid_stop") or not play.get("stop"):
+        return {
+            "available": False,
+            "summary": "Stop not defined.",
+            "integrity_flags": ["invalid_stop"],
+        }
 
     def touched(row: pd.Series, level: float | None) -> bool:
         return level is not None and float(row["low"]) <= float(level) <= float(row["high"])
@@ -5546,6 +5616,7 @@ def review_play_against_session(
         "stop_price": stop_price,
         "tp1_price": tp1_price,
         "tp2_price": tp2_price,
+        "integrity_flags": list(play.get("integrity_flags", [])),
     }
 
 
@@ -5600,6 +5671,19 @@ def evaluate_play_outcome(
             "result_classification": "No Session Data",
             "estimated_pnl": 0.0,
             "event_order": "Unavailable",
+            "integrity_flags": [],
+        }
+    if play.get("invalid_stop") or not play.get("stop"):
+        return {
+            "available": False,
+            "entry_triggered": False,
+            "stop_hit": False,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "result_classification": "Invalid Stop",
+            "estimated_pnl": 0.0,
+            "event_order": "Invalid stop",
+            "integrity_flags": ["invalid_stop"],
         }
 
     entry_price = float(play["entry"]["price"])
@@ -5696,6 +5780,7 @@ def evaluate_play_outcome(
         "result_classification": result_classification,
         "estimated_pnl": round_price(estimated_pnl),
         "event_order": " -> ".join(event_order) if event_order else "No events",
+        "integrity_flags": list(play.get("integrity_flags", [])),
     }
 
 
@@ -6026,10 +6111,17 @@ def render_live_mode_shell(
         }
         primary_lead_option = lead_option_map.get("Primary Contracts")
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
+        primary_contract_candidates = next((section["chain_snapshot"].get("contracts", []) for section in option_sections if section["title"] == "Primary Contracts"), [])
         st.session_state["tab1_primary_selected_contract"] = {
             "contract_symbol": primary_lead_option.get("contract_symbol", "") if primary_lead_option else "",
             "option_mark_at_decision": primary_lead_option.get("price") if primary_lead_option else None,
             "predicted_entry_price": primary_lead_option.get("predicted_entry_price") if primary_lead_option else None,
+            "expected_gain": primary_lead_option.get("expected_gain") if primary_lead_option else None,
+            "expected_loss": primary_lead_option.get("expected_loss") if primary_lead_option else None,
+            "rr_ratio": primary_lead_option.get("rr_ratio") if primary_lead_option else None,
+            "contract_score": primary_lead_option.get("contract_score") if primary_lead_option else None,
+            "stop_value": float(primary_play_spx["stop"]["price"]) if primary_play_spx and primary_play_spx.get("stop") else None,
+            "integrity_flags": list((primary_contract_candidates[0].get("integrity_flags", []) if primary_contract_candidates else [])),
         }
 
         decision_col1, decision_col2 = st.columns(2, gap="large")
@@ -6182,6 +6274,10 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
             alternate_review = evaluate_play_outcome(signal_package["scenario"].get("alternate_play"), projected_spx, next_session_spx)
             trade_taken = bool(primary_review["entry_triggered"] or alternate_review["entry_triggered"])
             chosen_result = primary_review if primary_review["entry_triggered"] else alternate_review
+            integrity_flags = sorted(
+                set(primary_review.get("integrity_flags", [])) | set(alternate_review.get("integrity_flags", []))
+            )
+            invalid_stop_row = "invalid_stop" in integrity_flags
             rows.append(
                 {
                     "prior_session_date": prior_session_date.isoformat(),
@@ -6197,21 +6293,24 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
                     "primary_result_classification": primary_review["result_classification"],
                     "primary_estimated_pnl": float(primary_review["estimated_pnl"]),
                     "primary_event_order": primary_review["event_order"],
+                    "primary_integrity_flags": ", ".join(primary_review.get("integrity_flags", [])),
                     "alternate_stop_hit": bool(alternate_review["stop_hit"]),
                     "alternate_tp1_hit": bool(alternate_review["tp1_hit"]),
                     "alternate_tp2_hit": bool(alternate_review["tp2_hit"]),
                     "alternate_result_classification": alternate_review["result_classification"],
                     "alternate_estimated_pnl": float(alternate_review["estimated_pnl"]),
                     "alternate_event_order": alternate_review["event_order"],
+                    "alternate_integrity_flags": ", ".join(alternate_review.get("integrity_flags", [])),
                     "stop_hit": bool(chosen_result["stop_hit"]) if trade_taken else False,
                     "tp1_hit": bool(chosen_result["tp1_hit"]) if trade_taken else False,
                     "tp2_hit": bool(chosen_result["tp2_hit"]) if trade_taken else False,
-                    "result_classification": chosen_result["result_classification"] if trade_taken else "No Trade",
+                    "result_classification": chosen_result["result_classification"] if (trade_taken or invalid_stop_row) else "No Trade",
                     "estimated_pnl": float(chosen_result["estimated_pnl"]) if trade_taken else 0.0,
                     "trade_taken": trade_taken,
                     "chosen_path": "Primary" if primary_review["entry_triggered"] else ("Alternate" if alternate_review["entry_triggered"] else "None"),
-                    "first_outcome": classify_first_outcome(chosen_result) if trade_taken else "No Trade",
-                    "event_order": chosen_result["event_order"] if trade_taken else "No trade",
+                    "first_outcome": classify_first_outcome(chosen_result) if trade_taken else ("Invalid Stop" if invalid_stop_row else "No Trade"),
+                    "event_order": chosen_result["event_order"] if (trade_taken or invalid_stop_row) else "No trade",
+                    "integrity_flags": ", ".join(integrity_flags),
                 }
             )
         except Exception:
