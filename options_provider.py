@@ -420,15 +420,17 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                     "reason": "No expirations returned from option chain.",
                 }
             return None, []
-        target_date = date.fromisoformat(request.trade_date)
-        eligible_dates = sorted(expiration for expiration in chain if expiration >= target_date)
+        requested_date = date.fromisoformat(request.trade_date)
+        minimum_live_date = max(requested_date, date.today())
+        eligible_dates = sorted(expiration for expiration in chain if expiration >= minimum_live_date)
         chosen_date = eligible_dates[0] if eligible_dates else sorted(chain.keys())[0]
         if diagnostics is not None:
             diagnostics["expiration_resolution"] = {
                 "requested_date": request.trade_date,
+                "minimum_live_date": minimum_live_date.isoformat(),
                 "returned_expirations": [expiration.isoformat() for expiration in sorted(chain.keys())[:20]],
                 "chosen_expiration": chosen_date.isoformat(),
-                "reason": "Nearest usable expiration on or after request date." if eligible_dates else "No future expiration found; used nearest available expiration.",
+                "reason": "Nearest usable expiration on or after the later of request date and today." if eligible_dates else "No non-expired future expiration found; used nearest available expiration.",
             }
         return chosen_date, chain.get(chosen_date, [])
 
