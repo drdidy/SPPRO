@@ -3660,6 +3660,11 @@ def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
         if actual_entry_price_option is not None and prediction_anchor is not None
         else None
     )
+    prediction_error_signed = (
+        round_price(actual_entry_price_option - prediction_anchor)
+        if actual_entry_price_option is not None and prediction_anchor is not None
+        else None
+    )
     prediction_error_pct = (
         round(prediction_error_abs / max(abs(prediction_anchor), 0.01), 4)
         if prediction_error_abs is not None and prediction_anchor is not None
@@ -3670,6 +3675,7 @@ def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
         if actual_entry_price_option is not None and current_mark_at_decision is not None
         else None
     )
+    fill_slippage_signed = fill_slippage_abs
     fill_slippage_pct = (
         round(fill_slippage_abs / max(abs(current_mark_at_decision), 0.01), 4)
         if fill_slippage_abs is not None and current_mark_at_decision is not None
@@ -3821,8 +3827,10 @@ def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
         "actual_contracts": int(trade.get("actual_contracts", trade.get("contracts", 1)) or 1),
         "actual_notes": str(trade.get("actual_notes", trade.get("notes", ""))),
         "prediction_error_abs": prediction_error_abs,
+        "prediction_error_signed": prediction_error_signed,
         "prediction_error_pct": prediction_error_pct,
         "fill_slippage_abs": fill_slippage_abs,
+        "fill_slippage_signed": fill_slippage_signed,
         "fill_slippage_pct": fill_slippage_pct,
         "plan_vs_actual_entry_gap": plan_vs_actual_entry_gap,
         "trade_outcome_class": trade_outcome_class,
@@ -3835,6 +3843,171 @@ def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
         "actual_rr_if_available": actual_rr_if_available,
         "realized_gain": realized_gain,
         "realized_loss": realized_loss,
+    }
+
+
+CALIBRATION_MIN_SAMPLES = 5
+CONFIDENCE_RELIABILITY_THRESHOLDS = {
+    "HIGH": 0.10,
+    "MEDIUM": 0.20,
+    "LOW": 0.35,
+}
+
+
+def build_bias_breakdown_dataframe(
+    trades: list[dict[str, Any]],
+    *,
+    group_field: str,
+    metric_field: str,
+    min_samples: int = CALIBRATION_MIN_SAMPLES,
+) -> pd.DataFrame:
+    """Build grouped bias summaries for calibration diagnostics."""
+
+    rows = [derive_outcome_tracking_fields(trade) | trade for trade in trades]
+    working = pd.DataFrame(rows)
+    if working.empty or group_field not in working.columns or metric_field not in working.columns:
+        return pd.DataFrame()
+    working = working.loc[working[metric_field].notna() & working[group_field].notna()].copy()
+    if working.empty:
+        return pd.DataFrame()
+    grouped = (
+        working.groupby(group_field)[metric_field]
+        .agg(["count", "mean", "median"])
+        .reset_index()
+        .rename(
+            columns={
+                group_field: "group",
+                "count": "samples",
+                "mean": "avg_bias",
+                "median": "median_bias",
+            }
+        )
+    )
+    grouped = grouped.loc[grouped["samples"] >= min_samples].copy()
+    if grouped.empty:
+        return pd.DataFrame()
+    grouped["avg_bias"] = grouped["avg_bias"].round(2)
+    grouped["median_bias"] = grouped["median_bias"].round(2)
+    return grouped.sort_values(by="samples", ascending=False)
+
+
+def build_confidence_calibration_dataframe(trades: list[dict[str, Any]]) -> pd.DataFrame:
+    """Measure how reliable the existing confidence labels have been."""
+
+    rows = [derive_outcome_tracking_fields(trade) | trade for trade in trades]
+    working = pd.DataFrame(rows)
+    if working.empty or "prediction_confidence" not in working.columns:
+        return pd.DataFrame()
+    working = working.loc[working["prediction_confidence"].astype(str).str.len() > 0].copy()
+    if working.empty:
+        return pd.DataFrame()
+
+    def _is_reliable(row: pd.Series) -> bool | None:
+        confidence = str(row.get("prediction_confidence", "")).upper()
+        threshold = CONFIDENCE_RELIABILITY_THRESHOLDS.get(confidence)
+        error_pct = row.get("prediction_error_pct")
+        if threshold is None or pd.isna(error_pct):
+            return None
+        return float(error_pct) <= threshold
+
+    working["reliable"] = working.apply(_is_reliable, axis=1)
+    working = working.loc[working["reliable"].notna()].copy()
+    if working.empty:
+        return pd.DataFrame()
+    grouped = (
+        working.groupby("prediction_confidence")["reliable"]
+        .agg(["count", "mean"])
+        .reset_index()
+        .rename(columns={"prediction_confidence": "confidence", "count": "samples", "mean": "accuracy_pct"})
+    )
+    grouped["accuracy_pct"] = (grouped["accuracy_pct"] * 100.0).round(2)
+    return grouped.sort_values(by="confidence")
+
+
+def build_chase_calibration_dataframe(trades: list[dict[str, Any]]) -> pd.DataFrame:
+    """Measure chase correctness by chase status and regime."""
+
+    rows = [derive_outcome_tracking_fields(trade) | trade for trade in trades]
+    working = pd.DataFrame(rows)
+    if working.empty:
+        return pd.DataFrame()
+    working = working.loc[working["chase_correctness"].isin(["CORRECT", "WRONG"])].copy()
+    if working.empty:
+        return pd.DataFrame()
+    grouped = (
+        working.groupby(["chase_status", "regime"])["chase_correctness"]
+        .agg(
+            samples="count",
+            correct_pct=lambda values: (values.eq("CORRECT").mean() * 100.0),
+        )
+        .reset_index()
+    )
+    grouped["correct_pct"] = grouped["correct_pct"].round(2)
+    return grouped.sort_values(by=["samples", "correct_pct"], ascending=[False, False])
+
+
+def resolve_calibration_preview(
+    trades: list[dict[str, Any]],
+    prefill: dict[str, Any],
+    *,
+    min_samples: int = CALIBRATION_MIN_SAMPLES,
+) -> dict[str, Any]:
+    """Build a deterministic calibrated entry/fill estimate for the active prefill."""
+
+    base_entry = _positive_price_or_none(prefill.get("live_predicted_entry_mark")) or _positive_price_or_none(prefill.get("predicted_entry_price")) or _positive_price_or_none(prefill.get("planned_entry_mark"))
+    if base_entry is None:
+        return {
+            "calibrated_entry_mark": None,
+            "expected_fill_mark": None,
+            "prediction_bias_used": None,
+            "slippage_bias_used": None,
+            "prediction_bias_source": "unavailable",
+            "slippage_bias_source": "unavailable",
+            "sufficient_data": False,
+        }
+
+    prediction_sources = [
+        ("scenario_name", str(prefill.get("scenario_name", "")).strip(), "scenario"),
+        ("direction", str(prefill.get("direction", "")).strip(), "direction"),
+        ("regime", str(prefill.get("regime", "")).strip(), "regime"),
+    ]
+    slippage_sources = [
+        ("scenario_name", str(prefill.get("scenario_name", "")).strip(), "scenario"),
+        ("regime", str(prefill.get("regime", "")).strip(), "regime"),
+        ("chase_status", str(prefill.get("chase_status", "")).strip(), "chase"),
+    ]
+
+    enriched = pd.DataFrame([derive_outcome_tracking_fields(trade) | trade for trade in trades])
+
+    def _resolve_bias(metric_field: str, candidates: list[tuple[str, str, str]]) -> tuple[float | None, str]:
+        if enriched.empty or metric_field not in enriched.columns:
+            return None, "unavailable"
+        usable = enriched.loc[enriched[metric_field].notna()].copy()
+        if usable.empty:
+            return None, "unavailable"
+        for field_name, field_value, label in candidates:
+            if not field_value or field_name not in usable.columns:
+                continue
+            subset = usable.loc[usable[field_name].astype(str) == field_value]
+            if len(subset) >= min_samples:
+                return round_price(float(subset[metric_field].mean())), label
+        if len(usable) >= min_samples:
+            return round_price(float(usable[metric_field].mean())), "overall"
+        return None, "insufficient"
+
+    prediction_bias, prediction_bias_source = _resolve_bias("prediction_error_signed", prediction_sources)
+    slippage_bias, slippage_bias_source = _resolve_bias("fill_slippage_signed", slippage_sources)
+    calibrated_entry_mark = round_price(base_entry + prediction_bias) if prediction_bias is not None else None
+    expected_fill_mark = round_price(calibrated_entry_mark + slippage_bias) if calibrated_entry_mark is not None and slippage_bias is not None else None
+
+    return {
+        "calibrated_entry_mark": calibrated_entry_mark,
+        "expected_fill_mark": expected_fill_mark,
+        "prediction_bias_used": prediction_bias,
+        "slippage_bias_used": slippage_bias,
+        "prediction_bias_source": prediction_bias_source,
+        "slippage_bias_source": slippage_bias_source,
+        "sufficient_data": calibrated_entry_mark is not None,
     }
 
 
@@ -7174,6 +7347,15 @@ def render_trade_log_tab(
 
     learning_metrics = build_learning_dashboard_metrics(filtered_trades)
     outcome_review_df = build_outcome_review_dataframe(filtered_trades, developer_mode=developer_mode)
+    prediction_bias_by_scenario = build_bias_breakdown_dataframe(filtered_trades, group_field="scenario_name", metric_field="prediction_error_signed")
+    prediction_bias_by_direction = build_bias_breakdown_dataframe(filtered_trades, group_field="direction", metric_field="prediction_error_signed")
+    prediction_bias_by_regime = build_bias_breakdown_dataframe(filtered_trades, group_field="regime", metric_field="prediction_error_signed")
+    slippage_bias_by_scenario = build_bias_breakdown_dataframe(filtered_trades, group_field="scenario_name", metric_field="fill_slippage_signed")
+    slippage_bias_by_regime = build_bias_breakdown_dataframe(filtered_trades, group_field="regime", metric_field="fill_slippage_signed")
+    slippage_bias_by_chase = build_bias_breakdown_dataframe(filtered_trades, group_field="chase_status", metric_field="fill_slippage_signed")
+    confidence_calibration_df = build_confidence_calibration_dataframe(filtered_trades)
+    chase_calibration_df = build_chase_calibration_dataframe(filtered_trades)
+    calibration_preview = resolve_calibration_preview(filtered_trades, prefill)
 
     render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
     learn_col1, learn_col2, learn_col3 = st.columns(3)
@@ -7194,6 +7376,58 @@ def render_trade_log_tab(
     plan_col2.metric("Broken -> Should Skip", f"{learning_metrics['broken_should_skip_pct']:.2f}%")
     plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
     plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
+
+    render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.")
+    calibration_col1, calibration_col2, calibration_col3, calibration_col4 = st.columns(4)
+    derived_rows = [derive_outcome_tracking_fields(trade) for trade in filtered_trades]
+    prediction_bias_values = [float(row["prediction_error_signed"]) for row in derived_rows if row.get("prediction_error_signed") is not None]
+    slippage_bias_values = [float(row["fill_slippage_signed"]) for row in derived_rows if row.get("fill_slippage_signed") is not None]
+    prediction_bias_metric = round_price(float(pd.Series(prediction_bias_values).mean())) if prediction_bias_values else 0.0
+    slippage_bias_metric = round_price(float(pd.Series(slippage_bias_values).mean())) if slippage_bias_values else 0.0
+    calibration_col1.metric("Prediction Bias", format_price(prediction_bias_metric))
+    calibration_col2.metric("Slippage Bias", format_price(slippage_bias_metric))
+    calibration_col3.metric("Calibrated Entry", format_price(calibration_preview["calibrated_entry_mark"]) if calibration_preview["calibrated_entry_mark"] is not None else "Insufficient")
+    calibration_col4.metric("Expected Fill", format_price(calibration_preview["expected_fill_mark"]) if calibration_preview["expected_fill_mark"] is not None else "Insufficient")
+    if developer_mode:
+        st.caption(
+            f"Prediction bias source: {calibration_preview['prediction_bias_source']} | "
+            f"Slippage bias source: {calibration_preview['slippage_bias_source']} | "
+            f"Prediction bias used: {format_price(calibration_preview['prediction_bias_used']) if calibration_preview['prediction_bias_used'] is not None else 'Unavailable'} | "
+            f"Slippage bias used: {format_price(calibration_preview['slippage_bias_used']) if calibration_preview['slippage_bias_used'] is not None else 'Unavailable'}"
+        )
+    else:
+        st.caption("Calibrated values are additive overlays on the raw predicted entry and current fill expectation.")
+
+    confidence_col1, confidence_col2 = st.columns(2)
+    with confidence_col1:
+        st.markdown("**Confidence Calibration**")
+        if confidence_calibration_df.empty:
+            st.info("Insufficient reviewed confidence data.")
+        else:
+            st.dataframe(confidence_calibration_df, use_container_width=True, hide_index=True)
+    with confidence_col2:
+        st.markdown("**Chase Calibration**")
+        if chase_calibration_df.empty:
+            st.info("Insufficient reviewed chase data.")
+        else:
+            st.dataframe(chase_calibration_df, use_container_width=True, hide_index=True)
+
+    if developer_mode:
+        bias_tab1, bias_tab2 = st.tabs(["Prediction Bias", "Slippage Bias"])
+        with bias_tab1:
+            st.markdown("**By Scenario**")
+            st.dataframe(prediction_bias_by_scenario, use_container_width=True, hide_index=True) if not prediction_bias_by_scenario.empty else st.info("Insufficient scenario bias data.")
+            st.markdown("**By Direction**")
+            st.dataframe(prediction_bias_by_direction, use_container_width=True, hide_index=True) if not prediction_bias_by_direction.empty else st.info("Insufficient direction bias data.")
+            st.markdown("**By Regime**")
+            st.dataframe(prediction_bias_by_regime, use_container_width=True, hide_index=True) if not prediction_bias_by_regime.empty else st.info("Insufficient regime bias data.")
+        with bias_tab2:
+            st.markdown("**By Scenario**")
+            st.dataframe(slippage_bias_by_scenario, use_container_width=True, hide_index=True) if not slippage_bias_by_scenario.empty else st.info("Insufficient scenario slippage data.")
+            st.markdown("**By Regime**")
+            st.dataframe(slippage_bias_by_regime, use_container_width=True, hide_index=True) if not slippage_bias_by_regime.empty else st.info("Insufficient regime slippage data.")
+            st.markdown("**By Chase Status**")
+            st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
 
     render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
     if outcome_review_df.empty:
