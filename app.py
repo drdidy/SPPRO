@@ -1074,6 +1074,284 @@ def inject_app_styles() -> None:
         .spx-pill.scenario-neutral { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.24); }
         .spx-pill.scenario-warning { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.24); color: #fff4c5; }
         .spx-pill.scenario-compression { background: rgba(179,136,255,0.14); border-color: rgba(179,136,255,0.24); }
+        .spx-play-shell {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 22px;
+            padding: 0.95rem 1rem 1rem 1rem;
+            background:
+                radial-gradient(circle at top right, rgba(0,212,255,0.08), transparent 30%),
+                linear-gradient(180deg, rgba(12,18,31,0.97), rgba(8,12,22,0.96));
+            box-shadow: 0 14px 30px rgba(0,0,0,0.18);
+            margin-bottom: 0.8rem;
+        }
+        .spx-play-shell.alternate {
+            opacity: 0.9;
+            border-color: rgba(255,255,255,0.06);
+            background:
+                radial-gradient(circle at top right, rgba(255,255,255,0.05), transparent 28%),
+                linear-gradient(180deg, rgba(10,14,24,0.93), rgba(8,11,20,0.94));
+        }
+        .spx-play-topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.8rem;
+            margin-bottom: 0.65rem;
+        }
+        .spx-play-title {
+            font-size: 0.92rem;
+            font-weight: 740;
+            color: #e3edf9;
+        }
+        .spx-play-title.alt {
+            font-size: 0.84rem;
+            color: #bfd0e2;
+        }
+        .spx-play-topline-note {
+            color: var(--spx-muted);
+            font-size: 0.74rem;
+        }
+        .spx-decision-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.78rem 0.88rem;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.08);
+            margin-bottom: 0.78rem;
+        }
+        .spx-decision-banner.enter {
+            background: linear-gradient(135deg, rgba(0,230,118,0.18), rgba(0,230,118,0.08));
+            border-color: rgba(0,230,118,0.28);
+            box-shadow: 0 0 20px rgba(0,230,118,0.08);
+        }
+        .spx-decision-banner.wait {
+            background: linear-gradient(135deg, rgba(0,212,255,0.16), rgba(0,212,255,0.08));
+            border-color: rgba(0,212,255,0.24);
+            box-shadow: 0 0 20px rgba(0,212,255,0.07);
+        }
+        .spx-decision-banner.caution {
+            background: linear-gradient(135deg, rgba(255,193,7,0.18), rgba(255,193,7,0.08));
+            border-color: rgba(255,193,7,0.28);
+            box-shadow: 0 0 20px rgba(255,193,7,0.08);
+        }
+        .spx-decision-banner.skip {
+            background: linear-gradient(135deg, rgba(255,82,82,0.22), rgba(255,82,82,0.09));
+            border-color: rgba(255,82,82,0.3);
+            box-shadow: 0 0 20px rgba(255,82,82,0.08);
+        }
+        .spx-decision-main {
+            font-family: var(--spx-font-sans);
+            font-size: 1.22rem;
+            font-weight: 830;
+            color: #f8fbff;
+            letter-spacing: 0.01em;
+        }
+        .spx-decision-sub {
+            color: #d1e0f1;
+            font-size: 0.8rem;
+            margin-top: 0.16rem;
+            line-height: 1.35;
+        }
+        .spx-play-context {
+            text-align: right;
+            min-width: 92px;
+        }
+        .spx-play-context-label {
+            color: var(--spx-muted);
+            font-size: 0.64rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+        .spx-play-context-value {
+            margin-top: 0.14rem;
+            font-family: var(--spx-font-mono);
+            font-size: 1.08rem;
+            font-weight: 780;
+            color: #f8fbff;
+        }
+        .spx-entry-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.95fr;
+            gap: 0.7rem;
+            margin-bottom: 0.78rem;
+        }
+        .spx-entry-card {
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 0.72rem 0.8rem;
+            background: rgba(255,255,255,0.028);
+        }
+        .spx-entry-card-label {
+            color: var(--spx-muted);
+            font-size: 0.64rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 0.2rem;
+        }
+        .spx-entry-card-value {
+            font-family: var(--spx-font-mono);
+            font-size: 1.18rem;
+            font-weight: 820;
+            color: #f8fbff;
+        }
+        .spx-entry-card-note {
+            color: #bad0e5;
+            font-size: 0.78rem;
+            margin-top: 0.2rem;
+        }
+        .spx-plan-box {
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 0.72rem 0.82rem;
+            background: rgba(255,255,255,0.028);
+            margin-bottom: 0.78rem;
+        }
+        .spx-plan-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 0.48rem;
+        }
+        .spx-plan-title {
+            color: #f5f9ff;
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 780;
+        }
+        .spx-plan-metric {
+            color: #dce8f8;
+            font-family: var(--spx-font-mono);
+            font-size: 0.86rem;
+            font-weight: 720;
+        }
+        .spx-drift-track {
+            width: 100%;
+            height: 9px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.07);
+            overflow: hidden;
+            margin-bottom: 0.46rem;
+        }
+        .spx-drift-fill {
+            height: 100%;
+            border-radius: 999px;
+        }
+        .spx-drift-fill.good { background: linear-gradient(90deg, #00e676, #1de9b6); }
+        .spx-drift-fill.warn { background: linear-gradient(90deg, #ffd54f, #ffb300); }
+        .spx-drift-fill.bad { background: linear-gradient(90deg, #ff6e6e, #ff5252); }
+        .spx-entry-compare {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem;
+        }
+        .spx-entry-compare-block {
+            border-radius: 14px;
+            padding: 0.56rem 0.6rem;
+            background: rgba(255,255,255,0.03);
+        }
+        .spx-entry-compare-label {
+            color: var(--spx-muted);
+            font-size: 0.63rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+        .spx-entry-compare-value {
+            margin-top: 0.14rem;
+            font-family: var(--spx-font-mono);
+            font-size: 0.98rem;
+            font-weight: 760;
+        }
+        .spx-entry-compare-value.planned { color: #9cb2cc; }
+        .spx-entry-compare-value.live { color: #86eeff; }
+        .spx-badge-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.42rem;
+            margin-bottom: 0.78rem;
+        }
+        .spx-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.28rem 0.56rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.71rem;
+            font-weight: 740;
+            letter-spacing: 0.03em;
+            color: #edf5ff;
+            background: rgba(255,255,255,0.04);
+        }
+        .spx-chip.green { background: rgba(0,230,118,0.14); border-color: rgba(0,230,118,0.24); }
+        .spx-chip.blue { background: rgba(0,212,255,0.14); border-color: rgba(0,212,255,0.24); }
+        .spx-chip.yellow { background: rgba(255,193,7,0.14); border-color: rgba(255,193,7,0.25); color: #fff2bf; }
+        .spx-chip.red { background: rgba(255,82,82,0.14); border-color: rgba(255,82,82,0.24); color: #ffd0d0; }
+        .spx-chip.gray { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: #d1deef; }
+        .spx-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.62rem;
+            margin-bottom: 0.74rem;
+        }
+        .spx-metric-grid.secondary {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .spx-metric-grid.tertiary {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .spx-metric-block {
+            border-radius: 14px;
+            padding: 0.58rem 0.64rem;
+            background: rgba(255,255,255,0.026);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .spx-metric-block.layer1 .spx-metric-value {
+            font-size: 1.16rem;
+            font-weight: 820;
+            color: #f8fbff;
+        }
+        .spx-metric-block.layer2 .spx-metric-value {
+            font-size: 0.96rem;
+            font-weight: 740;
+            color: #e4edf8;
+        }
+        .spx-metric-block.layer3 {
+            opacity: 0.74;
+        }
+        .spx-metric-block.muted {
+            opacity: 0.5;
+        }
+        .spx-metric-label {
+            color: var(--spx-muted);
+            font-size: 0.63rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            margin-bottom: 0.16rem;
+        }
+        .spx-metric-value {
+            font-family: var(--spx-font-mono);
+        }
+        .spx-risk-note {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            border-radius: 14px;
+            padding: 0.55rem 0.68rem;
+            background: rgba(255,82,82,0.12);
+            border: 1px solid rgba(255,82,82,0.22);
+            color: #ffd4d4;
+            font-size: 0.8rem;
+            margin-bottom: 0.75rem;
+        }
+        .spx-risk-note-icon {
+            font-size: 0.95rem;
+            font-weight: 800;
+        }
         .spx-play-note, .spx-muted {
             color: var(--spx-muted);
             font-size: 0.82rem;
@@ -4957,6 +5235,7 @@ def resolve_final_trade_status(
     }
 
 
+
 def render_play_card(
     title: str,
     play_spx: dict[str, Any] | None,
@@ -4981,6 +5260,38 @@ def render_play_card(
             st.caption("No setup.")
         return
 
+    def _decision_class(value: str) -> str:
+        mapping = {
+            "ENTER NOW": "enter",
+            "WAIT": "wait",
+            "ENTER WITH CAUTION": "caution",
+            "SKIP TRADE": "skip",
+        }
+        return mapping.get(str(value or "").upper(), "wait")
+
+    def _chip_class(value: str, kind: str = "neutral") -> str:
+        text = str(value or "").upper()
+        if kind == "regime":
+            return "blue" if text == "PULLBACK" else "green" if text == "EXPANSION" else "gray"
+        if kind == "chase":
+            return {
+                "WAIT": "blue",
+                "ENTER NOW": "green",
+                "ENTER WITH CAUTION": "yellow",
+                "CHASE NOT ALLOWED": "red",
+            }.get(text, "gray")
+        if kind == "plan":
+            return {
+                "HOLDING": "green",
+                "DRIFTING": "yellow",
+                "BROKEN": "red",
+            }.get(text, "gray")
+        if kind == "confidence":
+            return {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(text, "gray")
+        if kind == "timing":
+            return {"IDEAL": "green", "EARLY": "blue", "LATE": "yellow", "CHASE": "red"}.get(text, "gray")
+        return {"ACTIVE": "green", "FILTERED": "red", "INVALID": "red"}.get(text, "gray")
+
     play = resolve_play_display_values(play_spx, projected_lines_spx)
     play_es = resolve_play_display_values(play_spx, projected_lines_es)
     if effective_offset is not None:
@@ -4999,152 +5310,229 @@ def render_play_card(
     intelligence["stop_quality"] = stop_quality["label"]
     timing = classify_entry_timing(current_spx_price, entry_price)
 
-    with st.container(border=True):
-        is_primary = "alternate" not in title.lower()
-        visible_status = final_status or intelligence["status"]
-        action_label = (status_breakdown or {}).get("final_decision") or final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
-        decision_suppressed = action_label == "SKIP TRADE"
-        trade_state = "FILTERED" if decision_suppressed else ("INVALID" if not play.get("stop") or play.get("invalid_stop") else "ACTIVE")
-        quality_display = "Ignored (Decision Override)" if decision_suppressed else intelligence["quality"]
-        decision_reason = get_decision_reason(action_label, st.session_state.get("current_signal_package"), play, intelligence, timing["label"])
-        pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
-        predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
-        predicted_entry_range = f"{predicted_entry_mark} +/- 0.50" if is_live_market_session() and lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else predicted_entry_mark
-        planned_entry_mark = format_price(intelligence.get("planned_entry_mark")) if intelligence.get("planned_entry_mark") is not None else "-"
-        live_predicted_mark = format_price(intelligence.get("live_predicted_entry_mark")) if intelligence.get("live_predicted_entry_mark") is not None else "-"
-        drift_text = (
-            f"{format_price(intelligence.get('entry_drift_abs'))} ({float(intelligence.get('entry_drift_pct', 0.0)) * 100:.1f}%)"
-            if intelligence.get("entry_drift_abs") is not None and intelligence.get("entry_drift_pct") is not None
-            else "-"
+    is_primary = "alternate" not in title.lower()
+    visible_status = final_status or intelligence["status"]
+    action_label = (status_breakdown or {}).get("final_decision") or final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
+    decision_suppressed = action_label == "SKIP TRADE"
+    trade_state = "FILTERED" if decision_suppressed else ("INVALID" if not play.get("stop") or play.get("invalid_stop") else "ACTIVE")
+    quality_display = "Ignored (Decision Override)" if decision_suppressed else intelligence["quality"]
+    decision_reason = get_decision_reason(action_label, st.session_state.get("current_signal_package"), play, intelligence, timing["label"])
+    pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
+    predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
+    predicted_entry_range = f"{predicted_entry_mark} +/- 0.50" if is_live_market_session() and lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else predicted_entry_mark
+    planned_entry_mark = format_price(intelligence.get("planned_entry_mark")) if intelligence.get("planned_entry_mark") is not None else "-"
+    live_predicted_mark = format_price(intelligence.get("live_predicted_entry_mark")) if intelligence.get("live_predicted_entry_mark") is not None else "-"
+    drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
+    drift_text = (
+        f"{format_price(intelligence.get('entry_drift_abs'))} ({drift_pct_value:.1f}%)"
+        if intelligence.get("entry_drift_abs") is not None and intelligence.get("entry_drift_pct") is not None
+        else "-"
+    )
+    mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
+    expected_gain = format_price(lead_option_quote.get("expected_gain")) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else "-"
+    expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
+    rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
+    contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
+    detail_bits: list[str] = []
+    if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
+        detail_bits.append(
+            "Bid/Ask "
+            f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"
         )
-        mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
-        expected_gain = format_price(lead_option_quote.get("expected_gain")) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else "-"
-        expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
-        rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
-        contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
-        tertiary_style = "opacity:0.5;" if decision_suppressed else "opacity:0.82;"
-        rr_style = "color:#93a4bb;" if decision_suppressed else "color:#f8fbff;"
-        score_style = "opacity:0.45;" if decision_suppressed else "opacity:0.78;"
-        detail_bits: list[str] = []
-        if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
-            detail_bits.append(
-                "Bid/Ask "
-                f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"
-            )
 
-        st.markdown("### Primary Trade" if is_primary else "#### Alternate Trade")
-        if not is_primary:
-            st.caption("Secondary setup")
-        st.caption(" • ".join([f"State {trade_state}", play["direction"], f"Strike {play['strike']}", action_label]))
+    drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
+    drift_fill_class = "good" if drift_pct_value is not None and drift_pct_value <= 5.0 else "warn" if drift_pct_value is not None and drift_pct_value <= 15.0 else "bad"
+    current_spx_display = format_price(current_spx_price) if current_spx_price is not None else "-"
+    stop_display = format_price(play["stop"]["price"]) if play.get("stop") and not play.get("invalid_stop") else "Unavailable"
+    suggested_stop_display = format_price(intelligence["suggested_stop"]) if intelligence.get("suggested_stop") is not None else "-"
+    action_class = _decision_class(action_label)
+    title_class = "spx-play-title" if is_primary else "spx-play-title alt"
+    regime_tooltip = "Price returning toward planned entry" if intelligence.get("regime") == "PULLBACK" else "Price moving away from planned entry" if intelligence.get("regime") == "EXPANSION" else "Regime unavailable"
+    override_note_html = (
+        """
+        <div class="spx-risk-note" title="System conditions overridden manually. Increased risk.">
+            <span class="spx-risk-note-icon">!</span>
+            <span>Signal suppressed due to decision filter</span>
+        </div>
+        """
+        if decision_suppressed
+        else ""
+    )
+    detail_html = f"<div class='spx-play-topline-note'>{escape(' | '.join(detail_bits))}</div>" if detail_bits else ""
+    best_contract_html = ""
+    if lead_option_quote and lead_option_quote.get("contract_symbol"):
+        best_contract_html = f"""
+        <div class="spx-best-contract">
+            <div class="spx-best-contract-title">Best Contract</div>
+            <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
+            <div class="spx-best-contract-meta">Mark {mark_value} ? {pred_label} {predicted_entry_mark} ? RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} ? Score {contract_score}</div>
+        </div>
+        """
 
-        top_left, top_right = st.columns([1.25, 1.0])
-        with top_left:
-            st.markdown(f"**Entry** `{format_price(play['entry']['price'])} SPX`")
-            st.caption(f"ES {format_price(entry_es_value) if entry_es_value is not None else '-'}")
-            st.markdown(
-                f"**Stop** `{format_price(play['stop']['price'])} SPX`"
-                if play.get("stop") and not play.get("invalid_stop")
-                else "**Stop** `Unavailable`"
-            )
-        with top_right:
-            st.markdown(f"**Mark** `{mark_value}`")
-            st.markdown(f"**Pred** `{predicted_entry_range}`")
-
-        mid_left, mid_right, mid_far = st.columns(3)
-        with mid_left:
-            st.markdown(
-                f"<div style='font-size:1.15rem;font-weight:800;{rr_style}'>RR {escape(rr_value if intelligence.get('rr_ratio') is not None else '-')}</div>",
-                unsafe_allow_html=True,
-            )
-        with mid_right:
-            st.markdown(f"**Quality** `{quality_display}`")
-        with mid_far:
-            st.markdown(f"<div style='font-size:0.85rem;{score_style}'>Score `{escape(contract_score)}`</div>", unsafe_allow_html=True)
-
-        st.caption(" • ".join([f"Planned {planned_entry_mark}", f"Live {live_predicted_mark}", f"Drift {drift_text}"]))
-        st.caption(" • ".join([f"Plan {intelligence.get('plan_status', '-')}", f"Regime {intelligence.get('regime', '-')}", f"Chase {intelligence.get('chase_status', '-')}", f"Predict {intelligence.get('prediction_confidence', '-')}", f"Timing {timing['label']}", f"Stop {stop_quality['label']}"]))
-        st.markdown(
-            f"<div style='font-size:0.82rem;{tertiary_style}'>Gain {escape(expected_gain)} • Loss {escape(expected_loss)}</div>",
-            unsafe_allow_html=True,
-        )
-        if stop_price is not None or intelligence.get("suggested_stop") is not None:
-            stop_bits = []
-            stop_bits.append(f"Structural Stop {format_price(stop_price)}" if stop_price is not None else "Structural Stop -")
-            stop_bits.append(f"Suggested Stop {format_price(intelligence['suggested_stop'])}" if intelligence.get("suggested_stop") is not None else "Suggested Stop -")
-            st.caption(" • ".join(stop_bits))
-        st.caption("Signal suppressed due to decision filter" if decision_suppressed else f"Reason {decision_reason}")
-        if detail_bits:
-            st.caption(" | ".join(detail_bits))
-
-        if lead_option_quote and lead_option_quote.get("contract_symbol"):
-            st.markdown(
-                f"""
-                <div class="spx-best-contract">
-                    <div class="spx-best-contract-title">Best Contract</div>
-                    <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
-                    <div class="spx-best-contract-meta">Mark {mark_value} • {pred_label} {predicted_entry_mark} • RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} • Score {contract_score}</div>
+    st.markdown(
+        f"""
+        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}">
+            <div class="spx-play-topline">
+                <div class="{title_class}">{escape(title)}</div>
+                <div class="spx-play-topline-note">{escape(trade_state)} ? {escape(play['direction'])} ? Strike {escape(str(play['strike']))}</div>
+            </div>
+            <div class="spx-decision-banner {action_class}">
+                <div>
+                    <div class="spx-decision-main">{escape(action_label)}</div>
+                    <div class="spx-decision-sub">{escape(decision_reason)}</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
+                <div class="spx-play-context">
+                    <div class="spx-play-context-label">Current SPX</div>
+                    <div class="spx-play-context-value">{current_spx_display}</div>
+                </div>
+            </div>
+            <div class="spx-entry-grid">
+                <div class="spx-entry-card">
+                    <div class="spx-entry-card-label">Entry</div>
+                    <div class="spx-entry-card-value">{format_price(play['entry']['price'])} SPX</div>
+                    <div class="spx-entry-card-note">ES {format_price(entry_es_value) if entry_es_value is not None else '-'}</div>
+                </div>
+                <div class="spx-entry-card">
+                    <div class="spx-entry-card-label">Option Mark</div>
+                    <div class="spx-entry-card-value">{mark_value}</div>
+                    <div class="spx-entry-card-note">RR {escape(rr_value if intelligence.get('rr_ratio') is not None else '-')}</div>
+                </div>
+            </div>
+            <div class="spx-plan-box">
+                <div class="spx-plan-header">
+                    <div class="spx-plan-title">Plan Integrity</div>
+                    <div class="spx-plan-metric">{f'{drift_pct_value:.1f}%' if drift_pct_value is not None else '-'}{'' if intelligence.get('entry_drift_abs') is None else f' ? {format_price(intelligence.get("entry_drift_abs"))}'}</div>
+                </div>
+                <div class="spx-drift-track"><div class="spx-drift-fill {drift_fill_class}" style="width:{drift_fill_pct:.1f}%"></div></div>
+                <div class="spx-entry-compare">
+                    <div class="spx-entry-compare-block">
+                        <div class="spx-entry-compare-label">Planned Entry</div>
+                        <div class="spx-entry-compare-value planned">{planned_entry_mark}</div>
+                    </div>
+                    <div class="spx-entry-compare-block">
+                        <div class="spx-entry-compare-label">{escape(pred_label)}</div>
+                        <div class="spx-entry-compare-value live">{live_predicted_mark}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="spx-badge-row">
+                <span class="spx-chip {_chip_class(intelligence.get('plan_status', '-'), 'plan')}">{escape(str(intelligence.get('plan_status', '-')))}</span>
+                <span class="spx-chip {_chip_class(intelligence.get('regime', '-'), 'regime')}" title="{escape(regime_tooltip)}">{escape(str(intelligence.get('regime', '-')))}</span>
+                <span class="spx-chip {_chip_class(intelligence.get('chase_status', '-'), 'chase')}">{escape(str(intelligence.get('chase_status', '-')))}</span>
+                <span class="spx-chip {_chip_class(intelligence.get('prediction_confidence', '-'), 'confidence')}">{escape(str(intelligence.get('prediction_confidence', '-')))}</span>
+                <span class="spx-chip {_chip_class(timing['label'], 'timing')}">{escape(str(timing['label']))}</span>
+            </div>
+            <div class="spx-metric-grid">
+                <div class="spx-metric-block layer1">
+                    <div class="spx-metric-label">Entry</div>
+                    <div class="spx-metric-value">{format_price(play['entry']['price'])}</div>
+                </div>
+                <div class="spx-metric-block layer1">
+                    <div class="spx-metric-label">Mark</div>
+                    <div class="spx-metric-value">{mark_value}</div>
+                </div>
+                <div class="spx-metric-block layer1{' muted' if decision_suppressed else ''}">
+                    <div class="spx-metric-label">RR</div>
+                    <div class="spx-metric-value">{escape(rr_value if intelligence.get('rr_ratio') is not None else '-')}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid secondary">
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Stop</div>
+                    <div class="spx-metric-value">{stop_display}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">{escape(pred_label)}</div>
+                    <div class="spx-metric-value">{predicted_entry_range}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Quality</div>
+                    <div class="spx-metric-value">{escape(quality_display)}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Suggested Stop</div>
+                    <div class="spx-metric-value">{suggested_stop_display}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid tertiary">
+                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                    <div class="spx-metric-label">Gain</div>
+                    <div class="spx-metric-value">{expected_gain}</div>
+                </div>
+                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                    <div class="spx-metric-label">Loss</div>
+                    <div class="spx-metric-value">{expected_loss}</div>
+                </div>
+                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                    <div class="spx-metric-label">Score</div>
+                    <div class="spx-metric-value">{escape(contract_score)}</div>
+                </div>
+            </div>
+            {override_note_html}
+            {best_contract_html}
+            {detail_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    button_key = f"use_play_{title.lower().replace(' ', '_')}"
+    if st.button("Use This Play", key=button_key, use_container_width=True):
+        signal_package = st.session_state.get("current_signal_package")
+        if signal_package is None:
+            st.warning("No live signal snapshot is available for this play yet.")
+        else:
+            inferred_play_type = "alternate" if "alternate" in title.lower() else "primary"
+            set_trade_form_prefill(
+                build_live_play_trade_prefill(
+                    signal_package=signal_package,
+                    play_type=inferred_play_type,
+                    play_spx=play,
+                    play_es=play_es,
+                    lead_option_quote=lead_option_quote,
+                    intelligence=intelligence,
+                    final_status=visible_status,
+                    final_decision=action_label,
+                )
             )
-        button_key = f"use_play_{title.lower().replace(' ', '_')}"
-        if st.button("Use This Play", key=button_key, use_container_width=True):
-            signal_package = st.session_state.get("current_signal_package")
-            if signal_package is None:
-                st.warning("No live signal snapshot is available for this play yet.")
+            st.success("Trade Log prefilled from this play.")
+    if developer_mode and effective_offset is not None:
+        entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
+        with st.expander(f"{title} Conversion Check", expanded=False):
+            st.caption(f"Source ES line used: {format_price(entry_debug.get('source_es')) if entry_debug.get('source_es') is not None else 'Unavailable'}")
+            if offset_diagnostics is not None:
+                st.caption(f"Manual offset: {format_price(offset_diagnostics.get('manual_offset')) if offset_diagnostics.get('manual_offset') is not None else 'Unavailable'}")
+                st.caption(f"Inferred/live offset: {format_price(offset_diagnostics.get('live_inferred_offset')) if offset_diagnostics.get('live_inferred_offset') is not None else 'Unavailable'}")
+                st.caption(f"Effective offset used: {format_price(offset_diagnostics.get('effective_offset')) if offset_diagnostics.get('effective_offset') is not None else format_price(effective_offset)}")
             else:
-                inferred_play_type = "alternate" if "alternate" in title.lower() else "primary"
-                set_trade_form_prefill(
-                    build_live_play_trade_prefill(
-                        signal_package=signal_package,
-                        play_type=inferred_play_type,
-                        play_spx=play,
-                        play_es=play_es,
-                        lead_option_quote=lead_option_quote,
-                        intelligence=intelligence,
-                        final_status=visible_status,
-                        final_decision=action_label,
-                    )
-                )
-                st.success("Trade Log prefilled from this play.")
-        if developer_mode and effective_offset is not None:
-            entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
-            with st.expander(f"{title} Conversion Check", expanded=False):
-                st.caption(f"Source ES line used: {format_price(entry_debug.get('source_es')) if entry_debug.get('source_es') is not None else 'Unavailable'}")
-                if offset_diagnostics is not None:
-                    st.caption(f"Manual offset: {format_price(offset_diagnostics.get('manual_offset')) if offset_diagnostics.get('manual_offset') is not None else 'Unavailable'}")
-                    st.caption(f"Inferred/live offset: {format_price(offset_diagnostics.get('live_inferred_offset')) if offset_diagnostics.get('live_inferred_offset') is not None else 'Unavailable'}")
-                    st.caption(f"Effective offset used: {format_price(offset_diagnostics.get('effective_offset')) if offset_diagnostics.get('effective_offset') is not None else format_price(effective_offset)}")
-                else:
-                    st.caption(f"Effective offset used: {format_price(effective_offset)}")
-                st.caption(f"Additional adjustment applied: {format_price(entry_debug.get('additional_adjustment_applied')) if entry_debug.get('additional_adjustment_applied') is not None else '0.00'}")
-                st.caption(f"Final displayed SPX entry: {format_price(entry_debug.get('final_displayed_spx')) if entry_debug.get('final_displayed_spx') is not None else format_price(play['entry']['price'])}")
-                if play.get("conversion_invalid"):
-                    st.warning("Conversion check failed: ES - effective offset did not match the incoming SPX entry before alignment.")
-                st.caption(
-                    f"Stop distance: {format_price(stop_quality['distance']) if stop_quality['distance'] is not None else 'Unavailable'} | "
-                    f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
-                )
-                st.caption(
-                    f"Planned entry mark: {format_price(intelligence.get('planned_entry_mark')) if intelligence.get('planned_entry_mark') is not None else 'Unavailable'} | "
-                    f"Live predicted entry: {format_price(intelligence.get('live_predicted_entry_mark')) if intelligence.get('live_predicted_entry_mark') is not None else 'Unavailable'} | "
-                    f"Drift abs: {format_price(intelligence.get('entry_drift_abs')) if intelligence.get('entry_drift_abs') is not None else 'Unavailable'} | "
-                    f"Drift pct: {float(intelligence.get('entry_drift_pct', 0.0)) * 100:.2f}% | "
-                    f"Price vs plan: {format_price(intelligence.get('price_vs_plan')) if intelligence.get('price_vs_plan') is not None else 'Unavailable'}"
-                )
-                st.caption(
-                    f"Timing distance: {format_price(timing['distance']) if timing['distance'] is not None else 'Unavailable'} | "
-                    f"Timing label: {timing['label']} | "
-                    f"Hold threshold: {format_price(intelligence.get('hold_threshold'))} | "
-                    f"Drift threshold: {format_price(intelligence.get('drift_threshold'))} | "
-                    f"Prediction confidence: {intelligence.get('prediction_confidence', '-')} | "
-                    f"RR threshold: {intelligence['min_rr']:.2f} | "
-                    f"Structural: {(status_breakdown or {}).get('structural_status', '-') } | "
-                    f"Intelligence: {(status_breakdown or {}).get('intelligence_status', intelligence['status'])} | "
-                    f"Final: {(status_breakdown or {}).get('final_status', visible_status)} | "
-                    f"Decision: {(status_breakdown or {}).get('final_decision', action_label)} | "
-                    f"Downgrade reason: {intelligence['downgrade_reason']}"
-                )
+                st.caption(f"Effective offset used: {format_price(effective_offset)}")
+            st.caption(f"Additional adjustment applied: {format_price(entry_debug.get('additional_adjustment_applied')) if entry_debug.get('additional_adjustment_applied') is not None else '0.00'}")
+            st.caption(f"Final displayed SPX entry: {format_price(entry_debug.get('final_displayed_spx')) if entry_debug.get('final_displayed_spx') is not None else format_price(play['entry']['price'])}")
+            if play.get("conversion_invalid"):
+                st.warning("Conversion check failed: ES - effective offset did not match the incoming SPX entry before alignment.")
+            st.caption(
+                f"Stop distance: {format_price(stop_quality['distance']) if stop_quality['distance'] is not None else 'Unavailable'} | "
+                f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
+            )
+            st.caption(
+                f"Planned entry mark: {format_price(intelligence.get('planned_entry_mark')) if intelligence.get('planned_entry_mark') is not None else 'Unavailable'} | "
+                f"Live predicted entry: {format_price(intelligence.get('live_predicted_entry_mark')) if intelligence.get('live_predicted_entry_mark') is not None else 'Unavailable'} | "
+                f"Drift abs: {format_price(intelligence.get('entry_drift_abs')) if intelligence.get('entry_drift_abs') is not None else 'Unavailable'} | "
+                f"Drift pct: {float(intelligence.get('entry_drift_pct', 0.0)) * 100:.2f}% | "
+                f"Price vs plan: {format_price(intelligence.get('price_vs_plan')) if intelligence.get('price_vs_plan') is not None else 'Unavailable'}"
+            )
+            st.caption(
+                f"Timing distance: {format_price(timing['distance']) if timing['distance'] is not None else 'Unavailable'} | "
+                f"Timing label: {timing['label']} | "
+                f"Hold threshold: {format_price(intelligence.get('hold_threshold'))} | "
+                f"Drift threshold: {format_price(intelligence.get('drift_threshold'))} | "
+                f"Prediction confidence: {intelligence.get('prediction_confidence', '-')} | "
+                f"RR threshold: {intelligence['min_rr']:.2f} | "
+                f"Structural: {(status_breakdown or {}).get('structural_status', '-') } | "
+                f"Intelligence: {(status_breakdown or {}).get('intelligence_status', intelligence['status'])} | "
+                f"Final: {(status_breakdown or {}).get('final_status', visible_status)} | "
+                f"Decision: {(status_breakdown or {}).get('final_decision', action_label)} | "
+                f"Downgrade reason: {intelligence['downgrade_reason']}"
+            )
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
