@@ -651,12 +651,12 @@ def fetch_es_candles_for_app(prior_session_date: date, next_trading_date: date) 
 
 
 def inject_app_styles() -> None:
-    """Apply the premium SPX Prophet visual system."""
+    """Apply the premium SPX Prophet visual system with enhanced UI."""
 
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
         :root {
             --spx-bg: #04070d;
             --spx-bg-soft: #0b1120;
@@ -672,255 +672,52 @@ def inject_app_styles() -> None:
             --spx-gold: #ffd740;
             --spx-purple: #b388ff;
         }
+        * { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,0.3) transparent; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.3); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.5); }
         .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(0, 212, 255, 0.08), transparent 24%),
-                radial-gradient(circle at top right, rgba(179, 136, 255, 0.06), transparent 18%),
-                linear-gradient(180deg, #04070d 0%, #09111e 58%, #05080f 100%);
+            background: radial-gradient(circle at top left, rgba(0, 212, 255, 0.08), transparent 24%), radial-gradient(circle at top right, rgba(179, 136, 255, 0.06), transparent 18%), linear-gradient(180deg, #04070d 0%, #09111e 58%, #05080f 100%);
             color: var(--spx-text);
+            font-family: "Inter", sans-serif;
         }
-        .main .block-container {
-            padding-top: 1rem;
-            padding-bottom: 2.4rem;
-            max-width: 1400px;
-        }
-        h1, h2, h3, h4 {
-            font-family: "Outfit", "Segoe UI", sans-serif !important;
-            letter-spacing: 0.01em;
-            color: var(--spx-text);
-        }
-        p, li, label, div[data-testid="stMarkdownContainer"] {
-            color: var(--spx-text);
-        }
-        .spx-shell {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid var(--spx-border);
-            border-radius: 22px;
-            padding: 1.05rem 1.2rem;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
-                var(--spx-card);
-            margin-bottom: 1rem;
-            box-shadow:
-                0 12px 40px rgba(0, 0, 0, 0.28),
-                inset 0 1px 0 rgba(255,255,255,0.03);
-            animation: spxFadeUp 0.45s ease both;
-        }
-        .spx-shell::before {
-            content: "";
-            position: absolute;
-            inset: 0 auto auto 0;
-            width: 100%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
-            opacity: 0.45;
-        }
-        .spx-section-title {
-            font-size: 0.76rem;
-            font-weight: 800;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: var(--spx-muted);
-            margin-bottom: 0.35rem;
-        }
-        .spx-section-subtitle {
-            color: #d3deef;
-            font-size: 0.98rem;
-            margin-bottom: 0.15rem;
-            line-height: 1.55;
-        }
-        .spx-summary {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(0, 212, 255, 0.22);
-            background:
-                radial-gradient(circle at 15% 25%, rgba(0, 212, 255, 0.18), transparent 28%),
-                linear-gradient(135deg, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0.03) 55%, rgba(255,255,255,0.02));
-            border-radius: 22px;
-            padding: 1.05rem 1.2rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25), 0 0 24px rgba(0, 212, 255, 0.08);
-            animation: spxFadeUp 0.45s ease both;
-        }
-        .spx-summary-title {
-            font-size: 0.76rem;
-            text-transform: uppercase;
-            letter-spacing: 0.16em;
-            color: #7fe7ff;
-            font-weight: 800;
-            margin-bottom: 0.45rem;
-        }
-        .spx-summary-body {
-            color: #f4fbff;
-            font-size: 1.03rem;
-            line-height: 1.65;
-            font-weight: 600;
-        }
-        .spx-hero {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 28px;
-            padding: 1.35rem 1.35rem 1.1rem 1.35rem;
-            background:
-                radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.16), transparent 24%),
-                radial-gradient(circle at 88% 0%, rgba(255, 90, 118, 0.12), transparent 22%),
-                linear-gradient(145deg, rgba(13, 20, 34, 0.97), rgba(7, 11, 20, 0.98));
-            margin-bottom: 1rem;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.34);
-            animation: spxFadeUp 0.5s ease both;
-        }
-        .spx-hero::after {
-            content: "";
-            position: absolute;
-            inset: auto -10% -45% auto;
-            width: 42%;
-            height: 75%;
-            background: radial-gradient(circle, rgba(0,212,255,0.10), transparent 68%);
-            pointer-events: none;
-        }
-        .spx-hero-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }
-        .spx-hero-kicker {
-            color: var(--spx-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.18em;
-            font-size: 0.75rem;
-            font-weight: 800;
-            margin-bottom: 0.35rem;
-        }
-        .spx-hero-title {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 2rem;
-            font-weight: 800;
-            line-height: 1.05;
-            color: #f8fbff;
-            margin: 0 0 0.35rem 0;
-        }
-        .spx-hero-subtitle {
-            color: #bdd0e8;
-            font-size: 1rem;
-            line-height: 1.55;
-            max-width: 760px;
-        }
-        .spx-hero-status {
-            min-width: 220px;
-            text-align: right;
-        }
-        .spx-hero-status-label {
-            color: var(--spx-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.14em;
-            font-size: 0.72rem;
-            margin-bottom: 0.35rem;
-            font-weight: 800;
-        }
-        .spx-status-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.55rem;
-            padding: 0.75rem 1rem;
-            border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.08);
-            font-weight: 800;
-            color: #f8fbff;
-            background: rgba(255,255,255,0.04);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-        }
-        .spx-status-chip.good {
-            background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.05));
-            border-color: rgba(0,230,118,0.26);
-        }
-        .spx-status-chip.bad {
-            background: linear-gradient(135deg, rgba(255, 23, 68, 0.18), rgba(255, 23, 68, 0.06));
-            border-color: rgba(255,23,68,0.28);
-            animation: spxPulseAlert 2.8s ease-in-out infinite;
-        }
-        .spx-hero-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.9rem;
-        }
-        .spx-hero-stat {
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 20px;
-            padding: 0.95rem 1rem;
-            background: rgba(255,255,255,0.03);
-            backdrop-filter: blur(8px);
-        }
-        .spx-hero-stat-label {
-            color: var(--spx-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            font-size: 0.72rem;
-            font-weight: 800;
-            margin-bottom: 0.35rem;
-        }
-        .spx-hero-stat-value {
-            font-family: "JetBrains Mono", monospace;
-            font-size: 1.28rem;
-            font-weight: 700;
-            color: #f8fbff;
-            line-height: 1.2;
-        }
-        .spx-hero-stat-note {
-            color: var(--spx-muted);
-            font-size: 0.85rem;
-            margin-top: 0.3rem;
-        }
-        .spx-banner {
-            position: relative;
-            overflow: hidden;
-            border-radius: 22px;
-            padding: 1.1rem 1.15rem;
-            margin-bottom: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            background:
-                radial-gradient(circle at top left, rgba(0,212,255,0.11), transparent 24%),
-                linear-gradient(135deg, rgba(18, 26, 42, 0.96), rgba(9, 14, 24, 0.94));
-            box-shadow: 0 16px 42px rgba(0,0,0,0.26);
-            animation: spxFadeUp 0.45s ease both;
-        }
-        .spx-banner-name {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 1.36rem;
-            font-weight: 800;
-            color: #f8fbff;
-            margin-bottom: 0.35rem;
-        }
-        .spx-banner-meta {
-            color: var(--spx-muted);
-            font-size: 0.9rem;
-            margin-bottom: 0.35rem;
-        }
-        .spx-banner-text {
-            color: #d8e1ee;
-            font-size: 0.96rem;
-            line-height: 1.58;
-        }
-        .spx-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.28rem 0.62rem;
-            border-radius: 999px;
-            font-size: 0.72rem;
-            font-weight: 800;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            margin-right: 0.45rem;
-            margin-bottom: 0.2rem;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            color: #f8fbff;
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(6px);
-        }
+        .main .block-container { padding-top: 1rem; padding-bottom: 2.4rem; max-width: 1400px; }
+        h1, h2, h3, h4 { font-family: "Outfit", sans-serif !important; letter-spacing: 0.01em; color: var(--spx-text); font-weight: 800; }
+        h1 { font-size: 2.2rem; }
+        h2 { font-size: 1.5rem; }
+        h3 { font-size: 1.2rem; }
+        p, li, label, div[data-testid="stMarkdownContainer"] { color: var(--spx-text); font-family: "Inter", sans-serif; font-size: 0.95rem; line-height: 1.6; }
+        .spx-shell { position: relative; overflow: hidden; border: 1px solid var(--spx-border); border-radius: 22px; padding: 1.05rem 1.2rem; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)), var(--spx-card); margin-bottom: 1rem; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.03); animation: spxFadeUp 0.45s ease both; }
+        .spx-shell::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent); opacity: 0.45; }
+        .spx-section-title { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--spx-muted); margin-bottom: 0.35rem; }
+        .spx-section-subtitle { color: #d3deef; font-size: 0.98rem; margin-bottom: 0.15rem; line-height: 1.55; font-family: "Inter", sans-serif; }
+        .spx-summary { position: relative; overflow: hidden; border: 1px solid rgba(0, 212, 255, 0.22); background: radial-gradient(circle at 15% 25%, rgba(0, 212, 255, 0.18), transparent 28%), linear-gradient(135deg, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0.03) 55%, rgba(255,255,255,0.02)); border-radius: 22px; padding: 1.05rem 1.2rem; margin-bottom: 1rem; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25), 0 0 24px rgba(0, 212, 255, 0.08); animation: spxFadeUp 0.45s ease both; }
+        .spx-summary-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.16em; color: #7fe7ff; font-weight: 800; margin-bottom: 0.45rem; }
+        .spx-summary-body { color: #f4fbff; font-size: 1.03rem; line-height: 1.65; font-weight: 600; font-family: "Inter", sans-serif; }
+        .spx-hero { position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); border-radius: 28px; padding: 1.35rem; background: radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.16), transparent 24%), radial-gradient(circle at 88% 0%, rgba(255, 90, 118, 0.12), transparent 22%), linear-gradient(145deg, rgba(13, 20, 34, 0.97), rgba(7, 11, 20, 0.98)); margin-bottom: 1rem; box-shadow: 0 24px 60px rgba(0,0,0,0.34); animation: spxFadeUp 0.5s ease both; }
+        .spx-hero::after { content: ""; position: absolute; inset: auto -10% -45% auto; width: 42%; height: 75%; background: radial-gradient(circle, rgba(0,212,255,0.10), transparent 68%); pointer-events: none; }
+        .spx-hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+        .spx-hero-kicker { color: var(--spx-muted); text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.7rem; font-weight: 800; margin-bottom: 0.35rem; }
+        .spx-hero-title { font-family: "Outfit", sans-serif; font-size: 2.2rem; font-weight: 800; line-height: 1.05; color: #f8fbff; margin: 0 0 0.35rem 0; }
+        .spx-hero-subtitle { color: #bdd0e8; font-size: 1rem; line-height: 1.55; max-width: 760px; font-family: "Inter", sans-serif; }
+        .spx-hero-status { min-width: 220px; text-align: right; }
+        .spx-hero-status-label { color: var(--spx-muted); text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.7rem; margin-bottom: 0.35rem; font-weight: 800; }
+        .spx-status-chip { display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.75rem 1rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.08); font-weight: 800; color: #f8fbff; background: rgba(255,255,255,0.04); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 16px rgba(0,0,0,0.12); transition: all 200ms ease; }
+        .spx-status-chip:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 12px 20px rgba(0,0,0,0.16); }
+        .spx-status-chip.good { background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 230, 118, 0.05)); border-color: rgba(0,230,118,0.26); }
+        .spx-status-chip.bad { background: linear-gradient(135deg, rgba(255, 23, 68, 0.18), rgba(255, 23, 68, 0.06)); border-color: rgba(255,23,68,0.28); animation: spxPulseAlert 2.8s ease-in-out infinite; }
+        .spx-hero-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; }
+        .spx-hero-stat { border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 0.95rem 1rem; background: linear-gradient(135deg, rgba(0,212,255,0.05), rgba(255,255,255,0.01)), rgba(255,255,255,0.02); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -12px 18px rgba(0,0,0,0.08), 0 8px 16px rgba(0,0,0,0.12); backdrop-filter: blur(8px); }
+        .spx-hero-stat-label { color: var(--spx-muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.7rem; font-weight: 800; margin-bottom: 0.35rem; }
+        .spx-hero-stat-value { font-family: "JetBrains Mono", monospace; font-size: 1.3rem; font-weight: 700; color: #00d4ff; line-height: 1.2; }
+        .spx-hero-stat-note { color: var(--spx-muted); font-size: 0.8rem; margin-top: 0.3rem; }
+        .spx-banner { position: relative; overflow: hidden; border-radius: 22px; padding: 1.1rem 1.15rem; margin-bottom: 1rem; border: 1px solid rgba(255, 255, 255, 0.08); background: radial-gradient(circle at top left, rgba(0,212,255,0.11), transparent 24%), linear-gradient(135deg, rgba(18, 26, 42, 0.96), rgba(9, 14, 24, 0.94)); box-shadow: 0 16px 42px rgba(0,0,0,0.26); animation: spxFadeUp 0.45s ease both; }
+        .spx-banner-name { font-family: "Outfit", sans-serif; font-size: 1.36rem; font-weight: 800; color: #f8fbff; margin-bottom: 0.35rem; }
+        .spx-banner-meta { color: var(--spx-muted); font-size: 0.9rem; margin-bottom: 0.35rem; font-family: "Inter", sans-serif; }
+        .spx-banner-text { color: #d8e1ee; font-size: 0.95rem; line-height: 1.58; font-family: "Inter", sans-serif; }
+        .spx-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.65rem; border-radius: 999px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 0.45rem; margin-bottom: 0.2rem; border: 1px solid rgba(255, 255, 255, 0.08); color: #f8fbff; background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(6px); transition: all 150ms ease; }
+        .spx-pill:hover { border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.08); }
         .spx-pill.conf-high { background: rgba(0,230,118,0.14); border-color: rgba(0,230,118,0.24); }
         .spx-pill.conf-medium { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.24); }
         .spx-pill.conf-low { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.28); color: #fff2bf; }
@@ -929,249 +726,48 @@ def inject_app_styles() -> None:
         .spx-pill.scenario-neutral { background: rgba(0,212,255,0.12); border-color: rgba(0,212,255,0.24); }
         .spx-pill.scenario-warning { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.24); color: #fff4c5; }
         .spx-pill.scenario-compression { background: rgba(179,136,255,0.14); border-color: rgba(179,136,255,0.24); }
-        .spx-play-note, .spx-muted {
-            color: var(--spx-muted);
-            font-size: 0.88rem;
-            line-height: 1.45;
-        }
-        .spx-card {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 22px;
-            padding: 1.05rem 1.1rem;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012)),
-                var(--spx-card-strong);
-            box-shadow: 0 14px 34px rgba(0,0,0,0.22);
-            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-            animation: spxFadeUp 0.45s ease both;
-        }
-        .spx-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 20px 42px rgba(0,0,0,0.28);
-        }
+        .spx-play-note, .spx-muted { color: var(--spx-muted); font-size: 0.88rem; line-height: 1.45; font-family: "Inter", sans-serif; }
+        .spx-card { position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); border-radius: 22px; padding: 1.05rem 1.1rem; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012)), var(--spx-card-strong); box-shadow: 0 14px 34px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.02); transition: all 200ms ease; animation: spxFadeUp 0.45s ease both; }
+        .spx-card:hover { transform: translateY(-2px); border-color: rgba(0,212,255,0.16); box-shadow: 0 20px 42px rgba(0,0,0,0.28), 0 0 20px rgba(0,212,255,0.08), inset 0 1px 0 rgba(255,255,255,0.03); }
         .spx-card.primary { border-color: rgba(0,212,255,0.16); }
         .spx-card.alternate { border-color: rgba(255,255,255,0.08); }
         .spx-card.levels { border-color: rgba(255,212,64,0.16); }
-        .spx-card-title {
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-            margin-bottom: 0.9rem;
-        }
-        .spx-card-icon {
-            width: 2.55rem;
-            height: 2.55rem;
-            border-radius: 18px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.3rem;
-            font-weight: 800;
-            background: rgba(255,255,255,0.05);
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-        }
-        .spx-card-heading {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 1.16rem;
-            font-weight: 700;
-            color: #f8fbff;
-            line-height: 1.2;
-        }
-        .spx-card-subtitle {
-            color: var(--spx-muted);
-            font-size: 0.88rem;
-            margin-top: 0.15rem;
-        }
-        .spx-card-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.7rem;
-            margin-bottom: 0.9rem;
-        }
-        .spx-card-stat {
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 16px;
-            padding: 0.78rem 0.82rem;
-            background: rgba(255,255,255,0.025);
-        }
-        .spx-card-stat-label {
-            color: var(--spx-muted);
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            font-weight: 800;
-            margin-bottom: 0.25rem;
-        }
-        .spx-card-stat-value {
-            color: #f8fbff;
-            font-size: 1rem;
-            font-family: "JetBrains Mono", monospace;
-            font-weight: 700;
-            line-height: 1.35;
-        }
-        .spx-card-copy {
-            color: #d7e2f1;
-            font-size: 0.92rem;
-            line-height: 1.6;
-        }
-        .spx-inline-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.55rem;
-        }
-        .spx-mini-line {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.46rem 0.6rem;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.07);
-            font-size: 0.82rem;
-            color: #deebff;
-        }
-        .spx-mini-line .mono {
-            font-family: "JetBrains Mono", monospace;
-            font-weight: 700;
-        }
-        .spx-status-good {
-            border: 1px solid rgba(0, 230, 118, 0.2);
-            background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 230, 118, 0.04));
-            border-radius: 18px;
-            padding: 1rem 1.05rem;
-            margin-bottom: 1rem;
-        }
-        .spx-status-bad {
-            border: 1px solid rgba(255, 23, 68, 0.25);
-            background: linear-gradient(135deg, rgba(255, 23, 68, 0.13), rgba(255, 23, 68, 0.05));
-            border-radius: 18px;
-            padding: 1rem 1.05rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 0 26px rgba(255,23,68,0.08);
-        }
-        .spx-status-title {
-            color: #f8fbff;
-            font-weight: 800;
-            margin-bottom: 0.35rem;
-            font-size: 1rem;
-        }
-        .spx-reference {
-            border-left: 3px solid rgba(255, 212, 64, 0.9);
-            padding: 0.75rem 0.9rem;
-            background: rgba(255, 212, 64, 0.08);
-            border-radius: 0 12px 12px 0;
-            color: #f4e6ac;
-            margin-bottom: 0.8rem;
-        }
-        .spx-spacer-sm {
-            height: 0.35rem;
-        }
-        .spx-spacer-md {
-            height: 0.75rem;
-        }
-        div[data-testid="stForm"] {
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 22px;
-            padding: 1rem 1rem 0.4rem 1rem;
-            background: rgba(8, 12, 22, 0.72);
-        }
-        div[data-testid="stTextInput"] label,
-        div[data-testid="stNumberInput"] label,
-        div[data-testid="stSelectbox"] label,
-        div[data-testid="stDateInput"] label,
-        div[data-testid="stMultiSelect"] label,
-        div[data-testid="stTextArea"] label {
-            color: var(--spx-muted) !important;
-            font-size: 0.8rem !important;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 700 !important;
-        }
-        div[data-baseweb="input"] > div,
-        div[data-baseweb="select"] > div,
-        textarea {
-            background: rgba(7, 11, 20, 0.94) !important;
-            border-color: rgba(255,255,255,0.08) !important;
-            border-radius: 14px !important;
-        }
-        div[data-testid="stButton"] > button,
-        div[data-testid="stDownloadButton"] > button {
-            border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: linear-gradient(135deg, rgba(20,28,45,0.96), rgba(10,16,28,0.96));
-            color: #f4f8ff;
-            font-weight: 700;
-            transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
-            box-shadow: 0 10px 22px rgba(0,0,0,0.16);
-        }
-        div[data-testid="stButton"] > button:hover,
-        div[data-testid="stDownloadButton"] > button:hover {
-            transform: translateY(-1px);
-            border-color: rgba(0,212,255,0.22);
-            box-shadow: 0 16px 30px rgba(0,0,0,0.22);
-        }
-        div[data-testid="stMetric"] {
-            background:
-                linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
-                rgba(10, 16, 28, 0.88);
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 18px;
-            padding: 0.9rem 0.95rem;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
-        }
-        div[data-testid="stMetricLabel"] {
-            color: var(--spx-muted);
-        }
-        div[data-testid="stMetricValue"] {
-            font-family: "JetBrains Mono", monospace;
-        }
-        div[data-testid="stDataFrame"] {
-            border-radius: 18px;
-            overflow: hidden;
-        }
-        div[data-testid="stExpander"] {
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 18px;
-            background: rgba(8, 12, 22, 0.76);
-            overflow: hidden;
-        }
-        div[data-testid="stTabs"] button {
-            font-family: "JetBrains Mono", monospace !important;
-            font-weight: 700;
-            letter-spacing: 0.04em;
-            border-radius: 12px 12px 0 0;
-        }
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, rgba(10,15,25,0.98), rgba(6,10,18,0.98));
-            border-right: 1px solid rgba(255,255,255,0.06);
-        }
-        [data-testid="stSidebar"] .block-container {
-            padding-top: 1rem;
-        }
-        @keyframes spxFadeUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes spxPulseAlert {
-            0%, 100% { box-shadow: 0 0 0 rgba(255,23,68,0.0); }
-            50% { box-shadow: 0 0 28px rgba(255,23,68,0.16); }
-        }
-        @media (max-width: 1080px) {
-            .spx-hero-top {
-                flex-direction: column;
-            }
-            .spx-hero-status {
-                text-align: left;
-            }
-            .spx-hero-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-            .spx-card-grid {
-                grid-template-columns: 1fr;
-            }
-        }
+        .spx-card-title { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.9rem; }
+        .spx-card-icon { width: 2.55rem; height: 2.55rem; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.35rem; font-weight: 800; background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(255,255,255,0.04)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -8px 12px rgba(0,0,0,0.1), 0 6px 12px rgba(0,0,0,0.15); }
+        .spx-card-heading { font-family: "Outfit", sans-serif; font-size: 1.16rem; font-weight: 700; color: #f8fbff; line-height: 1.2; }
+        .spx-card-subtitle { color: var(--spx-muted); font-size: 0.85rem; margin-top: 0.15rem; font-family: "Inter", sans-serif; }
+        .spx-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+        .spx-card-stat { border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 0.78rem 0.82rem; background: linear-gradient(135deg, rgba(0,212,255,0.04), rgba(255,255,255,0.01)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -6px 8px rgba(0,0,0,0.06); }
+        .spx-card-stat-label { color: var(--spx-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 800; margin-bottom: 0.25rem; }
+        .spx-card-stat-value { color: #00d4ff; font-size: 1.05rem; font-family: "JetBrains Mono", monospace; font-weight: 700; line-height: 1.35; }
+        .spx-card-copy { color: #d7e2f1; font-size: 0.92rem; line-height: 1.6; font-family: "Inter", sans-serif; }
+        .spx-inline-list { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+        .spx-mini-line { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.46rem 0.6rem; border-radius: 999px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); font-size: 0.8rem; color: #deebff; font-family: "Inter", sans-serif; }
+        .spx-mini-line .mono { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #00d4ff; }
+        .spx-status-good { border: 1px solid rgba(0, 230, 118, 0.2); background: linear-gradient(135deg, rgba(0, 230, 118, 0.12), rgba(0, 230, 118, 0.04)); border-radius: 18px; padding: 1rem 1.05rem; margin-bottom: 1rem; }
+        .spx-status-bad { border: 1px solid rgba(255, 23, 68, 0.25); background: linear-gradient(135deg, rgba(255, 23, 68, 0.13), rgba(255, 23, 68, 0.05)); border-radius: 18px; padding: 1rem 1.05rem; margin-bottom: 1rem; box-shadow: 0 0 26px rgba(255,23,68,0.08); }
+        .spx-status-title { color: #f8fbff; font-weight: 800; margin-bottom: 0.35rem; font-size: 1rem; }
+        .spx-reference { border-left: 3px solid rgba(255, 212, 64, 0.9); padding: 0.75rem 0.9rem; background: rgba(255, 212, 64, 0.08); border-radius: 0 12px 12px 0; color: #f4e6ac; margin-bottom: 0.8rem; font-family: "Inter", sans-serif; }
+        .spx-spacer-sm { height: 0.35rem; }
+        .spx-spacer-md { height: 0.75rem; }
+        div[data-testid="stForm"] { border: 1px solid rgba(255,255,255,0.07); border-radius: 22px; padding: 1rem 1rem 0.4rem 1rem; background: rgba(8, 12, 22, 0.72); }
+        div[data-testid="stTextInput"] label, div[data-testid="stNumberInput"] label, div[data-testid="stSelectbox"] label, div[data-testid="stDateInput"] label, div[data-testid="stMultiSelect"] label, div[data-testid="stTextArea"] label { color: var(--spx-muted) !important; font-size: 0.8rem !important; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700 !important; font-family: "Inter", sans-serif !important; }
+        div[data-baseweb="input"] > div, div[data-baseweb="select"] > div, textarea { background: rgba(7, 11, 20, 0.94) !important; border-color: rgba(255,255,255,0.08) !important; border-radius: 14px !important; font-family: "Inter", sans-serif !important; }
+        div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button { border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); background: linear-gradient(135deg, rgba(0,212,255,0.12), rgba(0,212,255,0.04)), linear-gradient(135deg, rgba(20,28,45,0.96), rgba(10,16,28,0.96)); color: #00d4ff; font-weight: 700; font-family: "Inter", sans-serif; transition: all 150ms ease; box-shadow: 0 10px 22px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.05); }
+        div[data-testid="stButton"] > button:hover, div[data-testid="stDownloadButton"] > button:hover { transform: translateY(-1px); border-color: rgba(0,212,255,0.3); box-shadow: 0 16px 30px rgba(0,0,0,0.22), 0 0 16px rgba(0,212,255,0.1), inset 0 1px 0 rgba(255,255,255,0.08); }
+        div[data-testid="stMetric"] { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)), rgba(10, 16, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 18px; padding: 0.9rem 0.95rem; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -8px 12px rgba(0,0,0,0.08), 0 8px 16px rgba(0,0,0,0.12); }
+        div[data-testid="stMetricLabel"] { color: var(--spx-muted); font-family: "Inter", sans-serif; font-size: 0.8rem; }
+        div[data-testid="stMetricValue"] { font-family: "JetBrains Mono", monospace; color: #00d4ff; }
+        div[data-testid="stDataFrame"] { border-radius: 18px; overflow: hidden; }
+        div[data-testid="stExpander"] { border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 18px; background: rgba(8, 12, 22, 0.76); overflow: hidden; }
+        div[data-testid="stExpander"] > button { font-family: "Inter", sans-serif; }
+        div[data-testid="stTabs"] button { font-family: "Inter", sans-serif !important; font-weight: 700; letter-spacing: 0.04em; border-radius: 12px 12px 0 0; transition: all 150ms ease; }
+        div[data-testid="stTabs"] button:hover { background: rgba(0,212,255,0.1); }
+        [data-testid="stSidebar"] { background: linear-gradient(180deg, rgba(10,15,25,0.98), rgba(6,10,18,0.98)); border-right: 1px solid rgba(255,255,255,0.06); }
+        [data-testid="stSidebar"] .block-container { padding-top: 1rem; }
+        @keyframes spxFadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spxPulseAlert { 0%, 100% { box-shadow: 0 0 0 rgba(255,23,68,0.0); } 50% { box-shadow: 0 0 28px rgba(255,23,68,0.16); } }
+        @media (max-width: 1080px) { .spx-hero-top { flex-direction: column; } .spx-hero-status { text-align: left; } .spx-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .spx-card-grid { grid-template-columns: 1fr; } }
         </style>
         """,
         unsafe_allow_html=True,
