@@ -3954,59 +3954,33 @@ def render_play_card(
 ) -> None:
     """Render a single structured play card."""
 
-    card_class = "primary" if "Primary" in title else "alternate"
-    icon = "▲" if title == "Primary Trade" else "◇"
     if play_spx is None:
-        st.markdown(
-            f"""
-            <div class="spx-card {card_class}">
-                <div class="spx-card-title">
-                    <div class="spx-card-icon">{icon}</div>
-                    <div>
-                        <div class="spx-card-heading">{escape(title)}</div>
-                    </div>
-                </div>
-                <div class="spx-muted">No setup.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption("No setup.")
         return
 
     play = resolve_play_display_values(play_spx, projected_lines_spx)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
     entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
 
-    st.markdown(
-        f"""
-        <div class="spx-card {card_class}">
-            <div class="spx-card-title">
-                <div class="spx-card-icon">{icon}</div>
-                <div>
-                    <div class="spx-card-heading">{escape(title)}</div>
-                </div>
-            </div>
-            <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
-                <div>
-                    <div style="font-family:'Outfit','Segoe UI',sans-serif; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1;">{escape(play['direction'])}</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; line-height:1.05; text-shadow:0 0 18px rgba(0,212,255,0.14); margin-top:0.35rem;">{format_price(play['entry']['price'])} <span style="font-size:1rem; color:#9cb0ca;">SPX</span></div>
-                </div>
-                <div class="spx-banner-meta" style="margin-bottom:0;">
-                    <span class="spx-pill scenario-neutral">{escape(play['entry']['label'])}</span>
-                </div>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:0.9rem 1.2rem; color:#d7e2f1; font-size:1rem; line-height:1.7;">
-                <div><span class="spx-muted">ES line</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(entry_es_value)} ES</span></div>
-                <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
-                <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
-                <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
-                {'' if compact and not lead_option_quote else f'''<div><span class="spx-muted">Option</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}</span></div>'''}
-            </div>
-            {f'''<div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">{escape(str(lead_option_quote.get("contract_symbol", "")))}</div>''' if lead_option_quote and lead_option_quote.get('contract_symbol') else ""}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        top_col1, top_col2 = st.columns([3, 2])
+        top_col1.markdown(f"## {escape(play['direction'])}")
+        top_col1.markdown(f"### {format_price(play['entry']['price'])} SPX")
+        top_col2.metric("Source ES Line", format_price(entry_es_value) if entry_es_value is not None else "-")
+
+        detail_cols = st.columns(4 if compact and not lead_option_quote else 5)
+        detail_cols[0].metric("Strike", str(play["strike"]))
+        detail_cols[1].metric("Contracts", str(play["contracts"]))
+        detail_cols[2].metric("Stop", f"{format_price(play['stop']['price'])} SPX")
+        detail_cols[3].metric("Line", str(play["entry"]["label"]))
+        if not (compact and not lead_option_quote):
+            detail_cols[4].metric("Option", format_price(lead_option_quote.get("price")) if lead_option_quote else "-")
+
+        if lead_option_quote and lead_option_quote.get("contract_symbol"):
+            st.caption(str(lead_option_quote["contract_symbol"]))
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
