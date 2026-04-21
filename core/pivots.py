@@ -89,8 +89,8 @@ def _select_pivot_context_candles(window: "pd.DataFrame", pivot_index: int) -> d
     """
 
     pivot_row = window.iloc[pivot_index]
-    previous_row = window.iloc[pivot_index - 1]
-    next_row = window.iloc[pivot_index + 1]
+    previous_row = window.iloc[max(pivot_index - 1, 0)]
+    next_row = window.iloc[min(pivot_index + 1, len(window) - 1)]
     return select_pivot_context(previous_row, pivot_row, next_row)
 
 
