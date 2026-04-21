@@ -2678,9 +2678,14 @@ def rank_option_candidates(
     if not candidates or play_spx is None:
         return list(candidates or [])
 
-    entry_price = _to_float_or_none(play_spx.get("entry", {}).get("price"))
-    stop_price = _to_float_or_none(play_spx.get("stop", {}).get("price"))
-    target_leg = play_spx.get("tp1") or play_spx.get("tp2") or {}
+    entry_leg = play_spx.get("entry") if isinstance(play_spx.get("entry"), dict) else {}
+    stop_leg = play_spx.get("stop") if isinstance(play_spx.get("stop"), dict) else {}
+    target_leg = play_spx.get("tp1") if isinstance(play_spx.get("tp1"), dict) else None
+    if not target_leg:
+        target_leg = play_spx.get("tp2") if isinstance(play_spx.get("tp2"), dict) else {}
+
+    entry_price = _to_float_or_none(entry_leg.get("price"))
+    stop_price = _to_float_or_none(stop_leg.get("price"))
     target_price = _to_float_or_none(target_leg.get("price"))
     stop_valid = not play_spx.get("invalid_stop") and stop_price is not None and entry_price is not None and abs(entry_price - stop_price) >= 1e-9
     if entry_price is None or target_price is None:
