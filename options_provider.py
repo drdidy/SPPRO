@@ -15,6 +15,10 @@ try:
     from anyio import move_on_after, run as anyio_run
     from tastytrade import DXLinkStreamer, Session
     from tastytrade.dxfeed import Quote, Summary, Trade
+    try:
+        from tastytrade.dxfeed import Greeks
+    except Exception:
+        Greeks = None
     from tastytrade.instruments import Option, get_option_chain
 
     TASTYTRADE_SDK_AVAILABLE = True
@@ -25,6 +29,7 @@ except Exception:
     Quote = None
     Trade = None
     Summary = None
+    Greeks = None
     Option = None
     get_option_chain = None
     move_on_after = None
@@ -100,6 +105,11 @@ class OptionCandidate:
     mark: float | None = None
     volume: int | None = None
     open_interest: int | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    implied_volatility: float | None = None
 
 
 @dataclass
@@ -596,15 +606,19 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         quote_map: dict[str, Any] = {}
         trade_map: dict[str, Any] = {}
         summary_map: dict[str, Any] = {}
+        greeks_map: dict[str, Any] = {}
 
         async with sdk_session._client:
             async with DXLinkStreamer(sdk_session) as streamer:
                 await streamer.subscribe(Quote, symbols)
                 await streamer.subscribe(Trade, symbols)
                 await streamer.subscribe(Summary, symbols)
+                if Greeks is not None:
+                    await streamer.subscribe(Greeks, symbols)
                 deadline = time.time() + 4.0
                 while time.time() < deadline:
-                    if len(quote_map) >= len(symbols) and len(trade_map) >= len(symbols) and len(summary_map) >= len(symbols):
+                    greeks_ready = len(greeks_map) >= len(symbols) if Greeks is not None else True
+                    if len(quote_map) >= len(symbols) and len(trade_map) >= len(symbols) and len(summary_map) >= len(symbols) and greeks_ready:
                         break
 
                     if len(quote_map) < len(symbols):
@@ -619,12 +633,17 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                         with move_on_after(0.25):
                             event = await streamer.get_event(Summary)
                             summary_map[event.event_symbol] = event
+                    if Greeks is not None and len(greeks_map) < len(symbols):
+                        with move_on_after(0.25):
+                            event = await streamer.get_event(Greeks)
+                            greeks_map[event.event_symbol] = event
 
         normalized: dict[str, dict[str, Any]] = {}
         for symbol in symbols:
             quote = quote_map.get(symbol)
             trade = trade_map.get(symbol)
             summary = summary_map.get(symbol)
+            greeks = greeks_map.get(symbol)
             bid = self._normalize_decimal(getattr(quote, "bid_price", None))
             ask = self._normalize_decimal(getattr(quote, "ask_price", None))
             last = self._normalize_decimal(getattr(trade, "price", None))
@@ -635,6 +654,13 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 "mark": round((bid + ask) / 2.0, 4) if bid is not None and ask is not None else None,
                 "volume": getattr(trade, "day_volume", None),
                 "open_interest": getattr(summary, "open_interest", None),
+                "delta": self._normalize_decimal(getattr(greeks, "delta", None)),
+                "gamma": self._normalize_decimal(getattr(greeks, "gamma", None)),
+                "theta": self._normalize_decimal(getattr(greeks, "theta", None)),
+                "vega": self._normalize_decimal(getattr(greeks, "vega", None)),
+                "implied_volatility": self._normalize_decimal(
+                    getattr(greeks, "volatility", None) if greeks is not None else None
+                ),
             }
         diagnostics["quote_lookup"] = {
             "success": True,
@@ -737,6 +763,11 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                             mark=quote_details.get("mark"),
                             volume=quote_details.get("volume"),
                             open_interest=quote_details.get("open_interest"),
+                            delta=quote_details.get("delta"),
+                            gamma=quote_details.get("gamma"),
+                            theta=quote_details.get("theta"),
+                            vega=quote_details.get("vega"),
+                            implied_volatility=quote_details.get("implied_volatility"),
                         )
                     )
                 )

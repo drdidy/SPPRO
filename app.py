@@ -2491,8 +2491,11 @@ def normalize_option_candidate_rows(candidates: list[dict[str, Any]] | None) -> 
                 "mark": candidate.get("mark", ""),
                 "volume": candidate.get("volume", ""),
                 "open_interest": candidate.get("open_interest", ""),
-                "status": candidate.get("status", ""),
-                "note": candidate.get("note", ""),
+                "delta": candidate.get("delta", ""),
+                "gamma": candidate.get("gamma", ""),
+                "theta": candidate.get("theta", ""),
+                "vega": candidate.get("vega", ""),
+                "implied_volatility": candidate.get("implied_volatility", ""),
             }
         )
     return normalized_rows
@@ -2515,9 +2518,44 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
     return {
         "contract_symbol": lead.get("contract_symbol", ""),
         "price": float(price) if price not in {"", None} else None,
+        "bid": float(lead["bid"]) if lead.get("bid") not in {"", None} else None,
+        "ask": float(lead["ask"]) if lead.get("ask") not in {"", None} else None,
         "expiration": lead.get("expiration", ""),
         "strike": lead.get("strike", ""),
     }
+
+
+def attach_option_lookup_context(
+    contracts: list[dict[str, Any]] | None,
+    *,
+    lookup_timestamp,
+    current_es_price: float | None,
+    current_spx_price: float | None,
+    effective_offset: float,
+    scenario_name: str,
+    direction: str,
+    source_line_es: float | None,
+    computed_spx_entry: float | None,
+) -> list[dict[str, Any]]:
+    """Attach future-learning context to returned option contracts without changing the visible UI."""
+
+    enriched: list[dict[str, Any]] = []
+    for contract in contracts or []:
+        enriched_contract = dict(contract)
+        enriched_contract.update(
+            {
+                "lookup_timestamp": lookup_timestamp.isoformat() if hasattr(lookup_timestamp, "isoformat") else str(lookup_timestamp),
+                "es_price_at_lookup": current_es_price,
+                "spx_price_at_lookup": current_spx_price,
+                "es_spx_offset": effective_offset,
+                "scenario_name": scenario_name,
+                "direction": direction,
+                "source_line_es": source_line_es,
+                "computed_spx_entry": computed_spx_entry,
+            }
+        )
+        enriched.append(enriched_contract)
+    return enriched
 
 
 def render_options_provider_preview(
@@ -2564,7 +2602,7 @@ def render_options_provider_preview(
             st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")
             return
 
-        if provider_status.get("bridge_only", True):
+        if developer_mode and provider_status.get("bridge_only", True):
             st.info("Provider bridge is available, but live options chain and quotes are not active yet.")
 
         for section in option_sections:
@@ -2572,8 +2610,6 @@ def render_options_provider_preview(
             play_spx = section.get("play_spx")
             play_es = section.get("play_es")
             chain_snapshot = section.get("chain_snapshot") or {"status": "unavailable", "contracts": []}
-            chain_status = chain_snapshot.get("status", "unavailable")
-            provider_diagnostics = chain_snapshot.get("diagnostics") or {}
             preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
             if not preview_candidates and not provider_status.get("live_mode_available", False):
                 preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(section["request"]))
@@ -2584,8 +2620,9 @@ def render_options_provider_preview(
             overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
             overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
 
-            st.caption(f"Connection/data status: {chain_status}")
-            if chain_snapshot.get("message"):
+            if developer_mode:
+                st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
+            if developer_mode and chain_snapshot.get("message"):
                 st.write(chain_snapshot["message"])
             if chain_snapshot.get("error"):
                 st.warning(chain_snapshot["error"])
@@ -3937,7 +3974,7 @@ def render_play_card(
     """Render a single structured play card."""
 
     card_class = "primary" if "Primary" in title else "alternate"
-    icon = "?" if title == "Primary Trade" else "?"
+    icon = "▲" if title == "Primary Trade" else "◇"
     if play_spx is None:
         st.markdown(
             f"""
@@ -3958,12 +3995,19 @@ def render_play_card(
     play = resolve_play_display_values(play_spx, projected_lines_spx)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
     entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
-    option_html = ""
-    if not (compact and not lead_option_quote):
-        option_html = (
-            f"""<div><span class="spx-muted">Option</span> """
+    option_html = (
+        f"""<div><span class="spx-muted">Option Mark</span> """
+        f"""<span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">"""
+        f"""{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}"""
+        f"""</span></div>"""
+    )
+    bid_ask_html = ""
+    if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
+        bid_ask_html = (
+            f"""<div><span class="spx-muted">Bid/Ask</span> """
             f"""<span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">"""
-            f"""{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}"""
+            f"""{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / """
+            f"""{format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"""
             f"""</span></div>"""
         )
     contract_html = ""
@@ -3994,6 +4038,7 @@ def render_play_card(
                 <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
                 <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
                 {option_html}
+                {bid_ask_html if not compact else ''}
             </div>
             {contract_html}
         </div>
@@ -5728,6 +5773,17 @@ def render_live_mode_shell(
                         scenario_name=str(signal_package["scenario"].get("scenario_name", "")) if signal_package else "",
                     )
                     chain_snapshot = options_provider.get_option_chain_snapshot(option_request) if options_provider is not None else {"status": "unavailable", "contracts": []}
+                    chain_snapshot["contracts"] = attach_option_lookup_context(
+                        chain_snapshot.get("contracts"),
+                        lookup_timestamp=current_central_time(),
+                        current_es_price=inputs.get("current_es_price"),
+                        current_spx_price=inputs.get("current_spx_price"),
+                        effective_offset=effective_offset,
+                        scenario_name=str(signal_package["scenario"].get("scenario_name", "")) if signal_package else "",
+                        direction=str(play_spx.get("direction", "")),
+                        source_line_es=float(play_es["entry"]["price"]) if play_es else None,
+                        computed_spx_entry=float(play_spx["entry"]["price"]) if play_spx else None,
+                    )
                     option_sections.append(
                         {
                             "title": section_title,
