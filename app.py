@@ -182,6 +182,7 @@ DEFAULT_SETTINGS = {
     "news_day": False,
     "preferred_checkpoint": "6:00 PM CT",
     "data_mode": "Auto-fetch",
+    "visibility_mode": "Production Mode",
     "manual_price_space": "SPX",
     "options_provider": "none",
     "options_mode_enabled": False,
@@ -311,6 +312,8 @@ def normalize_settings_record(raw_settings: dict[str, Any] | None) -> dict[str, 
         merged["preferred_checkpoint"] = DEFAULT_SETTINGS["preferred_checkpoint"]
     if merged.get("data_mode") not in ["Auto-fetch", "Manual input"]:
         merged["data_mode"] = DEFAULT_SETTINGS["data_mode"]
+    if merged.get("visibility_mode") not in ["Production Mode", "Developer Mode"]:
+        merged["visibility_mode"] = DEFAULT_SETTINGS["visibility_mode"]
     if merged.get("manual_price_space") not in ["SPX", "ES"]:
         merged["manual_price_space"] = DEFAULT_SETTINGS["manual_price_space"]
     if merged.get("options_provider") not in PROVIDER_NAMES:
@@ -1318,6 +1321,8 @@ def render_key_levels_card(
     final_lines: dict[str, dict[str, Any]],
     current_es_price: float | None,
     effective_offset: float,
+    *,
+    compact: bool = False,
 ) -> None:
     """Render a compact key-levels summary card."""
 
@@ -1333,7 +1338,7 @@ def render_key_levels_card(
                 <div class="spx-card-icon">◆</div>
                 <div>
                     <div class="spx-card-heading">Key Levels Summary</div>
-                    <div class="spx-card-subtitle">Fast scan of the full projected stack in ES source terms.</div>
+                    <div class="spx-card-subtitle">{'Projected ES stack.' if compact else 'Fast scan of the full projected stack in ES source terms.'}</div>
                 </div>
             </div>
             <div class="spx-card-grid">
@@ -1341,10 +1346,12 @@ def render_key_levels_card(
                     <div class="spx-card-stat-label">Current Price (ES)</div>
                     <div class="spx-card-stat-value">{current_label}</div>
                 </div>
+                {'' if compact else f'''
                 <div class="spx-card-stat">
                     <div class="spx-card-stat-label">ES-SPX Offset</div>
                     <div class="spx-card-stat-value">{format_price(effective_offset)}</div>
                 </div>
+                '''}
             </div>
             <div class="spx-inline-list">{chips}</div>
         </div>
@@ -2512,6 +2519,8 @@ def render_options_provider_preview(
     provider: Any,
     provider_status: dict[str, Any],
     option_sections: list[dict[str, Any]],
+    *,
+    developer_mode: bool = False,
 ) -> None:
     """Render a safe provider integration preview without requiring live connectivity."""
 
@@ -2522,10 +2531,11 @@ def render_options_provider_preview(
         status_col3.metric("Credentials", "Yes" if provider_status.get("credentials_detected") else "No")
         status_col4.metric("Live Ready", "Yes" if provider_status.get("live_mode_available") else "No")
         status_col5.metric("Status", provider_status.get("status_label", "Unavailable"))
-        st.caption(
-            f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
-            f"Environment: {provider_status.get('active_environment', 'sandbox')}"
-        )
+        if developer_mode:
+            st.caption(
+                f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
+                f"Environment: {provider_status.get('active_environment', 'sandbox')}"
+            )
 
         provider_name = str(provider_status.get("provider_name", "none")).lower()
         if provider_name == "none" or not provider_status.get("credentials_detected"):
@@ -2533,16 +2543,17 @@ def render_options_provider_preview(
                 st.markdown("**Tastytrade Setup**")
                 st.write("Provider name: `tastytrade`")
                 st.write("Authentication mode: OAuth")
-                st.write(f"Client ID keys: `{TASTYTRADE_CLIENT_ID_KEYS[0]}`, `{TASTYTRADE_CLIENT_ID_KEYS[1]}`")
-                st.write(f"Client secret keys: `{TASTYTRADE_CLIENT_SECRET_KEYS[0]}`, `{TASTYTRADE_CLIENT_SECRET_KEYS[1]}`")
-                st.write(f"Preferred refresh-token keys: `{TASTYTRADE_REFRESH_TOKEN_KEYS[0]}`, `{TASTYTRADE_REFRESH_TOKEN_KEYS[1]}`")
-                st.write(f"Optional auth-code keys: `{TASTYTRADE_AUTH_CODE_KEYS[0]}`, `{TASTYTRADE_AUTH_CODE_KEYS[1]}`")
-                st.write(f"Optional redirect-URI keys: `{TASTYTRADE_REDIRECT_URI_KEYS[0]}`, `{TASTYTRADE_REDIRECT_URI_KEYS[1]}`")
-                st.write(f"Optional sandbox flag keys: `{TASTYTRADE_TEST_KEYS[0]}`, `{TASTYTRADE_TEST_KEYS[1]}`")
+                if developer_mode:
+                    st.write(f"Client ID keys: `{TASTYTRADE_CLIENT_ID_KEYS[0]}`, `{TASTYTRADE_CLIENT_ID_KEYS[1]}`")
+                    st.write(f"Client secret keys: `{TASTYTRADE_CLIENT_SECRET_KEYS[0]}`, `{TASTYTRADE_CLIENT_SECRET_KEYS[1]}`")
+                    st.write(f"Preferred refresh-token keys: `{TASTYTRADE_REFRESH_TOKEN_KEYS[0]}`, `{TASTYTRADE_REFRESH_TOKEN_KEYS[1]}`")
+                    st.write(f"Optional auth-code keys: `{TASTYTRADE_AUTH_CODE_KEYS[0]}`, `{TASTYTRADE_AUTH_CODE_KEYS[1]}`")
+                    st.write(f"Optional redirect-URI keys: `{TASTYTRADE_REDIRECT_URI_KEYS[0]}`, `{TASTYTRADE_REDIRECT_URI_KEYS[1]}`")
+                    st.write(f"Optional sandbox flag keys: `{TASTYTRADE_TEST_KEYS[0]}`, `{TASTYTRADE_TEST_KEYS[1]}`")
                 if provider_name == "none":
-                    st.info("Provider is still `none`. Open `Advanced Controls` in the sidebar, enable options mode, and change the provider to `tastytrade`.")
+                    st.info("Select `tastytrade` in Advanced Controls to enable live contract lookup.")
                 else:
-                    st.info("Provider is set to `tastytrade`, but the required OAuth credentials were not detected in environment variables or Streamlit secrets.")
+                    st.info("tastytrade is selected, but OAuth credentials were not detected.")
 
         if not option_sections:
             st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")
@@ -2568,8 +2579,6 @@ def render_options_provider_preview(
             overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
             overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
 
-            st.markdown("**Prepared Lookup Request**")
-            st.json(request_payload, expanded=False)
             st.caption(f"Connection/data status: {chain_status}")
             if chain_snapshot.get("message"):
                 st.write(chain_snapshot["message"])
@@ -2580,15 +2589,18 @@ def render_options_provider_preview(
             if preview_candidates:
                 st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
             else:
-                st.info("No live option candidates are available. The prepared lookup request is shown above so execution support can be verified without fake data.")
+                st.info("No live option candidates are available.")
+            if developer_mode:
+                st.markdown("**Prepared Lookup Request**")
+                st.json(request_payload, expanded=False)
 
         notes = provider_status.get("notes", [])
-        if notes:
+        if developer_mode and notes:
             with st.expander("Provider Notes", expanded=False):
                 for note in notes:
                     st.write(f"- {note}")
         provider_diagnostics = next((section.get("chain_snapshot", {}).get("diagnostics") or {} for section in option_sections if section.get("chain_snapshot")), {})
-        if provider_diagnostics:
+        if developer_mode and provider_diagnostics:
             with st.expander("Provider Diagnostics", expanded=False):
                 stage_col1, stage_col2, stage_col3, stage_col4 = st.columns(4)
                 stage_col1.metric("Token", "OK" if provider_diagnostics.get("token_retrieval", {}).get("success") else "Fail")
@@ -3468,6 +3480,12 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     with st.sidebar:
         st.header(APP_TITLE)
         operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
+        visibility_options = ["Production Mode", "Developer Mode"]
+        visibility_mode = st.radio(
+            "Visibility",
+            visibility_options,
+            index=safe_option_index(visibility_options, settings.get("visibility_mode", DEFAULT_SETTINGS["visibility_mode"])),
+        )
         historical_mode = operating_mode == "Historical Mode"
         if not historical_mode and st.button("Refresh Live Quotes", use_container_width=True):
             st.session_state["refresh_live_quotes"] = True
@@ -3548,7 +3566,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             use_desc_floor_override = st.checkbox("Override DESC Floor")
             desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
 
-        if not historical_mode:
+        if not historical_mode and visibility_mode == "Developer Mode":
             with st.expander("Diagnostics", expanded=False):
                 st.write("Current SPX fetch")
                 st.code(
@@ -3580,6 +3598,8 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "prior_session_date": prior_session_date,
         "next_trading_date": next_trading_date,
         "data_mode": data_mode,
+        "visibility_mode": visibility_mode,
+        "developer_mode": visibility_mode == "Developer Mode",
         "current_spx_price": current_spx_price,
         "current_es_price": current_es_price,
         "open_reference": open_reference,
@@ -3901,13 +3921,13 @@ def render_play_card(
     projected_lines_spx: dict[str, dict[str, Any]],
     projected_lines_es: dict[str, dict[str, Any]],
     lead_option_quote: dict[str, Any] | None = None,
+    *,
+    compact: bool = False,
 ) -> None:
     """Render a single structured play card."""
 
     card_class = "primary" if "Primary" in title else "alternate"
     icon = "▲" if title == "Primary Trade" else "◇"
-    subtitle = "Primary setup" if "Primary" in title else "Alternate setup"
-
     if play_spx is None:
         st.markdown(
             f"""
@@ -3916,10 +3936,9 @@ def render_play_card(
                     <div class="spx-card-icon">{icon}</div>
                     <div>
                         <div class="spx-card-heading">{escape(title)}</div>
-                        <div class="spx-card-subtitle">{escape(subtitle)}</div>
                     </div>
                 </div>
-                <div class="spx-muted">No alternate play.</div>
+                <div class="spx-muted">No setup.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -3937,7 +3956,6 @@ def render_play_card(
                 <div class="spx-card-icon">{icon}</div>
                 <div>
                     <div class="spx-card-heading">{escape(title)}</div>
-                    <div class="spx-card-subtitle">{escape(subtitle)}</div>
                 </div>
             </div>
             <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
@@ -3954,11 +3972,9 @@ def render_play_card(
                 <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
                 <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
                 <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
-                <div><span class="spx-muted">Option</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}</span></div>
+                {'' if compact and not lead_option_quote else f'''<div><span class="spx-muted">Option</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}</span></div>'''}
             </div>
-            <div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">
-                {escape(play['entry']['label'])} source in ES, converted once to SPX entry. {escape(play['stop']['label'])}{f" | {escape(str(lead_option_quote.get('contract_symbol', '')))}" if lead_option_quote and lead_option_quote.get('contract_symbol') else ""}
-            </div>
+            {f'''<div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">{escape(str(lead_option_quote.get("contract_symbol", "")))}</div>''' if lead_option_quote and lead_option_quote.get('contract_symbol') else ""}
         </div>
         """,
         unsafe_allow_html=True,
@@ -4182,6 +4198,8 @@ def build_confirmation_detail(
 def render_confirmation_card(
     confirmation: dict[str, Any],
     primary_play: dict[str, Any] | None,
+    *,
+    compact: bool = False,
 ) -> None:
     """Render the 8:30 confirmation card with explanation."""
 
@@ -4194,14 +4212,14 @@ def render_confirmation_card(
                 <div class="spx-card-icon">◉</div>
                 <div>
                     <div class="spx-card-heading">8:30 Confirmation</div>
-                    <div class="spx-card-subtitle">SPX candle test against the active entry line.</div>
+                    <div class="spx-card-subtitle">{'Compact SPX confirmation.' if compact else 'SPX candle test against the active entry line.'}</div>
                 </div>
             </div>
             <div class="spx-banner-meta">
                 <span class="spx-pill {tone}">{detail['status_label']}</span>
                 <span class="spx-pill">Line {escape(detail['line_tested'])}</span>
             </div>
-            <div class="spx-card-copy">{escape(detail['reason'])}</div>
+            {'' if compact else f'<div class="spx-card-copy">{escape(detail["reason"])}</div>'}
         </div>
         """,
         unsafe_allow_html=True,
@@ -4214,10 +4232,11 @@ def render_confirmation_card(
         col3.metric("Low", format_price(candle["low"]))
         col4.metric("Close", format_price(candle["close"]))
         col5.metric("Color", str(candle["color"]).upper())
-    else:
+    elif not compact:
         st.info("No 8:30 candle data available.")
 
-    st.caption(f"Engine status: {confirmation['status']} | Timing: {confirmation['entry_timing']}")
+    if not compact:
+        st.caption(f"Engine status: {confirmation['status']} | Timing: {confirmation['entry_timing']}")
 
 
 def render_sit_out_section(sit_out: dict[str, Any]) -> None:
@@ -5628,6 +5647,7 @@ def render_live_mode_shell(
 ) -> None:
     """Render the live operator workflow."""
 
+    developer_mode = bool(inputs.get("developer_mode"))
     live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
 
     with live_signal_tab:
@@ -5708,29 +5728,38 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
-        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
 
-        with st.expander("Confirmation", expanded=False):
+        if developer_mode:
+            with st.expander("Confirmation", expanded=False):
+                render_confirmation_card(
+                    confirmation,
+                    resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
+                )
+        else:
             render_confirmation_card(
                 confirmation,
                 resolve_play_display_values(signal_package["scenario"]["primary_play"], final_projected_lines) if signal_package else None,
+                compact=True,
             )
-        with st.expander("Structure Details", expanded=False):
-            if signal_package is not None:
-                render_scenario_section(signal_package["scenario"])
-                render_sit_out_section(signal_package["sit_out"])
-            render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-        with st.expander("Verification", expanded=False):
-            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
+        if developer_mode:
+            with st.expander("Structure Details", expanded=False):
+                if signal_package is not None:
+                    render_scenario_section(signal_package["scenario"])
+                    render_sit_out_section(signal_package["sit_out"])
+                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+            with st.expander("Verification", expanded=False):
+                render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
         render_options_provider_preview(
             options_provider,
             options_provider_status,
             option_sections,
+            developer_mode=developer_mode,
         )
 
     with live_asian_tab:
@@ -6041,6 +6070,7 @@ def render_historical_projection_mode(
 ) -> None:
     """Render the historical analysis workflow."""
 
+    developer_mode = bool(inputs.get("developer_mode"))
     projection_tab, review_tab, backtest_tab = st.tabs(["Historical Projection", "Historical Review", "Backtest"])
     synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
 
@@ -6051,22 +6081,23 @@ def render_historical_projection_mode(
             render_trade_decision_summary(signal_package, final_projected_lines)
             decision_col1, decision_col2 = st.columns(2, gap="large")
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode)
         else:
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
-        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
+        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
         render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-        with st.expander("Historical Structure Details", expanded=False):
-            if signal_package is not None:
-                render_scenario_section(signal_package["scenario"])
-                render_sit_out_section(signal_package["sit_out"])
-            render_historical_projection_panel(inputs, nine_am_target, anchor_bundle, final_projected_lines_es)
-        with st.expander("Verification", expanded=False):
-            render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
+        if developer_mode:
+            with st.expander("Historical Structure Details", expanded=False):
+                if signal_package is not None:
+                    render_scenario_section(signal_package["scenario"])
+                    render_sit_out_section(signal_package["sit_out"])
+                render_historical_projection_panel(inputs, nine_am_target, anchor_bundle, final_projected_lines_es)
+            with st.expander("Verification", expanded=False):
+                render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
 
     with review_tab:
         st.markdown("**Historical Review**")
@@ -6122,6 +6153,7 @@ def main() -> None:
         "news_day": inputs["news_day"],
         "preferred_checkpoint": settings.get("preferred_checkpoint", DEFAULT_SETTINGS["preferred_checkpoint"]),
         "data_mode": inputs["data_mode"],
+        "visibility_mode": inputs["visibility_mode"],
         "manual_price_space": inputs["manual_price_space"],
         "options_provider": inputs["options_provider"],
         "options_mode_enabled": inputs["options_mode_enabled"],
