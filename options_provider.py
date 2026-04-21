@@ -489,7 +489,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             "lookup_attempts": [],
         }
         desired_type = request.resolved_option_type()
-        desired_type_lower = desired_type.lower()
+        desired_type_code = "C" if desired_type == "CALL" else "P"
         last_status = "no_contracts"
 
         for underlying_symbol in underlying_candidates:
@@ -521,7 +521,7 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
                 filtered = [
                     option
                     for option in options
-                    if str(option.option_type).lower().endswith(desired_type_lower)
+                    if str(option.option_type).upper() == desired_type_code
                     and bool(option.active)
                     and not bool(option.is_closing_only)
                 ]
