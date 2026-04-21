@@ -1448,6 +1448,67 @@ def final_status_to_action(final_status: str | None, signal_package: dict[str, A
     return "SKIP TRADE"
 
 
+def classify_entry_timing(current_spx: float | None, entry_spx: float | None) -> dict[str, Any]:
+    """Classify timing from current SPX distance to entry."""
+
+    if current_spx is None or entry_spx is None:
+        return {"label": "UNKNOWN", "distance": None}
+
+    distance = abs(float(current_spx) - float(entry_spx))
+    if distance < 5.0:
+        label = "IDEAL"
+    elif distance < 10.0:
+        label = "EARLY"
+    elif distance < 20.0:
+        label = "LATE"
+    else:
+        label = "CHASE"
+    return {"label": label, "distance": round_price(distance)}
+
+
+def get_decision_reason(
+    action_label: str,
+    signal_package: dict[str, Any] | None,
+    play: dict[str, Any] | None,
+    intelligence: dict[str, Any],
+    timing_label: str,
+) -> str:
+    """Return one short decision reason for the operator."""
+
+    if action_label == "SKIP TRADE":
+        if not play or not play.get("stop") or play.get("invalid_stop"):
+            return "No valid structural stop"
+        if intelligence.get("rr_ratio") is None or float(intelligence.get("rr_ratio") or 0.0) < 0.5:
+            return "Poor reward-to-risk at current price"
+        if timing_label in {"LATE", "CHASE"}:
+            return "Late entry relative to move"
+        if signal_package and signal_package.get("sit_out", {}).get("sit_out"):
+            return "Outside optimal structure"
+        return "Signal suppressed by decision filter"
+
+    if action_label == "ENTER WITH CAUTION":
+        if timing_label in {"LATE", "CHASE"}:
+            return "Late relative to planned entry"
+        if intelligence.get("rr_ratio") is not None and float(intelligence.get("rr_ratio") or 0.0) < 1.0:
+            return "Reduced reward-to-risk"
+        return "Trade requires caution"
+
+    if timing_label == "IDEAL":
+        return "At key structural level"
+    if intelligence.get("rr_ratio") is not None and float(intelligence.get("rr_ratio") or 0.0) >= 1.0:
+        return "Favorable RR with valid stop"
+    return "Within optimal entry zone"
+
+
+def is_live_market_session() -> bool:
+    """Return whether the current CT time is during the regular live session."""
+
+    now_ct = current_central_time()
+    start = time(8, 30)
+    end = time(16, 0)
+    return start <= now_ct.time() <= end
+
+
 def render_tab1_hero(
     signal_package: dict[str, Any] | None,
     current_spx_price: float | None,
@@ -1467,6 +1528,8 @@ def render_tab1_hero(
         status_icon = "!"
         action_label = "WAIT"
         quality_label = "Pending"
+        timing_label = "UNKNOWN"
+        decision_reason = "Waiting for valid live setup"
     else:
         scenario = signal_package["scenario"]
         scenario_name = scenario["scenario_name"]
@@ -1476,7 +1539,10 @@ def render_tab1_hero(
         sit_out = {"sit_out": status_label != "ELIGIBLE"}
         status_icon = "●" if not sit_out["sit_out"] else "!"
         action_label = final_status_to_action(status_label, signal_package)
-        quality_label = assess_trade_intelligence(primary_play, lead_option_quote).get("quality", "Pending")
+        hero_intelligence = assess_trade_intelligence(primary_play, lead_option_quote)
+        quality_label = hero_intelligence.get("quality", "Pending")
+        timing_label = classify_entry_timing(current_spx_price, _to_float_or_none(primary_play.get("entry", {}).get("price")) if primary_play else None)["label"]
+        decision_reason = get_decision_reason(action_label, signal_package, primary_play, hero_intelligence, timing_label)
 
     confidence_tone = get_confidence_tone(confidence)
     current_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
@@ -1494,7 +1560,9 @@ def render_tab1_hero(
                         <span class="spx-pill scenario-neutral">{escape(scenario_name)}</span>
                         <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
                         <span class="spx-pill scenario-neutral">Quality {escape(quality_label)}</span>
+                        <span class="spx-pill scenario-neutral">Timing {escape(timing_label)}</span>
                     </div>
+                    <div class="spx-hero-subtitle">Reason: {escape(decision_reason)}</div>
                 </div>
                 <div class="spx-hero-status">
                     <div class="spx-hero-status-label">Current Price (ES)</div>
@@ -4760,6 +4828,7 @@ def render_play_card(
     developer_mode: bool = False,
     final_status: str | None = None,
     status_breakdown: dict[str, str] | None = None,
+    current_spx_price: float | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -4780,34 +4849,43 @@ def render_play_card(
     stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
     intelligence = assess_trade_intelligence(play, lead_option_quote)
     intelligence["stop_quality"] = stop_quality["label"]
+    timing = classify_entry_timing(current_spx_price, entry_price)
 
     with st.container(border=True):
         is_primary = "alternate" not in title.lower()
         visible_status = final_status or intelligence["status"]
         action_label = final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
-        card_heading = "### Primary Trade" if is_primary else "#### Alternate Trade"
-        st.markdown(card_heading)
-        st.caption(" • ".join([play["direction"], f"Strike {play['strike']}", action_label]))
-
-        mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
+        decision_suppressed = action_label == "SKIP TRADE"
+        trade_state = "FILTERED" if decision_suppressed else ("INVALID" if not play.get("stop") or play.get("invalid_stop") else "ACTIVE")
+        quality_display = "Ignored (Decision Override)" if decision_suppressed else intelligence["quality"]
+        decision_reason = get_decision_reason(action_label, st.session_state.get("current_signal_package"), play, intelligence, timing["label"])
+        pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
         predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
+        predicted_entry_range = f"{predicted_entry_mark} ? 0.50" if is_live_market_session() and lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else predicted_entry_mark
+        mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
         expected_gain = format_price(lead_option_quote.get("expected_gain")) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else "-"
         expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
         rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
         contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
+        tertiary_style = "opacity:0.5;" if decision_suppressed else "opacity:0.82;"
+        rr_style = "color:#93a4bb;" if decision_suppressed else "color:#f8fbff;"
+        score_style = "opacity:0.45;" if decision_suppressed else "opacity:0.78;"
         detail_bits: list[str] = []
         if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
             detail_bits.append(
                 "Bid/Ask "
-                f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}",
+                f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"
             )
+
+        st.markdown("### Primary Trade" if is_primary else "#### Alternate Trade")
+        if not is_primary:
+            st.caption("Secondary setup")
+        st.caption(" • ".join([f"State {trade_state}", play["direction"], f"Strike {play['strike']}", action_label]))
 
         top_left, top_right = st.columns([1.25, 1.0])
         with top_left:
-            st.markdown(
-                f"**Entry** `{format_price(play['entry']['price'])} SPX`  \n"
-                f"ES `{format_price(entry_es_value) if entry_es_value is not None else '-'}`"
-            )
+            st.markdown(f"**Entry** `{format_price(play['entry']['price'])} SPX`")
+            st.caption(f"ES {format_price(entry_es_value) if entry_es_value is not None else '-'}")
             st.markdown(
                 f"**Stop** `{format_price(play['stop']['price'])} SPX`"
                 if play.get("stop") and not play.get("invalid_stop")
@@ -4815,32 +4893,30 @@ def render_play_card(
             )
         with top_right:
             st.markdown(f"**Mark** `{mark_value}`")
-            st.markdown(f"**Pred** `{predicted_entry_mark}`")
+            st.markdown(f"**Pred** `{predicted_entry_range}`")
 
         mid_left, mid_right, mid_far = st.columns(3)
         with mid_left:
-            st.markdown(f"**RR** `{rr_value if intelligence.get('rr_ratio') is not None else '-'}`")
-        with mid_right:
-            st.markdown(f"**Quality** `{intelligence['quality']}`")
-        with mid_far:
-            st.markdown(f"**Score** `{contract_score}`")
-
-        st.caption(
-            " • ".join(
-                [
-                    f"Gain {expected_gain}",
-                    f"Loss {expected_loss}",
-                    f"Stop {stop_quality['label']}",
-                    f"Regime {intelligence.get('regime', '-')}",
-                    f"Chase {intelligence.get('chase_status', '-')}",
-                ]
+            st.markdown(
+                f"<div style='font-size:1.15rem;font-weight:800;{rr_style}'>RR {escape(rr_value if intelligence.get('rr_ratio') is not None else '-')}</div>",
+                unsafe_allow_html=True,
             )
+        with mid_right:
+            st.markdown(f"**Quality** `{quality_display}`")
+        with mid_far:
+            st.markdown(f"<div style='font-size:0.85rem;{score_style}'>Score `{escape(contract_score)}`</div>", unsafe_allow_html=True)
+
+        st.caption(f"Timing {timing['label']} • Stop {stop_quality['label']} • Regime {intelligence.get('regime', '-')} • Chase {intelligence.get('chase_status', '-')}")
+        st.markdown(
+            f"<div style='font-size:0.82rem;{tertiary_style}'>Gain {escape(expected_gain)} • Loss {escape(expected_loss)}</div>",
+            unsafe_allow_html=True,
         )
         if stop_price is not None or intelligence.get("suggested_stop") is not None:
             stop_bits = []
             stop_bits.append(f"Structural Stop {format_price(stop_price)}" if stop_price is not None else "Structural Stop -")
             stop_bits.append(f"Suggested Stop {format_price(intelligence['suggested_stop'])}" if intelligence.get("suggested_stop") is not None else "Suggested Stop -")
-            st.caption(" • ".join(stop_bits))
+            st.caption(" ? ".join(stop_bits))
+        st.caption("Signal suppressed due to decision filter" if decision_suppressed else f"Reason {decision_reason}")
         if detail_bits:
             st.caption(" | ".join(detail_bits))
 
@@ -4850,7 +4926,7 @@ def render_play_card(
                 <div class="spx-best-contract">
                     <div class="spx-best-contract-title">Best Contract</div>
                     <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
-                    <div class="spx-best-contract-meta">Mark {mark_value} • Pred {predicted_entry_mark} • RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} • Score {contract_score}</div>
+                    <div class="spx-best-contract-meta">Mark {mark_value} ? {pred_label} {predicted_entry_mark} ? RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} ? Score {contract_score}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -4893,6 +4969,8 @@ def render_play_card(
                     f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
                 )
                 st.caption(
+                    f"Timing distance: {format_price(timing['distance']) if timing['distance'] is not None else 'Unavailable'} | "
+                    f"Timing label: {timing['label']} | "
                     f"RR threshold: {intelligence['min_rr']:.2f} | "
                     f"Structural: {(status_breakdown or {}).get('structural_status', '-') } | "
                     f"Intelligence: {(status_breakdown or {}).get('intelligence_status', intelligence['status'])} | "
@@ -6729,9 +6807,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"])
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"])
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
