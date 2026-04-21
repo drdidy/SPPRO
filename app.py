@@ -5626,7 +5626,6 @@ def render_play_card(
         if decision_suppressed
         else ""
     )
-    detail_html = f"<div class='spx-play-topline-note'>{escape(' | '.join(detail_bits))}</div>" if detail_bits else ""
     best_contract_html = ""
     if lead_option_quote and lead_option_quote.get("contract_symbol"):
         best_contract_html = f"""
@@ -5739,11 +5738,12 @@ def render_play_card(
             </div>
             {override_note_html}
             {best_contract_html}
-            {detail_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if detail_bits:
+        st.caption(" | ".join(detail_bits))
     button_key = f"use_play_{title.lower().replace(' ', '_')}"
     if st.button("Use This Play", key=button_key, use_container_width=True):
         signal_package = st.session_state.get("current_signal_package")
