@@ -177,6 +177,8 @@ RESULT_OPTIONS = ["Win", "Loss", "Breakeven", "Time Stop"]
 SESSION_OPTIONS = ["NY Options", "Asian Futures"]
 TRADE_DIRECTION_OPTIONS = ["CALL", "PUT", "LONG", "SHORT"]
 CHECKPOINT_OPTIONS = ["6:00 PM CT", "7:00 PM CT", "8:00 PM CT"]
+DEFAULT_OPTIONS_PROVIDER = "tastytrade" if "tastytrade" in PROVIDER_NAMES else "none"
+
 DEFAULT_SETTINGS = {
     "es_spx_offset": 20.0,
     "news_day": False,
@@ -184,8 +186,8 @@ DEFAULT_SETTINGS = {
     "data_mode": "Auto-fetch",
     "visibility_mode": "Production Mode",
     "manual_price_space": "SPX",
-    "options_provider": "none",
-    "options_mode_enabled": False,
+    "options_provider": DEFAULT_OPTIONS_PROVIDER,
+    "options_mode_enabled": DEFAULT_OPTIONS_PROVIDER != "none",
 }
 
 
@@ -2554,7 +2556,7 @@ def render_options_provider_preview(
                     st.write(f"Optional redirect-URI keys: `{TASTYTRADE_REDIRECT_URI_KEYS[0]}`, `{TASTYTRADE_REDIRECT_URI_KEYS[1]}`")
                     st.write(f"Optional sandbox flag keys: `{TASTYTRADE_TEST_KEYS[0]}`, `{TASTYTRADE_TEST_KEYS[1]}`")
                 if provider_name == "none":
-                    st.info("Select `tastytrade` in Advanced Controls to enable live contract lookup.")
+                    st.info("tastytrade is the production default. Live contract lookup will activate automatically when the provider bridge and credentials are available.")
                 else:
                     st.info("tastytrade is selected, but OAuth credentials were not detected.")
 
@@ -3544,8 +3546,13 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             st.caption(f"9:00 AM open source: {open_reference_source_label}")
             price_space_options = ["SPX", "ES"]
             manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
-            options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
-            options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
+            if visibility_mode == "Developer Mode":
+                options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
+                options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
+            else:
+                options_mode_enabled = DEFAULT_OPTIONS_PROVIDER != "none"
+                options_provider = DEFAULT_OPTIONS_PROVIDER
+                st.caption(f"Options provider: {options_provider}")
 
         with st.expander("Manual Anchors", expanded=False):
             pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
