@@ -2486,12 +2486,32 @@ def normalize_option_candidate_rows(candidates: list[dict[str, Any]] | None) -> 
     return normalized_rows
 
 
+def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """Extract the best available lead quote from normalized option candidates."""
+
+    rows = normalize_option_candidate_rows(candidates)
+    if not rows:
+        return None
+    lead = rows[0]
+    price = lead.get("mark")
+    if price in {"", None}:
+        price = lead.get("last")
+    if price in {"", None}:
+        price = lead.get("ask")
+    if price in {"", None}:
+        price = lead.get("bid")
+    return {
+        "contract_symbol": lead.get("contract_symbol", ""),
+        "price": float(price) if price not in {"", None} else None,
+        "expiration": lead.get("expiration", ""),
+        "strike": lead.get("strike", ""),
+    }
+
+
 def render_options_provider_preview(
     provider: Any,
     provider_status: dict[str, Any],
-    option_request: OptionLookupRequest | None,
-    play_spx: dict[str, Any] | None = None,
-    play_es: dict[str, Any] | None = None,
+    option_sections: list[dict[str, Any]],
 ) -> None:
     """Render a safe provider integration preview without requiring live connectivity."""
 
@@ -2524,45 +2544,50 @@ def render_options_provider_preview(
                 else:
                     st.info("Provider is set to `tastytrade`, but the required OAuth credentials were not detected in environment variables or Streamlit secrets.")
 
-        if option_request is None:
+        if not option_sections:
             st.info("No options lookup request is available yet. A valid SPX options setup is required before candidate contracts can be shown.")
             return
-
-        request_payload = option_request.to_dict()
-        overview_col1, overview_col2, overview_col3 = st.columns(3)
-        overview_col1.metric("Direction", str(request_payload.get("direction", "")))
-        overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
-        overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
-
-        chain_snapshot = provider.get_option_chain_snapshot(option_request) if provider is not None else {"status": "unavailable", "contracts": []}
-        chain_status = chain_snapshot.get("status", "unavailable")
-        provider_diagnostics = chain_snapshot.get("diagnostics") or {}
-        preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
-        if not preview_candidates and not provider_status.get("live_mode_available", False):
-            preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(option_request))
 
         if provider_status.get("bridge_only", True):
             st.info("Provider bridge is available, but live options chain and quotes are not active yet.")
 
-        st.markdown("**Prepared Lookup Request**")
-        st.json(request_payload, expanded=False)
-        st.caption(f"Connection/data status: {chain_status}")
-        if chain_snapshot.get("message"):
-            st.write(chain_snapshot["message"])
-        if chain_snapshot.get("error"):
-            st.warning(chain_snapshot["error"])
+        for section in option_sections:
+            request_payload = section["request"].to_dict()
+            play_spx = section.get("play_spx")
+            play_es = section.get("play_es")
+            chain_snapshot = section.get("chain_snapshot") or {"status": "unavailable", "contracts": []}
+            chain_status = chain_snapshot.get("status", "unavailable")
+            provider_diagnostics = chain_snapshot.get("diagnostics") or {}
+            preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
+            if not preview_candidates and not provider_status.get("live_mode_available", False):
+                preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(section["request"]))
 
-        st.markdown("**Candidate Contracts**")
-        if preview_candidates:
-            st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
-        else:
-            st.info("No live option candidates are available. The prepared lookup request is shown above so execution support can be verified without fake data.")
+            st.markdown(f"**{section['title']}**")
+            overview_col1, overview_col2, overview_col3 = st.columns(3)
+            overview_col1.metric("Direction", str(request_payload.get("direction", "")))
+            overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
+            overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
+
+            st.markdown("**Prepared Lookup Request**")
+            st.json(request_payload, expanded=False)
+            st.caption(f"Connection/data status: {chain_status}")
+            if chain_snapshot.get("message"):
+                st.write(chain_snapshot["message"])
+            if chain_snapshot.get("error"):
+                st.warning(chain_snapshot["error"])
+
+            st.markdown("**Candidate Contracts**")
+            if preview_candidates:
+                st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
+            else:
+                st.info("No live option candidates are available. The prepared lookup request is shown above so execution support can be verified without fake data.")
 
         notes = provider_status.get("notes", [])
         if notes:
             with st.expander("Provider Notes", expanded=False):
                 for note in notes:
                     st.write(f"- {note}")
+        provider_diagnostics = next((section.get("chain_snapshot", {}).get("diagnostics") or {} for section in option_sections if section.get("chain_snapshot")), {})
         if provider_diagnostics:
             with st.expander("Provider Diagnostics", expanded=False):
                 stage_col1, stage_col2, stage_col3, stage_col4 = st.columns(4)
@@ -3875,6 +3900,7 @@ def render_play_card(
     play_spx: dict[str, Any] | None,
     projected_lines_spx: dict[str, dict[str, Any]],
     projected_lines_es: dict[str, dict[str, Any]],
+    lead_option_quote: dict[str, Any] | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -3928,9 +3954,10 @@ def render_play_card(
                 <div><span class="spx-muted">Strike</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{play['strike']}</span></div>
                 <div><span class="spx-muted">{play['contracts']} contract{'s' if int(play['contracts']) != 1 else ''}</span></div>
                 <div><span class="spx-muted">Stop</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(play['stop']['price'])} SPX</span></div>
+                <div><span class="spx-muted">Option</span> <span style="font-family:'JetBrains Mono', monospace; font-weight:700; color:#f8fbff;">{format_price(lead_option_quote.get('price')) if lead_option_quote else '-'}</span></div>
             </div>
             <div style="margin-top:0.35rem; color:#9cb0ca; font-size:0.9rem;">
-                {escape(play['entry']['label'])} source in ES, converted once to SPX entry. {escape(play['stop']['label'])}
+                {escape(play['entry']['label'])} source in ES, converted once to SPX entry. {escape(play['stop']['label'])}{f" | {escape(str(lead_option_quote.get('contract_symbol', '')))}" if lead_option_quote and lead_option_quote.get('contract_symbol') else ""}
             </div>
         </div>
         """,
@@ -5639,12 +5666,51 @@ def render_live_mode_shell(
                 else:
                     st.error(snapshot_error or "Unable to save daily snapshot.")
 
+        primary_play_spx = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
+        primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
+        alternate_play_spx = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines) if signal_package else None
+        alternate_play_es = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines_es) if signal_package else None
+        option_sections: list[dict[str, Any]] = []
+        for section_title, play_spx, play_es in [
+            ("Primary Contracts", primary_play_spx, primary_play_es),
+            ("Alternate Contracts", alternate_play_spx, alternate_play_es),
+        ]:
+            option_request = None
+            chain_snapshot = {"status": "unavailable", "contracts": []}
+            if play_spx is not None and play_spx.get("strike"):
+                try:
+                    option_request = build_option_lookup_request(
+                        session="NY Options",
+                        direction=str(play_spx.get("direction", "")),
+                        strike=int(play_spx.get("strike", 0)),
+                        trade_date=inputs["next_trading_date"],
+                        scenario_name=str(signal_package["scenario"].get("scenario_name", "")) if signal_package else "",
+                    )
+                    chain_snapshot = options_provider.get_option_chain_snapshot(option_request) if options_provider is not None else {"status": "unavailable", "contracts": []}
+                    option_sections.append(
+                        {
+                            "title": section_title,
+                            "request": option_request,
+                            "play_spx": play_spx,
+                            "play_es": play_es,
+                            "chain_snapshot": chain_snapshot,
+                        }
+                    )
+                except (TypeError, ValueError):
+                    option_request = None
+        lead_option_map = {
+            section["title"]: extract_lead_option_quote(section["chain_snapshot"].get("contracts"))
+            for section in option_sections
+        }
+        primary_lead_option = lead_option_map.get("Primary Contracts")
+        alternate_lead_option = lead_option_map.get("Alternate Contracts")
+
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset)
@@ -5661,26 +5727,10 @@ def render_live_mode_shell(
             render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
         with st.expander("Verification", expanded=False):
             render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
-        primary_play_spx = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
-        primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
-        option_request = None
-        if primary_play_spx is not None and primary_play_spx.get("strike"):
-            try:
-                option_request = build_option_lookup_request(
-                    session="NY Options",
-                    direction=str(primary_play_spx.get("direction", "")),
-                    strike=int(primary_play_spx.get("strike", 0)),
-                    trade_date=inputs["next_trading_date"],
-                    scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
-                )
-            except (TypeError, ValueError):
-                option_request = None
         render_options_provider_preview(
             options_provider,
             options_provider_status,
-            option_request,
-            primary_play_spx,
-            primary_play_es,
+            option_sections,
         )
 
     with live_asian_tab:
