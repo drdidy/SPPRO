@@ -706,6 +706,9 @@ def inject_app_styles() -> None:
             padding-bottom: 2.4rem;
             max-width: 1400px;
         }
+        html, body, [class*="css"] {
+            font-family: var(--spx-font-sans);
+        }
         h1, h2, h3, h4 {
             font-family: var(--spx-font-sans) !important;
             letter-spacing: 0.01em;
@@ -714,6 +717,42 @@ def inject_app_styles() -> None:
         p, li, label, div[data-testid="stMarkdownContainer"] {
             color: var(--spx-text);
             line-height: 1.5;
+        }
+        [data-testid="stSidebar"] * {
+            font-family: var(--spx-font-sans) !important;
+        }
+        [data-testid="stSidebar"] .block-container {
+            padding-top: 0.85rem;
+        }
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+            font-size: 0.88rem !important;
+            line-height: 1.35 !important;
+        }
+        [data-testid="stMetric"] {
+            background: linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0.01));
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 0.65rem 0.8rem;
+            box-shadow: none;
+        }
+        [data-testid="stMetricLabel"] p {
+            color: var(--spx-muted) !important;
+            font-size: 0.68rem !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.08em !important;
+            text-transform: uppercase;
+        }
+        [data-testid="stMetricValue"] {
+            font-family: var(--spx-font-mono) !important;
+            font-size: 1.08rem !important;
+            font-weight: 650 !important;
+            color: #f8fbff !important;
+        }
+        .stCaption {
+            color: var(--spx-muted) !important;
+            font-size: 0.78rem !important;
+            line-height: 1.35 !important;
         }
         .spx-shell {
             position: relative;
@@ -1366,21 +1405,22 @@ def render_key_levels_card(
         st.markdown("**Key Levels Summary**")
         st.caption(subtitle)
 
-        if compact:
-            st.metric("Current Price (ES)", current_label)
-        else:
-            top_cols = st.columns(2)
-            top_cols[0].metric("Current Price (ES)", current_label)
-            top_cols[1].metric("ES-SPX Offset", format_price(effective_offset))
+        header_bits = [f"Current ES {current_label}"]
+        if not compact:
+            header_bits.append(f"Offset {format_price(effective_offset)}")
+        st.markdown(" | ".join(header_bits))
 
-        first_row = st.columns(3)
-        second_row = st.columns(3)
-        for idx, name in enumerate(LINE_DISPLAY_ORDER[:3]):
+        first_row: list[str] = []
+        second_row: list[str] = []
+        for idx, name in enumerate(LINE_DISPLAY_ORDER):
             details = final_lines[name]
-            first_row[idx].metric(f"{details['label']} (ES)", format_price(details["projected_price"]))
-        for idx, name in enumerate(LINE_DISPLAY_ORDER[3:]):
-            details = final_lines[name]
-            second_row[idx].metric(f"{details['label']} (ES)", format_price(details["projected_price"]))
+            item = f"{details['label']} (ES) `{format_price(details['projected_price'])}`"
+            if idx < 3:
+                first_row.append(item)
+            else:
+                second_row.append(item)
+        st.markdown(" | ".join(first_row))
+        st.markdown(" | ".join(second_row))
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -2592,7 +2632,7 @@ def render_options_provider_preview(
             "OAuth" if str(provider_status.get("auth_mode", "none")).startswith("oauth") else str(provider_status.get("auth_mode", "none")).replace("_", " ").title(),
             provider_status.get("status_label", "Unavailable"),
         ]
-        st.caption(" • ".join(str(bit) for bit in provider_bits if bit))
+        st.markdown(" | ".join(str(bit) for bit in provider_bits if bit))
         if developer_mode:
             st.caption(
                 f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
@@ -2642,8 +2682,7 @@ def render_options_provider_preview(
             lead_quote = extract_lead_option_quote(chain_snapshot.get("contracts"))
             if lead_quote and lead_quote.get("price") is not None:
                 summary_bits.append(f"Mark {format_price(lead_quote['price'])}")
-            st.caption(" • ".join(str(bit) for bit in summary_bits if bit))
-
+            st.markdown(" | ".join(str(bit) for bit in summary_bits if bit))
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
             if developer_mode and chain_snapshot.get("message"):
@@ -4009,12 +4048,17 @@ def render_play_card(
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
-        hero_col1, hero_col2 = st.columns([2.3, 1.2])
-        hero_col1.metric(play["direction"], f"{format_price(play['entry']['price'])} SPX")
-        hero_col2.metric("Source ES Line", format_price(entry_es_value) if entry_es_value is not None else "-")
+        headline_bits = [
+            f"**{play['direction']}**",
+            f"ES {format_price(entry_es_value) if entry_es_value is not None else '-'}",
+            f"SPX {format_price(play['entry']['price'])}",
+            f"Strike {play['strike']}",
+        ]
+        if lead_option_quote and lead_option_quote.get("price") is not None:
+            headline_bits.append(f"Mark {format_price(lead_option_quote['price'])}")
+        st.markdown(" | ".join(headline_bits))
 
         details = [
-            ("Strike", str(play["strike"])),
             ("Contracts", str(play["contracts"])),
             ("Stop", f"{format_price(play['stop']['price'])} SPX"),
             ("Option Mark", format_price(lead_option_quote.get("price")) if lead_option_quote else "-"),
@@ -4025,9 +4069,7 @@ def render_play_card(
                 f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}",
             ))
 
-        detail_cols = st.columns(len(details))
-        for col, (label, value) in zip(detail_cols, details):
-            col.metric(label, value)
+        st.caption(" | ".join(f"{label} {value}" for label, value in details))
 
         footnote = play["entry"]["label"]
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
