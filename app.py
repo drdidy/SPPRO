@@ -1509,6 +1509,55 @@ def resolve_play_display_values(
     return resolved_play
 
 
+def align_play_conversion_to_effective_offset(
+    play_spx: dict[str, Any] | None,
+    play_es: dict[str, Any] | None,
+    effective_offset: float,
+) -> dict[str, Any] | None:
+    """Force SPX display legs to equal ES leg minus the effective offset."""
+
+    if play_spx is None:
+        return None
+
+    aligned_play = dict(play_spx)
+    conversion_debug: dict[str, dict[str, Any]] = {}
+
+    for leg_name in ("entry", "stop", "tp1", "tp2"):
+        spx_leg = play_spx.get(leg_name) if isinstance(play_spx.get(leg_name), dict) else None
+        es_leg = play_es.get(leg_name) if isinstance(play_es and play_es.get(leg_name), dict) else None
+        if spx_leg is None:
+            continue
+
+        aligned_leg = dict(spx_leg)
+        spx_before = _to_float_or_none(spx_leg.get("price"))
+        es_price = _to_float_or_none(es_leg.get("price")) if es_leg else None
+        additional_adjustment = None
+        expected_spx = None
+        conversion_valid = None
+
+        if es_price is not None:
+            expected_spx = round_price(es_price - float(effective_offset))
+            if spx_before is not None:
+                additional_adjustment = round_price(spx_before - expected_spx)
+                conversion_valid = abs(additional_adjustment) < 0.01
+            aligned_leg["price"] = expected_spx
+
+        aligned_play[leg_name] = aligned_leg
+        conversion_debug[leg_name] = {
+            "source_es": es_price,
+            "spx_before_alignment": spx_before,
+            "effective_offset": round_price(effective_offset),
+            "additional_adjustment_applied": additional_adjustment,
+            "final_displayed_spx": expected_spx,
+            "conversion_valid": conversion_valid,
+        }
+
+    entry_debug = conversion_debug.get("entry", {})
+    aligned_play["conversion_debug"] = conversion_debug
+    aligned_play["conversion_invalid"] = bool(entry_debug.get("conversion_valid") is False)
+    return aligned_play
+
+
 def build_ladder_items(
     projected_lines: dict[str, dict[str, Any]],
     current_price: float | None,
@@ -4361,6 +4410,9 @@ def render_play_card(
     lead_option_quote: dict[str, Any] | None = None,
     *,
     compact: bool = False,
+    effective_offset: float | None = None,
+    offset_diagnostics: dict[str, Any] | None = None,
+    developer_mode: bool = False,
 ) -> None:
     """Render a single structured play card."""
 
@@ -4371,8 +4423,11 @@ def render_play_card(
         return
 
     play = resolve_play_display_values(play_spx, projected_lines_spx)
+    play_es = resolve_play_display_values(play_spx, projected_lines_es)
+    if effective_offset is not None:
+        play = align_play_conversion_to_effective_offset(play, play_es, effective_offset)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
-    entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else None
+    entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else (_to_float_or_none(play_es.get("entry", {}).get("price")) if play_es else None)
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -4402,6 +4457,20 @@ def render_play_card(
 
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
             st.caption(lead_option_quote["contract_symbol"])
+        if developer_mode and effective_offset is not None:
+            entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
+            with st.expander(f"{title} Conversion Check", expanded=False):
+                st.caption(f"Source ES line used: {format_price(entry_debug.get('source_es')) if entry_debug.get('source_es') is not None else 'Unavailable'}")
+                if offset_diagnostics is not None:
+                    st.caption(f"Manual offset: {format_price(offset_diagnostics.get('manual_offset')) if offset_diagnostics.get('manual_offset') is not None else 'Unavailable'}")
+                    st.caption(f"Inferred/live offset: {format_price(offset_diagnostics.get('live_inferred_offset')) if offset_diagnostics.get('live_inferred_offset') is not None else 'Unavailable'}")
+                    st.caption(f"Effective offset used: {format_price(offset_diagnostics.get('effective_offset')) if offset_diagnostics.get('effective_offset') is not None else format_price(effective_offset)}")
+                else:
+                    st.caption(f"Effective offset used: {format_price(effective_offset)}")
+                st.caption(f"Additional adjustment applied: {format_price(entry_debug.get('additional_adjustment_applied')) if entry_debug.get('additional_adjustment_applied') is not None else '0.00'}")
+                st.caption(f"Final displayed SPX entry: {format_price(entry_debug.get('final_displayed_spx')) if entry_debug.get('final_displayed_spx') is not None else format_price(play['entry']['price'])}")
+                if play.get("conversion_invalid"):
+                    st.warning("Conversion check failed: ES - effective offset did not match the incoming SPX entry before alignment.")
 
 def render_projection_verification(
     anchor_bundle: dict[str, Any],
@@ -6086,6 +6155,7 @@ def render_live_mode_shell(
     override_result: dict[str, Any],
     anchor_bundle: dict[str, Any],
     effective_offset: float,
+    offset_diagnostics: dict[str, Any],
     checkpoint_views: list[dict[str, Any]],
     persisted_settings: dict[str, Any],
     settings: dict[str, Any],
@@ -6133,10 +6203,12 @@ def render_live_mode_shell(
                 else:
                     st.error(snapshot_error or "Unable to save daily snapshot.")
 
-        primary_play_spx = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
+        primary_play_spx_raw = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
         primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
-        alternate_play_spx = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines) if signal_package else None
+        alternate_play_spx_raw = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines) if signal_package else None
         alternate_play_es = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines_es) if signal_package else None
+        primary_play_spx = align_play_conversion_to_effective_offset(primary_play_spx_raw, primary_play_es, effective_offset) if primary_play_spx_raw else None
+        alternate_play_spx = align_play_conversion_to_effective_offset(alternate_play_spx_raw, alternate_play_es, effective_offset) if alternate_play_spx_raw else None
         option_sections: list[dict[str, Any]] = []
         for section_title, play_spx, play_es in [
             ("Primary Contracts", primary_play_spx, primary_play_es),
@@ -6203,9 +6275,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
@@ -6551,9 +6623,9 @@ def render_historical_projection_mode(
             render_trade_decision_summary(signal_package, final_projected_lines)
             decision_col1, decision_col2 = st.columns(2, gap="large")
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode)
         else:
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
@@ -6738,6 +6810,7 @@ def main() -> None:
                 override_result=override_result,
                 anchor_bundle=anchor_bundle,
                 effective_offset=effective_offset,
+                offset_diagnostics=offset_diagnostics,
                 checkpoint_views=checkpoint_views,
                 persisted_settings=persisted_settings,
                 settings=settings,

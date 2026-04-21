@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app import build_line_rows, get_structure_assertion_warnings, resolve_effective_offset, resolve_play_display_values
+from app import align_play_conversion_to_effective_offset, build_line_rows, get_structure_assertion_warnings, resolve_effective_offset, resolve_play_display_values
 
 
 class AppUnitTests(unittest.TestCase):
@@ -115,6 +115,22 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(effective_offset, 20.0)
         self.assertEqual(source, "manual_offset")
         self.assertEqual(details["effective_offset"], 20.0)
+
+    def test_play_conversion_aligns_spx_entry_to_es_minus_offset(self) -> None:
+        play_spx = {
+            "entry": {"label": "desc_floor", "price": 7113.57},
+            "stop": {"label": "asc_floor", "price": 7150.00},
+        }
+        play_es = {
+            "entry": {"label": "desc_floor", "price": 7178.18},
+            "stop": {"label": "asc_floor", "price": 7210.25},
+        }
+
+        aligned = align_play_conversion_to_effective_offset(play_spx, play_es, 39.5)
+
+        self.assertEqual(aligned["entry"]["price"], 7138.68)
+        self.assertTrue(aligned["conversion_invalid"])
+        self.assertAlmostEqual(aligned["conversion_debug"]["entry"]["additional_adjustment_applied"], -25.11, places=2)
 
 
 if __name__ == "__main__":
