@@ -1802,27 +1802,29 @@ def is_historical_projection_run(next_trading_date: date, reference_date: date |
     return next_trading_date != default_next_trading_day(comparison_date)
 
 
-def resolve_signal_evaluation_time(next_trading_date: date):
+def resolve_signal_evaluation_time(next_trading_date: date, historical_mode: bool | None = None):
     """Resolve the timestamp used for signal-package time-based checks."""
 
     projection_target = build_projection_target(next_trading_date)
-    if is_historical_projection_run(next_trading_date):
+    if historical_mode is None:
+        historical_mode = is_historical_projection_run(next_trading_date)
+    if historical_mode:
         return projection_target
     return current_central_time()
 
 
 def sync_projection_price_inputs(
     next_trading_date: date,
-    default_next_trading_date: date,
+    historical_mode: bool,
     live_defaults: dict[str, Any],
     historical_defaults: dict[str, Any] | None = None,
 ) -> bool:
     """Keep price inputs aligned with the selected projection context."""
 
-    historical_mode = next_trading_date != default_next_trading_date
     previous_date = st.session_state.get("_projection_context_next_date")
+    previous_mode = st.session_state.get("_projection_context_mode")
 
-    if previous_date != next_trading_date:
+    if previous_date != next_trading_date or previous_mode != historical_mode:
         if historical_mode:
             st.session_state["current_spx_price_input"] = float((historical_defaults or {}).get("default_spx_price", 0.0))
             st.session_state["current_es_price_input"] = float((historical_defaults or {}).get("default_es_price", 0.0))
@@ -1833,6 +1835,7 @@ def sync_projection_price_inputs(
             st.session_state["open_reference_input"] = float(live_defaults["default_open_reference"])
 
     st.session_state["_projection_context_next_date"] = next_trading_date
+    st.session_state["_projection_context_mode"] = historical_mode
     return historical_mode
 
 
@@ -3432,12 +3435,12 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             prior_session_date = st.date_input("Prior NY session date", value=default_prior)
             next_trading_date = st.date_input("Next trading date", value=default_next)
         else:
-            prior_session_date = default_prior
-            next_trading_date = default_next
+            next_trading_date = st.date_input("Next trading day", value=default_next, min_value=default_next, key="live_next_trading_day")
+            prior_session_date = previous_business_day(next_trading_date)
             st.caption(f"Prior NY session: {prior_session_date}")
             st.caption(f"Next trading day: {next_trading_date}")
         historical_defaults = fetch_historical_input_defaults(prior_session_date, next_trading_date, configured_offset) if historical_mode else None
-        sync_projection_price_inputs(next_trading_date, default_next, live_defaults, historical_defaults)
+        sync_projection_price_inputs(next_trading_date, historical_mode, live_defaults, historical_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
@@ -6152,7 +6155,7 @@ def main() -> None:
                 line_values=line_values_spx,
                 confirmation=confirmation,
                 news_day=inputs["news_day"],
-                current_time=resolve_signal_evaluation_time(inputs["next_trading_date"]),
+                current_time=resolve_signal_evaluation_time(inputs["next_trading_date"], inputs["historical_mode"]),
                 open_price=inputs["open_reference"],
             )
         except Exception as exc:
