@@ -2373,19 +2373,29 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "trade_date": str(raw_trade.get("trade_date", "")),
         "session": str(raw_trade.get("session", "")),
         "scenario_name": str(raw_trade.get("scenario_name", "")),
+        "play_type": str(raw_trade.get("play_type", "")),
         "direction": normalize_trade_direction(raw_trade.get("direction", "")),
         "strike_or_contract_label": str(raw_trade.get("strike_or_contract_label", "")),
         "entry_line_label": str(raw_trade.get("entry_line_label", "")),
         "entry_line_value": round_price(float(raw_trade.get("entry_line_value", 0.0))),
+        "entry_spx": round_price(float(raw_trade.get("entry_spx", raw_trade.get("entry_line_value", 0.0)))),
+        "entry_es": round_price(float(raw_trade.get("entry_es", 0.0))),
         "entry_value": round_price(float(raw_trade.get("entry_value", 0.0))),
         "option_mark_at_decision": round_price(float(raw_trade.get("option_mark_at_decision", 0.0))),
         "predicted_entry_price": round_price(float(raw_trade.get("predicted_entry_price", 0.0))),
+        "current_mark": round_price(float(raw_trade.get("current_mark", raw_trade.get("option_mark_at_decision", 0.0)))),
         "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
         "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
+        "suggested_stop_spx": round_price(float(raw_trade.get("suggested_stop_spx", 0.0))),
         "expected_gain": round_price(float(raw_trade.get("expected_gain", 0.0))),
         "expected_loss": round_price(float(raw_trade.get("expected_loss", 0.0))),
         "rr_ratio": round(float(raw_trade.get("rr_ratio", 0.0)), 3),
         "contract_score": round(float(raw_trade.get("contract_score", 0.0)), 4),
+        "regime": str(raw_trade.get("regime", "")),
+        "plan_status": str(raw_trade.get("plan_status", "")),
+        "chase_status": str(raw_trade.get("chase_status", "")),
+        "stop_quality": str(raw_trade.get("stop_quality", "")),
+        "trade_quality": str(raw_trade.get("trade_quality", "")),
         "integrity_flags": list(raw_trade.get("integrity_flags", [])) if isinstance(raw_trade.get("integrity_flags", []), list) else [],
         "exit_value": round_price(float(raw_trade.get("exit_value", 0.0))),
         "contracts": int(raw_trade.get("contracts", 1)),
@@ -2551,12 +2561,16 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "trade_date": current_central_time().date().isoformat(),
         "session": "NY Options",
         "scenario_name": signal_package["scenario"]["scenario_name"] if signal_package else "",
+        "play_type": "primary",
         "direction": signal_package["scenario"]["primary_trade_direction"] if signal_package and signal_package["scenario"]["primary_trade_direction"] else "CALL",
         "strike_or_contract_label": str(primary_play["strike"]) if primary_play else "",
         "entry_line_label": primary_play["entry"]["label"] if primary_play else "",
         "entry_line_value": float(primary_play["entry"]["price"]) if primary_play else 0.0,
+        "entry_spx": float(primary_play["entry"]["price"]) if primary_play else 0.0,
+        "entry_es": 0.0,
         "entry_value": 0.0,
         "stop_value": 0.0,
+        "suggested_stop_spx": 0.0,
         "contracts": int(primary_play["contracts"]) if primary_play else 1,
         "confidence_note": signal_package["scenario"]["confidence_level"] if signal_package else "",
         "confirmation_status": "Not Recorded",
@@ -2565,11 +2579,17 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "notes": f"Confidence: {signal_package['scenario']['confidence_level']}" if signal_package else "",
         "selected_contract_symbol": "",
         "option_mark_at_decision": 0.0,
+        "current_mark": 0.0,
         "predicted_entry_price": 0.0,
         "expected_gain": 0.0,
         "expected_loss": 0.0,
         "rr_ratio": 0.0,
         "contract_score": 0.0,
+        "regime": "",
+        "plan_status": "",
+        "chase_status": "",
+        "stop_quality": "",
+        "trade_quality": "",
         "integrity_flags": [],
     }
     merged = {**default_prefill, **st.session_state.get("trade_form_prefill", {})}
@@ -2626,6 +2646,67 @@ def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
         "rr_ratio": float(selected_contract["rr_ratio"]) if selected_contract.get("rr_ratio") is not None else 0.0,
         "contract_score": float(selected_contract["contract_score"]) if selected_contract.get("contract_score") is not None else 0.0,
         "integrity_flags": list(selected_contract.get("integrity_flags", [])),
+    }
+
+
+def build_live_play_trade_prefill(
+    *,
+    signal_package: dict[str, Any],
+    play_type: str,
+    play_spx: dict[str, Any],
+    play_es: dict[str, Any] | None,
+    lead_option_quote: dict[str, Any] | None,
+    intelligence: dict[str, Any],
+    final_status: str,
+) -> dict[str, Any]:
+    """Build a trade-log prefill from the exact visible live play snapshot."""
+
+    notes = [f"Confidence: {signal_package['scenario']['confidence_level']}", f"Final status: {final_status}"]
+    contract_symbol = lead_option_quote.get("contract_symbol", "") if lead_option_quote else ""
+    current_mark = float(lead_option_quote["price"]) if lead_option_quote and lead_option_quote.get("price") is not None else 0.0
+    predicted_entry = float(lead_option_quote["predicted_entry_price"]) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else 0.0
+    expected_gain = float(lead_option_quote["expected_gain"]) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else 0.0
+    expected_loss = float(lead_option_quote["expected_loss"]) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else 0.0
+    rr_ratio = float(lead_option_quote["rr_ratio"]) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else 0.0
+    contract_score = float(lead_option_quote["contract_score"]) if lead_option_quote and lead_option_quote.get("contract_score") is not None else 0.0
+    stop_spx = float(play_spx["stop"]["price"]) if play_spx.get("stop") else 0.0
+    entry_es = float(play_es["entry"]["price"]) if play_es and play_es.get("entry") else 0.0
+
+    return {
+        "source": f"Tab 1 {play_type} play",
+        "trade_date": current_central_time().date().isoformat(),
+        "session": "NY Options",
+        "scenario_name": signal_package["scenario"]["scenario_name"],
+        "play_type": play_type,
+        "direction": play_spx["direction"],
+        "strike_or_contract_label": contract_symbol or str(play_spx["strike"]),
+        "entry_line_label": play_spx["entry"]["label"],
+        "entry_line_value": float(play_spx["entry"]["price"]),
+        "entry_spx": float(play_spx["entry"]["price"]),
+        "entry_es": entry_es,
+        "entry_value": current_mark,
+        "stop_value": stop_spx,
+        "suggested_stop_spx": float(intelligence.get("suggested_stop") or 0.0),
+        "contracts": int(play_spx["contracts"]),
+        "confidence_note": signal_package["scenario"]["confidence_level"],
+        "confirmation_status": "Not Recorded",
+        "linked_snapshot_id": "",
+        "linked_snapshot_date": "",
+        "notes": " | ".join(notes),
+        "selected_contract_symbol": contract_symbol,
+        "option_mark_at_decision": current_mark,
+        "current_mark": current_mark,
+        "predicted_entry_price": predicted_entry,
+        "expected_gain": expected_gain,
+        "expected_loss": expected_loss,
+        "rr_ratio": rr_ratio,
+        "contract_score": contract_score,
+        "regime": str(intelligence.get("regime", "")),
+        "plan_status": str(intelligence.get("plan_status", "")),
+        "chase_status": str(intelligence.get("chase_status", "")),
+        "stop_quality": str(intelligence.get("stop_quality", "")),
+        "trade_quality": str(intelligence.get("quality", "")),
+        "integrity_flags": list(play_spx.get("integrity_flags", [])),
     }
 
 
@@ -4449,6 +4530,7 @@ def classify_stop_quality(entry_price: float | None, stop_price: float | None) -
 def assess_trade_intelligence(
     play: dict[str, Any] | None,
     lead_option_quote: dict[str, Any] | None,
+    current_option_mark: float | None = None,
     *,
     min_rr: float = 1.0,
 ) -> dict[str, Any]:
@@ -4463,10 +4545,32 @@ def assess_trade_intelligence(
     rr_ratio = _to_float_or_none(lead_option_quote.get("rr_ratio")) if lead_option_quote else None
     expected_gain = _to_float_or_none(lead_option_quote.get("expected_gain")) if lead_option_quote else None
     expected_loss = _to_float_or_none(lead_option_quote.get("expected_loss")) if lead_option_quote else None
+    current_mark = current_option_mark
+    if current_mark is None and lead_option_quote is not None:
+        current_mark = _to_float_or_none(lead_option_quote.get("price"))
+    planned_entry_mark = _to_float_or_none(lead_option_quote.get("predicted_entry_price")) if lead_option_quote else None
     stop_distance = abs(entry_price - stop_price) if entry_price is not None and stop_price is not None else None
     target_move = abs(target_price - entry_price) if entry_price is not None and target_price is not None else None
     stop_valid = bool(stop_price is not None and entry_price is not None and abs(entry_price - stop_price) >= 1e-9 and not play.get("invalid_stop"))
     inefficient_stop = bool(expected_gain is not None and expected_loss is not None and expected_loss > expected_gain)
+    entry_drift = (current_mark - planned_entry_mark) if current_mark is not None and planned_entry_mark is not None else None
+    if current_mark is None or planned_entry_mark is None:
+        regime = "unknown"
+        plan_status = "unknown"
+        chase_status = "unknown"
+    else:
+        if abs(entry_drift) <= max(1.0, planned_entry_mark * 0.08):
+            regime = "pullback"
+            plan_status = "holding"
+            chase_status = "allowed"
+        elif abs(entry_drift) <= max(2.0, planned_entry_mark * 0.18):
+            regime = "expansion"
+            plan_status = "drifting"
+            chase_status = "caution"
+        else:
+            regime = "expansion"
+            plan_status = "broken"
+            chase_status = "not_allowed"
 
     if not stop_valid or rr_ratio is None:
         status = "NOT ELIGIBLE"
@@ -4506,6 +4610,12 @@ def assess_trade_intelligence(
         "downgrade_reason": downgrade_reason,
         "min_rr": min_rr,
         "suggested_stop": suggested_stop,
+        "planned_entry_mark": round_price(planned_entry_mark) if planned_entry_mark is not None else None,
+        "current_option_mark": round_price(current_mark) if current_mark is not None else None,
+        "entry_drift": round_price(entry_drift) if entry_drift is not None else None,
+        "regime": regime,
+        "plan_status": plan_status,
+        "chase_status": chase_status,
     }
 
 
@@ -4566,6 +4676,7 @@ def render_play_card(
     entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play.get("entry"), dict) else None
     stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
     intelligence = assess_trade_intelligence(play, lead_option_quote)
+    intelligence["stop_quality"] = stop_quality["label"]
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -4597,7 +4708,8 @@ def render_play_card(
 
         st.markdown(f"Option Mark `{mark_value}`")
         st.caption(" | ".join([f"Pred Entry {predicted_entry_mark}", f"Gain {expected_gain}", f"Loss {expected_loss}", f"RR {rr_value}" if intelligence.get("rr_ratio") is not None else "RR -"]))
-        st.caption(" | ".join([f"Stop Quality {stop_quality['label']}", f"Trade Quality {intelligence['quality']}", f"Status {visible_status}", f"Score {contract_score}"]))
+        st.caption(" | ".join([f"Regime {intelligence.get('regime', '-')}", f"Plan {intelligence.get('plan_status', '-')}", f"Chase {intelligence.get('chase_status', '-')}", f"Score {contract_score}"]))
+        st.caption(" | ".join([f"Stop Quality {stop_quality['label']}", f"Trade Quality {intelligence['quality']}", f"Status {visible_status}"]))
         if stop_price is not None and intelligence.get("suggested_stop") is not None:
             st.caption(" | ".join([f"Structural Stop {format_price(stop_price)}", f"Suggested Stop {format_price(intelligence['suggested_stop'])}"]))
         if detail_bits:
@@ -4605,6 +4717,25 @@ def render_play_card(
 
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
             st.caption(f"Best Contract {lead_option_quote['contract_symbol']}")
+        button_key = f"use_play_{title.lower().replace(' ', '_')}"
+        if st.button("Use This Play", key=button_key, use_container_width=True):
+            signal_package = st.session_state.get("current_signal_package")
+            if signal_package is None:
+                st.warning("No live signal snapshot is available for this play yet.")
+            else:
+                inferred_play_type = "alternate" if "alternate" in title.lower() else "primary"
+                set_trade_form_prefill(
+                    build_live_play_trade_prefill(
+                        signal_package=signal_package,
+                        play_type=inferred_play_type,
+                        play_spx=play,
+                        play_es=play_es,
+                        lead_option_quote=lead_option_quote,
+                        intelligence=intelligence,
+                        final_status=visible_status,
+                    )
+                )
+                st.success("Trade Log prefilled from this play.")
         if developer_mode and effective_offset is not None:
             entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
             with st.expander(f"{title} Conversion Check", expanded=False):
@@ -5366,6 +5497,7 @@ def render_trade_log_tab(
             with col2:
                 entry_value = st.number_input("Entry premium or entry price", value=float(prefill.get("entry_value", 0.0)), step=0.05, format="%.2f")
                 exit_value = st.number_input("Exit premium or exit price", value=0.0, step=0.05, format="%.2f")
+                stop_value = st.number_input("Stop value", value=float(prefill.get("stop_value", 0.0)), step=0.05, format="%.2f")
                 contracts = st.number_input("Contracts", min_value=1, value=int(default_contracts), step=1)
                 confluence_score = st.number_input("Confluence score", min_value=0, max_value=5, value=default_confluence, step=1)
                 result = st.selectbox("Result", RESULT_OPTIONS)
@@ -5401,10 +5533,26 @@ def render_trade_log_tab(
                     "strike_or_contract_label": strike_or_contract_label,
                     "entry_line_label": entry_line_label,
                     "entry_line_value": entry_line_value,
+                    "entry_spx": float(prefill.get("entry_spx", entry_line_value)),
+                    "entry_es": float(prefill.get("entry_es", 0.0)),
                     "entry_value": entry_value,
+                    "stop_value": stop_value,
+                    "suggested_stop_spx": float(prefill.get("suggested_stop_spx", 0.0)),
                     "option_mark_at_decision": float(prefill.get("option_mark_at_decision", 0.0)),
+                    "current_mark": float(prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0))),
                     "predicted_entry_price": float(prefill.get("predicted_entry_price", 0.0)),
                     "selected_contract_symbol": str(prefill.get("selected_contract_symbol", "")),
+                    "play_type": str(prefill.get("play_type", "")),
+                    "expected_gain": float(prefill.get("expected_gain", 0.0)),
+                    "expected_loss": float(prefill.get("expected_loss", 0.0)),
+                    "rr_ratio": float(prefill.get("rr_ratio", 0.0)),
+                    "contract_score": float(prefill.get("contract_score", 0.0)),
+                    "regime": str(prefill.get("regime", "")),
+                    "plan_status": str(prefill.get("plan_status", "")),
+                    "chase_status": str(prefill.get("chase_status", "")),
+                    "stop_quality": str(prefill.get("stop_quality", "")),
+                    "trade_quality": str(prefill.get("trade_quality", "")),
+                    "integrity_flags": list(prefill.get("integrity_flags", [])),
                     "exit_value": exit_value,
                     "contracts": int(contracts),
                     "confluence_score": int(confluence_score),
@@ -6944,6 +7092,7 @@ def main() -> None:
             confirmation = build_unavailable_confirmation("Scenario unavailable because the current SPX setup could not be evaluated.")
     else:
         confirmation = build_unavailable_confirmation("Scenario unavailable because current SPX price is missing or invalid.")
+    st.session_state["current_signal_package"] = signal_package
 
     try:
         checkpoint_views = build_evening_checkpoint_views(
