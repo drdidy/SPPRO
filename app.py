@@ -691,6 +691,8 @@ def inject_app_styles() -> None:
             --spx-red: #ff5a76;
             --spx-gold: #ffd740;
             --spx-purple: #b388ff;
+            --spx-font-sans: "Outfit", "Segoe UI", sans-serif;
+            --spx-font-mono: "JetBrains Mono", monospace;
         }
         .stApp {
             background:
@@ -705,12 +707,13 @@ def inject_app_styles() -> None:
             max-width: 1400px;
         }
         h1, h2, h3, h4 {
-            font-family: "Outfit", "Segoe UI", sans-serif !important;
+            font-family: var(--spx-font-sans) !important;
             letter-spacing: 0.01em;
             color: var(--spx-text);
         }
         p, li, label, div[data-testid="stMarkdownContainer"] {
             color: var(--spx-text);
+            line-height: 1.5;
         }
         .spx-shell {
             position: relative;
@@ -738,7 +741,7 @@ def inject_app_styles() -> None:
         }
         .spx-section-title {
             font-size: 0.76rem;
-            font-weight: 800;
+            font-weight: 700;
             letter-spacing: 0.16em;
             text-transform: uppercase;
             color: var(--spx-muted);
@@ -746,7 +749,7 @@ def inject_app_styles() -> None:
         }
         .spx-section-subtitle {
             color: #d3deef;
-            font-size: 0.98rem;
+            font-size: 0.92rem;
             margin-bottom: 0.15rem;
             line-height: 1.55;
         }
@@ -768,14 +771,14 @@ def inject_app_styles() -> None:
             text-transform: uppercase;
             letter-spacing: 0.16em;
             color: #7fe7ff;
-            font-weight: 800;
+            font-weight: 700;
             margin-bottom: 0.45rem;
         }
         .spx-summary-body {
             color: #f4fbff;
-            font-size: 1.03rem;
+            font-size: 0.96rem;
             line-height: 1.65;
-            font-weight: 600;
+            font-weight: 500;
         }
         .spx-hero {
             position: relative;
@@ -816,8 +819,8 @@ def inject_app_styles() -> None:
             margin-bottom: 0.35rem;
         }
         .spx-hero-title {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 2rem;
+            font-family: var(--spx-font-sans);
+            font-size: 1.92rem;
             font-weight: 800;
             line-height: 1.05;
             color: #f8fbff;
@@ -825,7 +828,7 @@ def inject_app_styles() -> None:
         }
         .spx-hero-subtitle {
             color: #bdd0e8;
-            font-size: 1rem;
+            font-size: 0.94rem;
             line-height: 1.55;
             max-width: 760px;
         }
@@ -837,9 +840,9 @@ def inject_app_styles() -> None:
             color: var(--spx-muted);
             text-transform: uppercase;
             letter-spacing: 0.14em;
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             margin-bottom: 0.35rem;
-            font-weight: 800;
+            font-weight: 700;
         }
         .spx-status-chip {
             display: inline-flex;
@@ -908,20 +911,20 @@ def inject_app_styles() -> None:
             animation: spxFadeUp 0.45s ease both;
         }
         .spx-banner-name {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 1.36rem;
+            font-family: var(--spx-font-sans);
+            font-size: 1.22rem;
             font-weight: 800;
             color: #f8fbff;
             margin-bottom: 0.35rem;
         }
         .spx-banner-meta {
             color: var(--spx-muted);
-            font-size: 0.9rem;
+            font-size: 0.82rem;
             margin-bottom: 0.35rem;
         }
         .spx-banner-text {
             color: #d8e1ee;
-            font-size: 0.96rem;
+            font-size: 0.91rem;
             line-height: 1.58;
         }
         .spx-pill {
@@ -930,8 +933,8 @@ def inject_app_styles() -> None:
             gap: 0.35rem;
             padding: 0.28rem 0.62rem;
             border-radius: 999px;
-            font-size: 0.72rem;
-            font-weight: 800;
+            font-size: 0.7rem;
+            font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             margin-right: 0.45rem;
@@ -951,7 +954,7 @@ def inject_app_styles() -> None:
         .spx-pill.scenario-compression { background: rgba(179,136,255,0.14); border-color: rgba(179,136,255,0.24); }
         .spx-play-note, .spx-muted {
             color: var(--spx-muted);
-            font-size: 0.88rem;
+            font-size: 0.82rem;
             line-height: 1.45;
         }
         .spx-card {
@@ -993,15 +996,15 @@ def inject_app_styles() -> None:
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
         }
         .spx-card-heading {
-            font-family: "Outfit", "Segoe UI", sans-serif;
-            font-size: 1.16rem;
-            font-weight: 700;
+            font-family: var(--spx-font-sans);
+            font-size: 1.02rem;
+            font-weight: 650;
             color: #f8fbff;
             line-height: 1.2;
         }
         .spx-card-subtitle {
             color: var(--spx-muted);
-            font-size: 0.88rem;
+            font-size: 0.8rem;
             margin-top: 0.15rem;
         }
         .spx-card-grid {
@@ -1018,16 +1021,16 @@ def inject_app_styles() -> None:
         }
         .spx-card-stat-label {
             color: var(--spx-muted);
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.12em;
-            font-weight: 800;
+            font-weight: 700;
             margin-bottom: 0.25rem;
         }
         .spx-card-stat-value {
             color: #f8fbff;
-            font-size: 1rem;
-            font-family: "JetBrains Mono", monospace;
+            font-size: 0.98rem;
+            font-family: var(--spx-font-mono);
             font-weight: 700;
             line-height: 1.35;
         }
@@ -1053,8 +1056,29 @@ def inject_app_styles() -> None:
             color: #deebff;
         }
         .spx-mini-line .mono {
-            font-family: "JetBrains Mono", monospace;
+            font-family: var(--spx-font-mono);
             font-weight: 700;
+        }
+        .spx-inline-status {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.8rem;
+            color: #dfe8f6;
+            font-size: 0.86rem;
+        }
+        .spx-inline-summary {
+            color: #eef5ff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            line-height: 1.45;
+            margin-bottom: 0.55rem;
+        }
+        .spx-inline-summary .mono {
+            font-family: var(--spx-font-mono);
+            font-weight: 700;
+            color: #f8fbff;
         }
         .spx-status-good {
             border: 1px solid rgba(0, 230, 118, 0.2);
@@ -1145,7 +1169,7 @@ def inject_app_styles() -> None:
             color: var(--spx-muted);
         }
         div[data-testid="stMetricValue"] {
-            font-family: "JetBrains Mono", monospace;
+            font-family: var(--spx-font-mono);
         }
         div[data-testid="stDataFrame"] {
             border-radius: 18px;
@@ -1158,8 +1182,8 @@ def inject_app_styles() -> None:
             overflow: hidden;
         }
         div[data-testid="stTabs"] button {
-            font-family: "JetBrains Mono", monospace !important;
-            font-weight: 700;
+            font-family: var(--spx-font-sans) !important;
+            font-weight: 650;
             letter-spacing: 0.04em;
             border-radius: 12px 12px 0 0;
         }
@@ -1169,6 +1193,13 @@ def inject_app_styles() -> None:
         }
         [data-testid="stSidebar"] .block-container {
             padding-top: 1rem;
+            padding-bottom: 1.1rem;
+        }
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] {
+            font-size: 0.86rem !important;
+            line-height: 1.4;
         }
         @keyframes spxFadeUp {
             from { opacity: 0; transform: translateY(10px); }
@@ -1346,7 +1377,7 @@ def render_key_levels_card(
         f"""
         <div class="spx-card levels">
             <div class="spx-card-title">
-                <div class="spx-card-icon">?</div>
+                <div class="spx-card-icon">&#9670;</div>
                 <div>
                     <div class="spx-card-heading">Key Levels Summary</div>
                     <div class="spx-card-subtitle">{subtitle}</div>
@@ -2568,18 +2599,26 @@ def render_options_provider_preview(
     """Render a safe provider integration preview without requiring live connectivity."""
 
     with st.expander("Options Data", expanded=False):
-        status_col1, status_col2, status_col3, status_col4, status_col5 = st.columns(5)
-        status_col1.metric("Provider", str(provider_status.get("provider_name", "none")).upper())
-        status_col2.metric("Configured", "Yes" if provider_status.get("configured") else "No")
-        status_col3.metric("Credentials", "Yes" if provider_status.get("credentials_detected") else "No")
-        status_col4.metric("Live Ready", "Yes" if provider_status.get("live_mode_available") else "No")
-        status_col5.metric("Status", provider_status.get("status_label", "Unavailable"))
+        provider_name = str(provider_status.get("provider_name", "none")).title()
+        provider_bits = [
+            provider_name,
+            "Connected" if provider_status.get("configured") else "Not configured",
+            "OAuth" if str(provider_status.get("auth_mode", "none")).startswith("oauth") else str(provider_status.get("auth_mode", "none")).replace("_", " ").title(),
+            provider_status.get("status_label", "Unavailable"),
+        ]
+        st.markdown(
+            f"""
+            <div class="spx-inline-status">
+                {' <span style="color:#8ea1bc;">•</span> '.join(f"<span>{escape(str(bit))}</span>" for bit in provider_bits if bit)}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         if developer_mode:
             st.caption(
                 f"Auth mode: {provider_status.get('auth_mode', 'none')} | "
                 f"Environment: {provider_status.get('active_environment', 'sandbox')}"
             )
-
         provider_name = str(provider_status.get("provider_name", "none")).lower()
         if provider_name == "none" or not provider_status.get("credentials_detected"):
             with st.container(border=True):
@@ -2615,10 +2654,23 @@ def render_options_provider_preview(
                 preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(section["request"]))
 
             st.markdown(f"**{section['title']}**")
-            overview_col1, overview_col2, overview_col3 = st.columns(3)
-            overview_col1.metric("Direction", str(request_payload.get("direction", "")))
-            overview_col2.metric("Source Line (ES)", format_price(play_es["entry"]["price"]) if play_es else "-")
-            overview_col3.metric("SPX Entry / Strike", f"{format_price(play_spx['entry']['price'])} / {play_spx['strike']}" if play_spx else "-")
+            summary_bits = [
+                str(request_payload.get("direction", "")),
+                f"ES {format_price(play_es['entry']['price'])}" if play_es else "ES -",
+                f"SPX {format_price(play_spx['entry']['price'])}" if play_spx else "SPX -",
+                f"Strike {play_spx['strike']}" if play_spx else "Strike -",
+            ]
+            lead_quote = extract_lead_option_quote(chain_snapshot.get("contracts"))
+            if lead_quote and lead_quote.get("price") is not None:
+                summary_bits.append(f"Mark {format_price(lead_quote['price'])}")
+            st.markdown(
+                f"""
+                <div class="spx-inline-summary">
+                    {' <span style="color:#8ea1bc;">•</span> '.join(f"<span>{escape(str(bit))}</span>" for bit in summary_bits if bit)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
