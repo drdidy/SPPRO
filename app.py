@@ -1509,14 +1509,70 @@ def is_live_market_session() -> bool:
     return start <= now_ct.time() <= end
 
 
+INTELLIGENCE_PLAN_HOLD_THRESHOLD_PCT = 0.08
+INTELLIGENCE_PLAN_DRIFT_THRESHOLD_PCT = 0.18
+INTELLIGENCE_PLAN_HOLD_THRESHOLD_ABS = 1.0
+INTELLIGENCE_PLAN_DRIFT_THRESHOLD_ABS = 2.0
+INTELLIGENCE_CONFIDENCE_HIGH_DRIFT_PCT = 0.08
+INTELLIGENCE_CONFIDENCE_MEDIUM_DRIFT_PCT = 0.18
+INTELLIGENCE_MIN_RR = 1.0
+INTELLIGENCE_MIN_RR_HARD_FLOOR = 0.5
+
+
+def resolve_planned_entry_mark(
+    live_predicted_entry_mark: float | None,
+    anchor_key: str | None,
+) -> float | None:
+    """Freeze the first live prediction as the planning anchor for this setup."""
+
+    if live_predicted_entry_mark is None:
+        return None
+    if st is None or not hasattr(st, "session_state") or anchor_key is None:
+        return round_price(live_predicted_entry_mark)
+
+    planned_store = st.session_state.setdefault("planned_entry_mark_store", {})
+    if anchor_key not in planned_store:
+        planned_store[anchor_key] = round_price(live_predicted_entry_mark)
+    return round_price(float(planned_store[anchor_key]))
+
+
+def build_planned_anchor_key(
+    play_role: str,
+    signal_package: dict[str, Any] | None,
+    play: dict[str, Any] | None,
+    next_trading_date: date | None = None,
+) -> str | None:
+    """Build a stable planning key so the first prediction stays frozen for this setup."""
+
+    if play is None:
+        return None
+    scenario_name = ""
+    if signal_package is not None:
+        scenario_name = str(signal_package.get("scenario", {}).get("scenario_name", ""))
+    date_key = next_trading_date.isoformat() if isinstance(next_trading_date, date) else "live"
+    return "|".join(
+        [
+            date_key,
+            str(play_role or ""),
+            scenario_name,
+            str(play.get("direction", "")),
+            str(play.get("strike", "")),
+            str(play.get("entry", {}).get("label", "")),
+            str(play.get("entry", {}).get("price", "")),
+        ]
+    )
+
+
 def render_tab1_hero(
     signal_package: dict[str, Any] | None,
     current_spx_price: float | None,
     current_es_price: float | None,
     effective_offset: float,
     final_status: str | None = None,
+    final_decision: str | None = None,
     primary_play: dict[str, Any] | None = None,
     lead_option_quote: dict[str, Any] | None = None,
+    intelligence_summary: dict[str, Any] | None = None,
 ) -> None:
     """Render the compact live decision center."""
 
@@ -1538,8 +1594,8 @@ def render_tab1_hero(
         status_class, status_icon = status_chip_class(status_label)
         sit_out = {"sit_out": status_label != "ELIGIBLE"}
         status_icon = "●" if not sit_out["sit_out"] else "!"
-        action_label = final_status_to_action(status_label, signal_package)
-        hero_intelligence = assess_trade_intelligence(primary_play, lead_option_quote)
+        action_label = final_decision or final_status_to_action(status_label, signal_package)
+        hero_intelligence = intelligence_summary or assess_trade_intelligence(primary_play, lead_option_quote, current_spx_price=current_spx_price)
         quality_label = hero_intelligence.get("quality", "Pending")
         timing_label = classify_entry_timing(current_spx_price, _to_float_or_none(primary_play.get("entry", {}).get("price")) if primary_play else None)["label"]
         decision_reason = get_decision_reason(action_label, signal_package, primary_play, hero_intelligence, timing_label)
@@ -2556,6 +2612,8 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "entry_value": round_price(float(raw_trade.get("entry_value", 0.0))),
         "option_mark_at_decision": round_price(float(raw_trade.get("option_mark_at_decision", 0.0))),
         "predicted_entry_price": round_price(float(raw_trade.get("predicted_entry_price", 0.0))),
+        "planned_entry_mark": round_price(float(raw_trade.get("planned_entry_mark", raw_trade.get("predicted_entry_price", 0.0)))),
+        "live_predicted_entry_mark": round_price(float(raw_trade.get("live_predicted_entry_mark", raw_trade.get("predicted_entry_price", 0.0)))),
         "current_mark": round_price(float(raw_trade.get("current_mark", raw_trade.get("option_mark_at_decision", 0.0)))),
         "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
         "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
@@ -2567,6 +2625,11 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "regime": str(raw_trade.get("regime", "")),
         "plan_status": str(raw_trade.get("plan_status", "")),
         "chase_status": str(raw_trade.get("chase_status", "")),
+        "prediction_confidence": str(raw_trade.get("prediction_confidence", "")),
+        "final_decision": str(raw_trade.get("final_decision", "")),
+        "entry_drift_abs": round_price(float(raw_trade.get("entry_drift_abs", 0.0))),
+        "entry_drift_pct": round(float(raw_trade.get("entry_drift_pct", 0.0)), 4),
+        "price_vs_plan": round_price(float(raw_trade.get("price_vs_plan", 0.0))),
         "stop_quality": str(raw_trade.get("stop_quality", "")),
         "trade_quality": str(raw_trade.get("trade_quality", "")),
         "integrity_flags": list(raw_trade.get("integrity_flags", [])) if isinstance(raw_trade.get("integrity_flags", []), list) else [],
@@ -2754,6 +2817,8 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "option_mark_at_decision": 0.0,
         "current_mark": 0.0,
         "predicted_entry_price": 0.0,
+        "planned_entry_mark": 0.0,
+        "live_predicted_entry_mark": 0.0,
         "expected_gain": 0.0,
         "expected_loss": 0.0,
         "rr_ratio": 0.0,
@@ -2761,6 +2826,11 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "regime": "",
         "plan_status": "",
         "chase_status": "",
+        "prediction_confidence": "",
+        "final_decision": "",
+        "entry_drift_abs": 0.0,
+        "entry_drift_pct": 0.0,
+        "price_vs_plan": 0.0,
         "stop_quality": "",
         "trade_quality": "",
         "integrity_flags": [],
@@ -2831,6 +2901,7 @@ def build_live_play_trade_prefill(
     lead_option_quote: dict[str, Any] | None,
     intelligence: dict[str, Any],
     final_status: str,
+    final_decision: str | None = None,
 ) -> dict[str, Any]:
     """Build a trade-log prefill from the exact visible live play snapshot."""
 
@@ -2870,6 +2941,8 @@ def build_live_play_trade_prefill(
         "option_mark_at_decision": current_mark,
         "current_mark": current_mark,
         "predicted_entry_price": predicted_entry,
+        "planned_entry_mark": float(intelligence.get("planned_entry_mark") or 0.0),
+        "live_predicted_entry_mark": float(intelligence.get("live_predicted_entry_mark") or 0.0),
         "expected_gain": expected_gain,
         "expected_loss": expected_loss,
         "rr_ratio": rr_ratio,
@@ -2877,6 +2950,11 @@ def build_live_play_trade_prefill(
         "regime": str(intelligence.get("regime", "")),
         "plan_status": str(intelligence.get("plan_status", "")),
         "chase_status": str(intelligence.get("chase_status", "")),
+        "prediction_confidence": str(intelligence.get("prediction_confidence", "")),
+        "final_decision": str(final_decision or final_status_to_action(final_status, signal_package)),
+        "entry_drift_abs": float(intelligence.get("entry_drift_abs") or 0.0),
+        "entry_drift_pct": float(intelligence.get("entry_drift_pct") or 0.0),
+        "price_vs_plan": float(intelligence.get("price_vs_plan") or 0.0),
         "stop_quality": str(intelligence.get("stop_quality", "")),
         "trade_quality": str(intelligence.get("quality", "")),
         "integrity_flags": list(play_spx.get("integrity_flags", [])),
@@ -4635,12 +4713,13 @@ def render_trade_decision_summary(
     projected_lines: dict[str, dict[str, Any]],
     *,
     final_status: str,
+    final_decision: str | None = None,
 ) -> None:
     """Render the fastest single-line operator summary."""
 
     scenario = signal_package["scenario"]
     primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
-    action_label = final_status_to_action(final_status, signal_package)
+    action_label = final_decision or final_status_to_action(final_status, signal_package)
     primary_direction = primary_play["direction"] if primary_play else "-"
     entry_value = format_price(primary_play["entry"]["price"]) if primary_play else "-"
     strike = str(primary_play["strike"]) if primary_play else "-"
@@ -4702,8 +4781,10 @@ def assess_trade_intelligence(
     play: dict[str, Any] | None,
     lead_option_quote: dict[str, Any] | None,
     current_option_mark: float | None = None,
+    current_spx_price: float | None = None,
+    planned_anchor_key: str | None = None,
     *,
-    min_rr: float = 1.0,
+    min_rr: float = INTELLIGENCE_MIN_RR,
 ) -> dict[str, Any]:
     """Assess forward-facing trade quality without changing scenario logic."""
 
@@ -4719,35 +4800,65 @@ def assess_trade_intelligence(
     current_mark = current_option_mark
     if current_mark is None and lead_option_quote is not None:
         current_mark = _to_float_or_none(lead_option_quote.get("price"))
-    planned_entry_mark = _to_float_or_none(lead_option_quote.get("predicted_entry_price")) if lead_option_quote else None
+    live_predicted_entry_mark = _to_float_or_none(lead_option_quote.get("predicted_entry_price")) if lead_option_quote else None
+    planned_entry_mark = resolve_planned_entry_mark(live_predicted_entry_mark, planned_anchor_key)
     stop_distance = abs(entry_price - stop_price) if entry_price is not None and stop_price is not None else None
     target_move = abs(target_price - entry_price) if entry_price is not None and target_price is not None else None
     stop_valid = bool(stop_price is not None and entry_price is not None and abs(entry_price - stop_price) >= 1e-9 and not play.get("invalid_stop"))
     inefficient_stop = bool(expected_gain is not None and expected_loss is not None and expected_loss > expected_gain)
-    entry_drift = (current_mark - planned_entry_mark) if current_mark is not None and planned_entry_mark is not None else None
-    if current_mark is None or planned_entry_mark is None:
-        regime = "unknown"
-        plan_status = "unknown"
-        chase_status = "unknown"
+    entry_drift = (live_predicted_entry_mark - planned_entry_mark) if live_predicted_entry_mark is not None and planned_entry_mark is not None else None
+    entry_drift_abs = abs(entry_drift) if entry_drift is not None else None
+    entry_drift_pct = (entry_drift_abs / max(abs(planned_entry_mark), 0.01)) if entry_drift_abs is not None and planned_entry_mark is not None else None
+    price_vs_plan = (current_mark - planned_entry_mark) if current_mark is not None and planned_entry_mark is not None else None
+    distance_to_entry = abs(current_spx_price - entry_price) if current_spx_price is not None and entry_price is not None else None
+
+    hold_threshold = max(INTELLIGENCE_PLAN_HOLD_THRESHOLD_ABS, abs(planned_entry_mark or 0.0) * INTELLIGENCE_PLAN_HOLD_THRESHOLD_PCT)
+    drift_threshold = max(INTELLIGENCE_PLAN_DRIFT_THRESHOLD_ABS, abs(planned_entry_mark or 0.0) * INTELLIGENCE_PLAN_DRIFT_THRESHOLD_PCT)
+    if entry_drift_abs is None:
+        plan_status = "UNKNOWN"
+    elif entry_drift_abs <= hold_threshold:
+        plan_status = "HOLDING"
+    elif entry_drift_abs <= drift_threshold:
+        plan_status = "DRIFTING"
     else:
-        if abs(entry_drift) <= max(1.0, planned_entry_mark * 0.08):
-            regime = "pullback"
-            plan_status = "holding"
-            chase_status = "allowed"
-        elif abs(entry_drift) <= max(2.0, planned_entry_mark * 0.18):
-            regime = "expansion"
-            plan_status = "drifting"
-            chase_status = "caution"
-        else:
-            regime = "expansion"
-            plan_status = "broken"
-            chase_status = "not_allowed"
+        plan_status = "BROKEN"
+
+    if distance_to_entry is None or price_vs_plan is None:
+        regime = "UNKNOWN"
+    elif distance_to_entry < 5.0 and abs(price_vs_plan) <= hold_threshold:
+        regime = "PULLBACK"
+    elif current_spx_price is not None and entry_price is not None and abs(current_spx_price - entry_price) >= 10.0:
+        regime = "EXPANSION"
+    elif abs(price_vs_plan) > hold_threshold:
+        regime = "EXPANSION"
+    else:
+        regime = "PULLBACK"
+
+    if stop_valid and plan_status == "HOLDING" and regime == "PULLBACK":
+        chase_status = "WAIT"
+    elif stop_valid and plan_status in {"HOLDING", "DRIFTING"} and regime == "EXPANSION" and distance_to_entry is not None and distance_to_entry < 10.0:
+        chase_status = "ENTER NOW" if rr_ratio is not None and rr_ratio >= min_rr else "ENTER WITH CAUTION"
+    elif stop_valid and plan_status == "DRIFTING" and distance_to_entry is not None and distance_to_entry < 20.0:
+        chase_status = "ENTER WITH CAUTION"
+    elif not stop_valid or plan_status == "BROKEN":
+        chase_status = "CHASE NOT ALLOWED"
+    else:
+        chase_status = "WAIT"
+
+    if not stop_valid or plan_status == "BROKEN":
+        prediction_confidence = "LOW"
+    elif entry_drift_pct is not None and entry_drift_pct <= INTELLIGENCE_CONFIDENCE_HIGH_DRIFT_PCT and regime == "PULLBACK":
+        prediction_confidence = "HIGH"
+    elif entry_drift_pct is not None and entry_drift_pct <= INTELLIGENCE_CONFIDENCE_MEDIUM_DRIFT_PCT:
+        prediction_confidence = "MEDIUM"
+    else:
+        prediction_confidence = "LOW"
 
     if not stop_valid or rr_ratio is None:
         status = "NOT ELIGIBLE"
         quality = "Low Quality"
         downgrade_reason = "stop_unavailable"
-    elif rr_ratio < 0.5:
+    elif rr_ratio < INTELLIGENCE_MIN_RR_HARD_FLOOR:
         status = "NOT ELIGIBLE"
         quality = "Low Quality"
         downgrade_reason = "rr_below_0_5"
@@ -4782,11 +4893,19 @@ def assess_trade_intelligence(
         "min_rr": min_rr,
         "suggested_stop": suggested_stop,
         "planned_entry_mark": round_price(planned_entry_mark) if planned_entry_mark is not None else None,
+        "live_predicted_entry_mark": round_price(live_predicted_entry_mark) if live_predicted_entry_mark is not None else None,
         "current_option_mark": round_price(current_mark) if current_mark is not None else None,
         "entry_drift": round_price(entry_drift) if entry_drift is not None else None,
+        "entry_drift_abs": round_price(entry_drift_abs) if entry_drift_abs is not None else None,
+        "entry_drift_pct": round(entry_drift_pct, 4) if entry_drift_pct is not None else None,
+        "price_vs_plan": round_price(price_vs_plan) if price_vs_plan is not None else None,
         "regime": regime,
         "plan_status": plan_status,
         "chase_status": chase_status,
+        "prediction_confidence": prediction_confidence,
+        "distance_to_entry": round_price(distance_to_entry) if distance_to_entry is not None else None,
+        "hold_threshold": round_price(hold_threshold),
+        "drift_threshold": round_price(drift_threshold),
     }
 
 
@@ -4794,11 +4913,19 @@ def resolve_final_trade_status(
     signal_package: dict[str, Any] | None,
     play: dict[str, Any] | None,
     lead_option_quote: dict[str, Any] | None,
-) -> dict[str, str]:
+    *,
+    current_spx_price: float | None = None,
+    planned_anchor_key: str | None = None,
+) -> dict[str, Any]:
     """Resolve one final operator-facing status from structural and intelligence layers."""
 
     structural_status = "NOT ELIGIBLE" if signal_package is None else ("NOT ELIGIBLE" if signal_package["sit_out"]["sit_out"] else "ELIGIBLE")
-    intelligence = assess_trade_intelligence(play, lead_option_quote)
+    intelligence = assess_trade_intelligence(
+        play,
+        lead_option_quote,
+        current_spx_price=current_spx_price,
+        planned_anchor_key=planned_anchor_key,
+    )
     intelligence_status = intelligence["status"]
 
     if structural_status == "NOT ELIGIBLE" or intelligence_status == "NOT ELIGIBLE":
@@ -4808,10 +4935,25 @@ def resolve_final_trade_status(
     else:
         final_status = "ELIGIBLE"
 
+    if structural_status == "NOT ELIGIBLE" or intelligence.get("chase_status") == "CHASE NOT ALLOWED":
+        final_decision = "SKIP TRADE"
+    elif intelligence.get("chase_status") == "WAIT":
+        final_decision = "WAIT"
+    elif intelligence.get("chase_status") == "ENTER NOW" and intelligence.get("prediction_confidence") in {"HIGH", "MEDIUM"}:
+        final_decision = "ENTER NOW"
+    elif intelligence.get("chase_status") == "ENTER WITH CAUTION" or final_status == "ELIGIBLE WITH CAUTION":
+        final_decision = "ENTER WITH CAUTION"
+    elif final_status == "ELIGIBLE":
+        final_decision = "ENTER NOW"
+    else:
+        final_decision = "WAIT"
+
     return {
         "structural_status": structural_status,
         "intelligence_status": intelligence_status,
         "final_status": final_status,
+        "final_decision": final_decision,
+        "intelligence": intelligence,
     }
 
 
@@ -4829,6 +4971,7 @@ def render_play_card(
     final_status: str | None = None,
     status_breakdown: dict[str, str] | None = None,
     current_spx_price: float | None = None,
+    planned_anchor_key: str | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -4847,21 +4990,33 @@ def render_play_card(
     stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
     entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play.get("entry"), dict) else None
     stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
-    intelligence = assess_trade_intelligence(play, lead_option_quote)
+    intelligence = assess_trade_intelligence(
+        play,
+        lead_option_quote,
+        current_spx_price=current_spx_price,
+        planned_anchor_key=planned_anchor_key,
+    )
     intelligence["stop_quality"] = stop_quality["label"]
     timing = classify_entry_timing(current_spx_price, entry_price)
 
     with st.container(border=True):
         is_primary = "alternate" not in title.lower()
         visible_status = final_status or intelligence["status"]
-        action_label = final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
+        action_label = (status_breakdown or {}).get("final_decision") or final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
         decision_suppressed = action_label == "SKIP TRADE"
         trade_state = "FILTERED" if decision_suppressed else ("INVALID" if not play.get("stop") or play.get("invalid_stop") else "ACTIVE")
         quality_display = "Ignored (Decision Override)" if decision_suppressed else intelligence["quality"]
         decision_reason = get_decision_reason(action_label, st.session_state.get("current_signal_package"), play, intelligence, timing["label"])
         pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
         predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
-        predicted_entry_range = f"{predicted_entry_mark} ? 0.50" if is_live_market_session() and lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else predicted_entry_mark
+        predicted_entry_range = f"{predicted_entry_mark} +/- 0.50" if is_live_market_session() and lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else predicted_entry_mark
+        planned_entry_mark = format_price(intelligence.get("planned_entry_mark")) if intelligence.get("planned_entry_mark") is not None else "-"
+        live_predicted_mark = format_price(intelligence.get("live_predicted_entry_mark")) if intelligence.get("live_predicted_entry_mark") is not None else "-"
+        drift_text = (
+            f"{format_price(intelligence.get('entry_drift_abs'))} ({float(intelligence.get('entry_drift_pct', 0.0)) * 100:.1f}%)"
+            if intelligence.get("entry_drift_abs") is not None and intelligence.get("entry_drift_pct") is not None
+            else "-"
+        )
         mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
         expected_gain = format_price(lead_option_quote.get("expected_gain")) if lead_option_quote and lead_option_quote.get("expected_gain") is not None else "-"
         expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
@@ -4906,7 +5061,8 @@ def render_play_card(
         with mid_far:
             st.markdown(f"<div style='font-size:0.85rem;{score_style}'>Score `{escape(contract_score)}`</div>", unsafe_allow_html=True)
 
-        st.caption(f"Timing {timing['label']} • Stop {stop_quality['label']} • Regime {intelligence.get('regime', '-')} • Chase {intelligence.get('chase_status', '-')}")
+        st.caption(" • ".join([f"Planned {planned_entry_mark}", f"Live {live_predicted_mark}", f"Drift {drift_text}"]))
+        st.caption(" • ".join([f"Plan {intelligence.get('plan_status', '-')}", f"Regime {intelligence.get('regime', '-')}", f"Chase {intelligence.get('chase_status', '-')}", f"Predict {intelligence.get('prediction_confidence', '-')}", f"Timing {timing['label']}", f"Stop {stop_quality['label']}"]))
         st.markdown(
             f"<div style='font-size:0.82rem;{tertiary_style}'>Gain {escape(expected_gain)} • Loss {escape(expected_loss)}</div>",
             unsafe_allow_html=True,
@@ -4915,7 +5071,7 @@ def render_play_card(
             stop_bits = []
             stop_bits.append(f"Structural Stop {format_price(stop_price)}" if stop_price is not None else "Structural Stop -")
             stop_bits.append(f"Suggested Stop {format_price(intelligence['suggested_stop'])}" if intelligence.get("suggested_stop") is not None else "Suggested Stop -")
-            st.caption(" ? ".join(stop_bits))
+            st.caption(" • ".join(stop_bits))
         st.caption("Signal suppressed due to decision filter" if decision_suppressed else f"Reason {decision_reason}")
         if detail_bits:
             st.caption(" | ".join(detail_bits))
@@ -4926,7 +5082,7 @@ def render_play_card(
                 <div class="spx-best-contract">
                     <div class="spx-best-contract-title">Best Contract</div>
                     <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
-                    <div class="spx-best-contract-meta">Mark {mark_value} ? {pred_label} {predicted_entry_mark} ? RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} ? Score {contract_score}</div>
+                    <div class="spx-best-contract-meta">Mark {mark_value} • {pred_label} {predicted_entry_mark} • RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} • Score {contract_score}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -4947,6 +5103,7 @@ def render_play_card(
                         lead_option_quote=lead_option_quote,
                         intelligence=intelligence,
                         final_status=visible_status,
+                        final_decision=action_label,
                     )
                 )
                 st.success("Trade Log prefilled from this play.")
@@ -4969,12 +5126,23 @@ def render_play_card(
                     f"Stop quality rule: Tight < 8, Balanced < 18, Wide < 30, Very Wide >= 30"
                 )
                 st.caption(
+                    f"Planned entry mark: {format_price(intelligence.get('planned_entry_mark')) if intelligence.get('planned_entry_mark') is not None else 'Unavailable'} | "
+                    f"Live predicted entry: {format_price(intelligence.get('live_predicted_entry_mark')) if intelligence.get('live_predicted_entry_mark') is not None else 'Unavailable'} | "
+                    f"Drift abs: {format_price(intelligence.get('entry_drift_abs')) if intelligence.get('entry_drift_abs') is not None else 'Unavailable'} | "
+                    f"Drift pct: {float(intelligence.get('entry_drift_pct', 0.0)) * 100:.2f}% | "
+                    f"Price vs plan: {format_price(intelligence.get('price_vs_plan')) if intelligence.get('price_vs_plan') is not None else 'Unavailable'}"
+                )
+                st.caption(
                     f"Timing distance: {format_price(timing['distance']) if timing['distance'] is not None else 'Unavailable'} | "
                     f"Timing label: {timing['label']} | "
+                    f"Hold threshold: {format_price(intelligence.get('hold_threshold'))} | "
+                    f"Drift threshold: {format_price(intelligence.get('drift_threshold'))} | "
+                    f"Prediction confidence: {intelligence.get('prediction_confidence', '-')} | "
                     f"RR threshold: {intelligence['min_rr']:.2f} | "
                     f"Structural: {(status_breakdown or {}).get('structural_status', '-') } | "
                     f"Intelligence: {(status_breakdown or {}).get('intelligence_status', intelligence['status'])} | "
                     f"Final: {(status_breakdown or {}).get('final_status', visible_status)} | "
+                    f"Decision: {(status_breakdown or {}).get('final_decision', action_label)} | "
                     f"Downgrade reason: {intelligence['downgrade_reason']}"
                 )
 
@@ -5757,6 +5925,8 @@ def render_trade_log_tab(
                     "option_mark_at_decision": float(prefill.get("option_mark_at_decision", 0.0)),
                     "current_mark": float(prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0))),
                     "predicted_entry_price": float(prefill.get("predicted_entry_price", 0.0)),
+                    "planned_entry_mark": float(prefill.get("planned_entry_mark", prefill.get("predicted_entry_price", 0.0))),
+                    "live_predicted_entry_mark": float(prefill.get("live_predicted_entry_mark", prefill.get("predicted_entry_price", 0.0))),
                     "selected_contract_symbol": str(prefill.get("selected_contract_symbol", "")),
                     "play_type": str(prefill.get("play_type", "")),
                     "expected_gain": float(prefill.get("expected_gain", 0.0)),
@@ -5766,6 +5936,11 @@ def render_trade_log_tab(
                     "regime": str(prefill.get("regime", "")),
                     "plan_status": str(prefill.get("plan_status", "")),
                     "chase_status": str(prefill.get("chase_status", "")),
+                    "prediction_confidence": str(prefill.get("prediction_confidence", "")),
+                    "final_decision": str(prefill.get("final_decision", "")),
+                    "entry_drift_abs": float(prefill.get("entry_drift_abs", 0.0)),
+                    "entry_drift_pct": float(prefill.get("entry_drift_pct", 0.0)),
+                    "price_vs_plan": float(prefill.get("price_vs_plan", 0.0)),
                     "stop_quality": str(prefill.get("stop_quality", "")),
                     "trade_quality": str(prefill.get("trade_quality", "")),
                     "integrity_flags": list(prefill.get("integrity_flags", [])),
@@ -6702,6 +6877,8 @@ def render_live_mode_shell(
         alternate_play_es = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines_es) if signal_package else None
         primary_play_spx = align_play_conversion_to_effective_offset(primary_play_spx_raw, primary_play_es, effective_offset) if primary_play_spx_raw else None
         alternate_play_spx = align_play_conversion_to_effective_offset(alternate_play_spx_raw, alternate_play_es, effective_offset) if alternate_play_spx_raw else None
+        primary_planned_anchor_key = build_planned_anchor_key("primary", signal_package, primary_play_spx, inputs.get("next_trading_date"))
+        alternate_planned_anchor_key = build_planned_anchor_key("alternate", signal_package, alternate_play_spx, inputs.get("next_trading_date"))
         option_sections: list[dict[str, Any]] = []
         for section_title, play_spx, play_es in [
             ("Primary Contracts", primary_play_spx, primary_play_es),
@@ -6752,7 +6929,13 @@ def render_live_mode_shell(
         }
         primary_lead_option = lead_option_map.get("Primary Contracts")
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
-        final_status_breakdown = resolve_final_trade_status(signal_package, primary_play_spx, primary_lead_option)
+        final_status_breakdown = resolve_final_trade_status(
+            signal_package,
+            primary_play_spx,
+            primary_lead_option,
+            current_spx_price=inputs["current_spx_price"],
+            planned_anchor_key=primary_planned_anchor_key,
+        )
         final_status = final_status_breakdown["final_status"]
         render_tab1_hero(
             signal_package,
@@ -6760,11 +6943,13 @@ def render_live_mode_shell(
             inputs["current_es_price"],
             effective_offset,
             final_status=final_status if signal_package is not None else None,
+            final_decision=final_status_breakdown.get("final_decision"),
             primary_play=primary_play_spx,
             lead_option_quote=primary_lead_option,
+            intelligence_summary=final_status_breakdown.get("intelligence"),
         )
         if signal_package is not None:
-            render_trade_decision_summary(signal_package, final_projected_lines, final_status=final_status)
+            render_trade_decision_summary(signal_package, final_projected_lines, final_status=final_status, final_decision=final_status_breakdown.get("final_decision"))
         else:
             st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
@@ -6807,9 +6992,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"])
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"])
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
