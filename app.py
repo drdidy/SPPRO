@@ -1327,6 +1327,29 @@ def render_key_levels_card(
     """Render a compact key-levels summary card."""
 
     current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
+    subtitle = "Projected ES stack." if compact else "Fast scan of the full projected stack in ES source terms."
+    with st.container(border=True):
+        st.markdown("**Key Levels Summary**")
+        st.caption(subtitle)
+        if compact:
+            stat_col1 = st.columns(1)[0]
+            stat_col1.metric("Current Price (ES)", current_label)
+        else:
+            stat_col1, stat_col2 = st.columns(2)
+            stat_col1.metric("Current Price (ES)", current_label)
+            stat_col2.metric("ES-SPX Offset", format_price(effective_offset))
+
+        level_rows = pd.DataFrame(
+            [
+                {
+                    "Level": f"{final_lines[name]['label']} (ES)",
+                    "Value": format_price(final_lines[name]["projected_price"]),
+                }
+                for name in LINE_DISPLAY_ORDER
+            ]
+        )
+        st.dataframe(level_rows, use_container_width=True, hide_index=True)
+    return
     offset_stat_html = (
         ""
         if compact
