@@ -315,7 +315,9 @@ def normalize_settings_record(raw_settings: dict[str, Any] | None) -> dict[str, 
         merged["preferred_checkpoint"] = DEFAULT_SETTINGS["preferred_checkpoint"]
     if merged.get("data_mode") not in ["Auto-fetch", "Manual input"]:
         merged["data_mode"] = DEFAULT_SETTINGS["data_mode"]
-    if merged.get("visibility_mode") not in ["Production Mode", "Developer Mode"]:
+    if merged.get("visibility_mode") == "Developer Mode":
+        merged["visibility_mode"] = "Edge Lab"
+    if merged.get("visibility_mode") not in ["Production Mode", "Edge Lab"]:
         merged["visibility_mode"] = DEFAULT_SETTINGS["visibility_mode"]
     if merged.get("manual_price_space") not in ["SPX", "ES"]:
         merged["manual_price_space"] = DEFAULT_SETTINGS["manual_price_space"]
@@ -2021,6 +2023,8 @@ def render_tab1_hero(
     lead_option_quote: dict[str, Any] | None = None,
     intelligence_summary: dict[str, Any] | None = None,
     adaptive_overlay: dict[str, Any] | None = None,
+    hero_authority: dict[str, Any] | None = None,
+    active_play_label: str = "None",
 ) -> None:
     """Render the compact live decision center."""
 
@@ -2058,9 +2062,17 @@ def render_tab1_hero(
         hero_entry_value = primary_play["entry"]["price"]
     entry_spx = format_price(hero_entry_value) if hero_entry_value is not None else "-"
     strike_value = str(primary_play["strike"]) if primary_play and primary_play.get("strike") is not None else "-"
+    authority = hero_authority or {}
+    authority_decision = authority.get("decision", "NO TRADE")
+    authority_confidence = authority.get("confidence_score", 0)
+    authority_ev = authority.get("expected_value")
+    authority_risk = authority.get("risk_class", "HIGH")
+    authority_reason = authority.get("reason_line", decision_reason)
+    action_label = authority_decision
     adaptive_label = (adaptive_overlay or {}).get("adaptive_recommendation", "NO_ADAPTATION")
-    adaptive_evidence = (adaptive_overlay or {}).get("adaptive_evidence_level", "None")
-    adaptive_reason = (adaptive_overlay or {}).get("adaptive_reason", "No adaptive overlay")
+    adaptive_evidence = authority.get("evidence_level", (adaptive_overlay or {}).get("adaptive_evidence_level", "None"))
+    adaptive_reason = authority_reason
+    ev_display = format_price(authority_ev) if authority_ev is not None else "Insufficient"
 
     st.markdown(
         f"""
@@ -2071,14 +2083,12 @@ def render_tab1_hero(
                     <div class="spx-decision-action">{escape(action_label)}</div>
                     <div class="spx-decision-meta">
                         <span class="spx-pill scenario-neutral">{escape(scenario_name)}</span>
-                        <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
-                        <span class="spx-pill scenario-neutral">Quality {escape(quality_label)}</span>
-                        <span class="spx-pill scenario-neutral">Timing {escape(timing_label)}</span>
-                        <span class="spx-pill scenario-neutral">Adaptive {escape(adaptive_label)}</span>
+                        <span class="spx-pill conf-{confidence_tone}">Confidence {int(authority_confidence)}%</span>
+                        <span class="spx-pill scenario-neutral">Risk {escape(authority_risk)}</span>
+                        <span class="spx-pill scenario-neutral">Active {escape(active_play_label)}</span>
                         <span class="spx-pill scenario-neutral">Evidence {escape(adaptive_evidence)}</span>
                     </div>
-                    <div class="spx-hero-subtitle">Reason: {escape(decision_reason)}</div>
-                    <div class="spx-hero-subtitle">Adaptive: {escape(adaptive_reason)}</div>
+                    <div class="spx-hero-subtitle">Reason: {escape(authority_reason)}</div>
                 </div>
                 <div class="spx-hero-status">
                     <div class="spx-hero-status-label">Current Price (ES)</div>
@@ -2098,6 +2108,10 @@ def render_tab1_hero(
                 <div class="spx-decision-strip">
                     <div class="spx-decision-strip-label">Current ES</div>
                     <div class="spx-decision-strip-value">{current_display}</div>
+                </div>
+                <div class="spx-decision-strip">
+                    <div class="spx-decision-strip-label">Expected Value</div>
+                    <div class="spx-decision-strip-value">{ev_display}</div>
                 </div>
                 <div class="spx-decision-strip">
                     <div class="spx-decision-strip-label">Offset</div>
@@ -3113,6 +3127,18 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "chase_status": str(raw_trade.get("chase_status", "")),
         "prediction_confidence": str(raw_trade.get("prediction_confidence", "")),
         "final_decision": str(raw_trade.get("final_decision", "")),
+        "final_authority_decision": str(raw_trade.get("final_authority_decision", raw_trade.get("final_decision", ""))),
+        "final_authority_confidence": round(float(raw_trade.get("final_authority_confidence", 0.0)), 2),
+        "final_authority_expected_value": round_price(float(raw_trade.get("final_authority_expected_value", 0.0))),
+        "final_authority_risk_class": str(raw_trade.get("final_authority_risk_class", "")),
+        "final_authority_reason": str(raw_trade.get("final_authority_reason", "")),
+        "final_authority_top_reasons": list(raw_trade.get("final_authority_top_reasons", [])) if isinstance(raw_trade.get("final_authority_top_reasons", []), list) else [],
+        "expected_return_20": round_price(float(raw_trade.get("expected_return_20", 0.0))),
+        "expected_return_50": round_price(float(raw_trade.get("expected_return_50", 0.0))),
+        "expected_return_100": round_price(float(raw_trade.get("expected_return_100", 0.0))),
+        "decision_state_at_action": str(raw_trade.get("decision_state_at_action", raw_trade.get("final_authority_decision", raw_trade.get("final_decision", "")))),
+        "override_flag": bool(raw_trade.get("override_flag", False)),
+        "override_reason": str(raw_trade.get("override_reason", "")),
         "entry_drift_abs": round_price(float(raw_trade.get("entry_drift_abs", 0.0))),
         "entry_drift_pct": round(float(raw_trade.get("entry_drift_pct", 0.0)), 4),
         "price_vs_plan": round_price(float(raw_trade.get("price_vs_plan", 0.0))),
@@ -3352,6 +3378,18 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "chase_status": "",
         "prediction_confidence": "",
         "final_decision": "",
+        "final_authority_decision": "",
+        "final_authority_confidence": 0.0,
+        "final_authority_expected_value": 0.0,
+        "final_authority_risk_class": "",
+        "final_authority_reason": "",
+        "final_authority_top_reasons": [],
+        "expected_return_20": 0.0,
+        "expected_return_50": 0.0,
+        "expected_return_100": 0.0,
+        "decision_state_at_action": "",
+        "override_flag": False,
+        "override_reason": "",
         "entry_drift_abs": 0.0,
         "entry_drift_pct": 0.0,
         "price_vs_plan": 0.0,
@@ -3437,6 +3475,9 @@ def build_live_play_trade_prefill(
     intelligence: dict[str, Any],
     final_status: str,
     final_decision: str | None = None,
+    authority: dict[str, Any] | None = None,
+    override_flag: bool = False,
+    override_reason: str = "",
 ) -> dict[str, Any]:
     """Build a trade-log prefill from the exact visible live play snapshot."""
 
@@ -3514,6 +3555,18 @@ def build_live_play_trade_prefill(
         "chase_status": str(intelligence.get("chase_status", "")),
         "prediction_confidence": str(intelligence.get("prediction_confidence", "")),
         "final_decision": str(final_decision or final_status_to_action(final_status, signal_package)),
+        "final_authority_decision": str((authority or {}).get("decision", "")),
+        "final_authority_confidence": float((authority or {}).get("confidence_score", 0.0) or 0.0),
+        "final_authority_expected_value": float((authority or {}).get("expected_value", 0.0) or 0.0),
+        "final_authority_risk_class": str((authority or {}).get("risk_class", "")),
+        "final_authority_reason": str((authority or {}).get("reason_line", "")),
+        "final_authority_top_reasons": list((authority or {}).get("top_reasons", [])),
+        "expected_return_20": float((authority or {}).get("expected_return_20", 0.0) or 0.0),
+        "expected_return_50": float((authority or {}).get("expected_return_50", 0.0) or 0.0),
+        "expected_return_100": float((authority or {}).get("expected_return_100", 0.0) or 0.0),
+        "decision_state_at_action": str((authority or {}).get("decision_state", final_decision or final_status)),
+        "override_flag": bool(override_flag),
+        "override_reason": str(override_reason or ""),
         "entry_drift_abs": float(intelligence.get("entry_drift_abs") or 0.0),
         "entry_drift_pct": float(intelligence.get("entry_drift_pct") or 0.0),
         "price_vs_plan": float(intelligence.get("price_vs_plan") or 0.0),
@@ -4327,6 +4380,349 @@ def resolve_adaptive_overlay(
         "adaptive_edge_gain_estimate": edge_metrics["adaptive_edge_gain_estimate"],
         "adaptive_risk_reduction_estimate": edge_metrics["adaptive_risk_reduction_estimate"],
     }
+
+
+def get_decision_authority_rank(decision: str) -> int:
+    """Rank authority decisions for hero selection."""
+
+    mapping = {
+        "STRONG BUY": 3,
+        "CONDITIONAL BUY": 2,
+        "NO TRADE": 1,
+    }
+    return mapping.get(str(decision or "").upper(), 0)
+
+
+def get_history_expectancy_snapshot(
+    trades: list[dict[str, Any]],
+    *,
+    scenario_name: str,
+    play_role: str,
+    direction: str,
+    min_samples: int = 5,
+) -> dict[str, Any]:
+    """Resolve a deterministic expectancy cohort using historical journal outcomes only."""
+
+    if not trades:
+        return {
+            "expected_value": None,
+            "sample_count": 0,
+            "source": "insufficient",
+            "evidence": "None",
+            "expected_return_20": None,
+            "expected_return_50": None,
+            "expected_return_100": None,
+        }
+
+    enriched = pd.DataFrame([normalize_trade_record(trade) for trade in trades])
+    if enriched.empty or "effective_pnl" not in enriched.columns:
+        return {
+            "expected_value": None,
+            "sample_count": 0,
+            "source": "insufficient",
+            "evidence": "None",
+            "expected_return_20": None,
+            "expected_return_50": None,
+            "expected_return_100": None,
+        }
+
+    candidates = [
+        (enriched.loc[(enriched["scenario_name"] == scenario_name) & (enriched["play_role"] == play_role)], "scenario / play"),
+        (enriched.loc[(enriched["scenario_name"] == scenario_name) & (enriched["direction"] == direction)], "scenario / direction"),
+        (enriched.loc[enriched["direction"] == direction], "direction"),
+        (enriched, "overall"),
+    ]
+    for subset, label in candidates:
+        if len(subset) >= min_samples:
+            expected_value = round_price(float(pd.to_numeric(subset["effective_pnl"], errors="coerce").dropna().mean()))
+            sample_count = int(len(subset))
+            return {
+                "expected_value": expected_value,
+                "sample_count": sample_count,
+                "source": label,
+                "evidence": "Strong" if sample_count >= 15 else "Moderate",
+                "expected_return_20": round_price(expected_value * 20.0),
+                "expected_return_50": round_price(expected_value * 50.0),
+                "expected_return_100": round_price(expected_value * 100.0),
+            }
+
+    return {
+        "expected_value": None,
+        "sample_count": int(len(enriched)),
+        "source": "insufficient",
+        "evidence": "Weak" if len(enriched) > 0 else "None",
+        "expected_return_20": None,
+        "expected_return_50": None,
+        "expected_return_100": None,
+    }
+
+
+def build_authority_reason_candidates(
+    *,
+    structure_valid: bool,
+    stop_valid: bool,
+    rr_ratio: float | None,
+    plan_status: str,
+    chase_status: str,
+    entry_zone_status: str,
+    move_completion_pct: float | None,
+    prediction_confidence: str,
+    calibration_evidence: str,
+) -> list[str]:
+    """Build ranked human-readable reasons behind the authority decision."""
+
+    reasons: list[str] = []
+    reasons.append("Structure valid" if structure_valid else "Structure invalid")
+    reasons.append("Valid structural stop" if stop_valid else "No valid structural stop")
+    if rr_ratio is None:
+        reasons.append("RR unavailable")
+    elif rr_ratio >= 1.0:
+        reasons.append(f"RR {rr_ratio:.2f} acceptable")
+    else:
+        reasons.append(f"RR {rr_ratio:.2f} below threshold")
+    if plan_status == "HOLDING":
+        reasons.append("Plan still holding")
+    elif plan_status == "DRIFTING":
+        reasons.append("Plan drifting from anchor")
+    elif plan_status == "BROKEN":
+        reasons.append("Plan broken")
+    if chase_status == "CHASE NOT ALLOWED":
+        reasons.append("Chase penalty active")
+    elif chase_status == "WAIT":
+        reasons.append("Wait condition still active")
+    elif chase_status == "ENTER WITH CAUTION":
+        reasons.append("Entry requires caution")
+    elif chase_status == "ENTER NOW":
+        reasons.append("Execution path open")
+    if entry_zone_status == "IN ZONE":
+        reasons.append("Entry still in zone")
+    elif entry_zone_status == "APPROACHING":
+        reasons.append("Price near planned zone")
+    elif entry_zone_status == "MISSED":
+        reasons.append("Move already extended")
+    if move_completion_pct is not None:
+        reasons.append(f"Move {round_price(move_completion_pct)}% complete")
+    if prediction_confidence:
+        reasons.append(f"{prediction_confidence.title()} prediction confidence")
+    if calibration_evidence and calibration_evidence != "No Evidence":
+        reasons.append(f"{calibration_evidence} calibration evidence")
+    return reasons
+
+
+def build_play_decision_authority(
+    *,
+    signal_package: dict[str, Any] | None,
+    play: dict[str, Any] | None,
+    lead_option_quote: dict[str, Any] | None,
+    intelligence: dict[str, Any],
+    calibration_preview: dict[str, Any] | None,
+    adaptive_overlay: dict[str, Any] | None,
+    play_role: str,
+    trades: list[dict[str, Any]],
+    raw_final_decision: str,
+) -> dict[str, Any]:
+    """Build one authoritative operator decision without changing strategy logic."""
+
+    if play is None:
+        return {
+            "decision": "NO TRADE",
+            "confidence_score": 0,
+            "expected_value": None,
+            "risk_class": "HIGH",
+            "reason_line": "No active setup",
+            "top_reasons": ["No active setup"],
+            "condition_required": "",
+            "structure_valid": False,
+            "stop_valid": False,
+            "use_allowed": False,
+            "override_required": True,
+            "decision_state": "NO TRADE",
+            "evidence_level": "None",
+            "expected_return_20": None,
+            "expected_return_50": None,
+            "expected_return_100": None,
+            "factor_states": [],
+            "raw_final_decision": raw_final_decision,
+        }
+
+    structure_valid = bool(play.get("setup_tradable")) and not bool(signal_package and signal_package.get("sit_out", {}).get("sit_out"))
+    stop_valid = not bool(play.get("stop_unavailable") or play.get("invalid_stop"))
+    rr_ratio = _to_float_or_none(intelligence.get("rr_ratio"))
+    move_completion_pct = _to_float_or_none(intelligence.get("move_completion_pct"))
+    calibration_evidence = str((calibration_preview or {}).get("evidence_label", "No Evidence"))
+    adaptive_evidence = str((adaptive_overlay or {}).get("adaptive_evidence_level", "None"))
+    effective_confidence_label = str((adaptive_overlay or {}).get("effective_prediction_confidence", intelligence.get("prediction_confidence", "LOW")))
+
+    confidence_score = 50
+    if structure_valid:
+        confidence_score += 14
+    else:
+        confidence_score -= 22
+    if stop_valid:
+        confidence_score += 12
+    else:
+        confidence_score -= 28
+    if rr_ratio is not None:
+        if rr_ratio >= 1.4:
+            confidence_score += 14
+        elif rr_ratio >= 1.0:
+            confidence_score += 8
+        elif rr_ratio >= 0.5:
+            confidence_score -= 10
+        else:
+            confidence_score -= 22
+    if intelligence.get("plan_status") == "HOLDING":
+        confidence_score += 10
+    elif intelligence.get("plan_status") == "DRIFTING":
+        confidence_score -= 6
+    elif intelligence.get("plan_status") == "BROKEN":
+        confidence_score -= 16
+    if intelligence.get("entry_zone_status") == "IN ZONE":
+        confidence_score += 10
+    elif intelligence.get("entry_zone_status") == "APPROACHING":
+        confidence_score += 5
+    elif intelligence.get("entry_zone_status") == "MISSED":
+        confidence_score -= 16
+    elif intelligence.get("entry_zone_status") == "NOT REACHED":
+        confidence_score -= 6
+    if intelligence.get("chase_status") == "ENTER NOW":
+        confidence_score += 8
+    elif intelligence.get("chase_status") == "ENTER WITH CAUTION":
+        confidence_score += 3
+    elif intelligence.get("chase_status") == "WAIT":
+        confidence_score -= 4
+    elif intelligence.get("chase_status") == "CHASE NOT ALLOWED":
+        confidence_score -= 18
+    confidence_score += {"HIGH": 8, "MEDIUM": 3, "LOW": -8}.get(effective_confidence_label.upper(), 0)
+    confidence_score += {"Strong": 6, "Moderate": 3, "Weak": 0, "None": 0}.get(calibration_evidence, 0)
+    confidence_score = int(max(0, min(100, confidence_score)))
+
+    risk_score = 0
+    if not stop_valid:
+        risk_score += 3
+    if rr_ratio is None or rr_ratio < 1.0:
+        risk_score += 2
+    if intelligence.get("chase_status") in {"ENTER WITH CAUTION", "CHASE NOT ALLOWED"}:
+        risk_score += 1
+    if intelligence.get("plan_status") in {"DRIFTING", "BROKEN"}:
+        risk_score += 1
+    if move_completion_pct is not None and move_completion_pct >= 70:
+        risk_score += 1
+    if intelligence.get("stop_quality") in {"Tight", "Balanced"} and rr_ratio is not None and rr_ratio >= 1.0:
+        risk_score -= 1
+    risk_class = "LOW" if risk_score <= 0 else "MEDIUM" if risk_score <= 2 else "HIGH"
+
+    expectancy_snapshot = get_history_expectancy_snapshot(
+        trades,
+        scenario_name=str(signal_package.get("scenario", {}).get("scenario_name", "")) if signal_package else "",
+        play_role=play_role,
+        direction=str(play.get("direction", "")),
+    )
+    expected_value = expectancy_snapshot["expected_value"]
+
+    if not structure_valid or not stop_valid or raw_final_decision == "SKIP TRADE":
+        decision = "NO TRADE"
+        condition_required = ""
+    elif raw_final_decision == "WAIT" or intelligence.get("chase_status") == "WAIT":
+        decision = "CONDITIONAL BUY"
+        condition_required = "Wait for price to return toward the planned zone"
+    elif rr_ratio is None or rr_ratio < 1.0 or intelligence.get("plan_status") == "DRIFTING" or intelligence.get("entry_zone_status") not in {"IN ZONE", "APPROACHING"} or (move_completion_pct is not None and move_completion_pct >= 70):
+        decision = "CONDITIONAL BUY"
+        if not stop_valid:
+            condition_required = "Valid stop required"
+        elif intelligence.get("entry_zone_status") not in {"IN ZONE", "APPROACHING"}:
+            condition_required = "Price must return closer to the planned zone"
+        elif move_completion_pct is not None and move_completion_pct >= 70:
+            condition_required = "Entry only if extension cools off"
+        else:
+            condition_required = "Enter only if price improves toward plan"
+    else:
+        decision = "STRONG BUY"
+        condition_required = ""
+
+    reasons = build_authority_reason_candidates(
+        structure_valid=structure_valid,
+        stop_valid=stop_valid,
+        rr_ratio=rr_ratio,
+        plan_status=str(intelligence.get("plan_status", "")),
+        chase_status=str(intelligence.get("chase_status", "")),
+        entry_zone_status=str(intelligence.get("entry_zone_status", "")),
+        move_completion_pct=move_completion_pct,
+        prediction_confidence=effective_confidence_label,
+        calibration_evidence=calibration_evidence if calibration_evidence != "No Evidence" else adaptive_evidence,
+    )
+    top_reasons = reasons[:3]
+
+    if decision == "STRONG BUY":
+        reason_line = "Structure valid, entry still near planned zone, RR acceptable, no chase penalty"
+    elif decision == "CONDITIONAL BUY":
+        reason_line = condition_required or "Setup valid but move partially extended"
+    elif not stop_valid:
+        reason_line = "No valid structural stop"
+    elif rr_ratio is not None and rr_ratio < 1.0:
+        reason_line = "Poor reward-to-risk at current price"
+    else:
+        reason_line = "Structure or timing does not justify a trade"
+
+    factor_states = [
+        {"label": "Structure", "state": "GOOD" if structure_valid else "BAD"},
+        {"label": "Stop", "state": "GOOD" if stop_valid else "BAD"},
+        {"label": "RR", "state": "GOOD" if rr_ratio is not None and rr_ratio >= 1.0 else "BAD" if rr_ratio is not None else "WARN"},
+        {"label": "Timing", "state": "GOOD" if str(intelligence.get("entry_zone_status")) == "IN ZONE" else "WARN" if str(intelligence.get("entry_zone_status")) == "APPROACHING" else "BAD"},
+        {"label": "Confidence", "state": "GOOD" if effective_confidence_label == "HIGH" else "WARN" if effective_confidence_label == "MEDIUM" else "BAD"},
+        {"label": "Evidence", "state": "GOOD" if calibration_evidence == "Strong" else "WARN" if calibration_evidence in {"Moderate", "Limited Evidence"} else "BAD"},
+    ]
+
+    return {
+        "decision": decision,
+        "confidence_score": confidence_score,
+        "expected_value": expected_value,
+        "risk_class": risk_class,
+        "reason_line": reason_line,
+        "top_reasons": top_reasons,
+        "condition_required": condition_required,
+        "structure_valid": structure_valid,
+        "stop_valid": stop_valid,
+        "use_allowed": decision != "NO TRADE",
+        "override_required": decision == "NO TRADE",
+        "decision_state": decision,
+        "evidence_level": calibration_evidence if calibration_evidence != "No Evidence" else adaptive_evidence,
+        "expected_return_20": expectancy_snapshot["expected_return_20"],
+        "expected_return_50": expectancy_snapshot["expected_return_50"],
+        "expected_return_100": expectancy_snapshot["expected_return_100"],
+        "expected_value_source": expectancy_snapshot["source"],
+        "expected_value_samples": expectancy_snapshot["sample_count"],
+        "factor_states": factor_states,
+        "raw_final_decision": raw_final_decision,
+    }
+
+
+def choose_hero_authority(primary: dict[str, Any] | None, alternate: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None]:
+    """Choose the dominant operator action between primary and alternate."""
+
+    candidates = [("Primary", primary), ("Alternate", alternate)]
+    usable = [(label, item) for label, item in candidates if item]
+    if not usable:
+        return "None", None
+
+    ordered = sorted(
+        usable,
+        key=lambda item: (
+            get_decision_authority_rank(item[1]["decision"]),
+            int(item[1].get("confidence_score", 0)),
+            float(item[1].get("expected_value") or -9999.0),
+            1 if item[0] == "Primary" else 0,
+        ),
+        reverse=True,
+    )
+    best_label, best_item = ordered[0]
+    if all(item[1]["decision"] == "NO TRADE" for item in usable):
+        return "None", {
+            **best_item,
+            "decision": "NO TRADE",
+            "reason_line": "Both plays fail the operator decision filter",
+        }
+    return best_label, best_item
 
 
 def build_outcome_review_dataframe(trades: list[dict[str, Any]], *, developer_mode: bool = False) -> pd.DataFrame:
@@ -5673,7 +6069,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     with st.sidebar:
         st.header(APP_TITLE)
         operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
-        visibility_options = ["Production Mode", "Developer Mode"]
+        visibility_options = ["Production Mode", "Edge Lab"]
         visibility_mode = st.radio(
             "Visibility",
             visibility_options,
@@ -5752,7 +6148,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 session_lock_options,
                 index=safe_option_index(session_lock_options, settings.get("session_plan_lock_cutoff", DEFAULT_SETTINGS["session_plan_lock_cutoff"])),
             )
-            if visibility_mode == "Developer Mode":
+            if visibility_mode == "Edge Lab":
                 options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
                 options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
             else:
@@ -5782,7 +6178,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             use_desc_floor_override = st.checkbox("Override DESC Floor")
             desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
 
-        if not historical_mode and visibility_mode == "Developer Mode":
+        if not historical_mode and visibility_mode == "Edge Lab":
             with st.expander("Diagnostics", expanded=False):
                 st.write("Current SPX fetch")
                 st.code(
@@ -5815,7 +6211,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "next_trading_date": next_trading_date,
         "data_mode": data_mode,
         "visibility_mode": visibility_mode,
-        "developer_mode": visibility_mode == "Developer Mode",
+        "developer_mode": visibility_mode == "Edge Lab",
         "current_spx_price": current_spx_price,
         "current_es_price": current_es_price,
         "open_reference": open_reference,
@@ -6089,25 +6485,29 @@ def render_trade_decision_summary(
     final_status: str,
     final_decision: str | None = None,
     intelligence_summary: dict[str, Any] | None = None,
+    authority: dict[str, Any] | None = None,
+    active_play_label: str = "Primary",
 ) -> None:
     """Render the fastest single-line operator summary."""
 
     scenario = signal_package["scenario"]
     primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
-    action_label = final_decision or final_status_to_action(final_status, signal_package)
+    action_label = (authority or {}).get("decision") or final_decision or final_status_to_action(final_status, signal_package)
     primary_direction = primary_play["direction"] if primary_play else "-"
     summary_entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
     if summary_entry_value is None and primary_play:
         summary_entry_value = primary_play["entry"]["price"]
     entry_value = format_price(summary_entry_value) if summary_entry_value is not None else "-"
     strike = str(primary_play["strike"]) if primary_play else "-"
+    ev_display = format_price((authority or {}).get("expected_value")) if (authority or {}).get("expected_value") is not None else "Insufficient"
+    confidence_display = f"{int((authority or {}).get('confidence_score', 0))}%"
 
     st.markdown(
         f"""
         <div class="spx-summary">
             <div class="spx-summary-title">Trade Summary</div>
             <div class="spx-summary-body">
-                {action_label} | {primary_direction} | Entry {entry_value} SPX | Strike {strike}
+                {action_label} | {active_play_label} | {primary_direction} | Entry {entry_value} SPX | Strike {strike} | Confidence {confidence_display} | EV {ev_display}
             </div>
         </div>
         """,
@@ -6438,6 +6838,7 @@ def render_play_card(
     session_plan: dict[str, Any] | None = None,
     calibration_preview: dict[str, Any] | None = None,
     adaptive_overlay: dict[str, Any] | None = None,
+    authority: dict[str, Any] | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -6516,6 +6917,25 @@ def render_play_card(
     adaptive_evidence = str((adaptive_overlay or {}).get("adaptive_evidence_level", "None"))
     adaptive_reason = str((adaptive_overlay or {}).get("adaptive_reason", "No adaptive overlay"))
     effective_confidence = str((adaptive_overlay or {}).get("effective_prediction_confidence", intelligence.get("prediction_confidence", "-")))
+    authority = authority or {}
+    authority_decision = str(authority.get("decision", "NO TRADE"))
+    authority_confidence = int(authority.get("confidence_score", 0) or 0)
+    authority_expected_value = authority.get("expected_value")
+    authority_risk_class = str(authority.get("risk_class", "HIGH"))
+    authority_reason = str(authority.get("reason_line", decision_reason))
+    authority_top_reasons = list(authority.get("top_reasons", []))
+    authority_condition = str(authority.get("condition_required", ""))
+    use_allowed = bool(authority.get("use_allowed", False))
+    override_required = bool(authority.get("override_required", False))
+    expected_return_20 = authority.get("expected_return_20")
+    expected_return_50 = authority.get("expected_return_50")
+    expected_return_100 = authority.get("expected_return_100")
+    decision_class = {"STRONG BUY": "enter", "CONDITIONAL BUY": "caution", "NO TRADE": "skip"}.get(authority_decision, "wait")
+    ev_display = format_price(authority_expected_value) if authority_expected_value is not None else "Insufficient"
+    top_reason_html = "".join(
+        f'<span class="spx-chip scenario-neutral">{escape(reason)}</span>'
+        for reason in authority_top_reasons[:3]
+    )
     locked_entry_value = format_price(intelligence.get("locked_entry_spx")) if intelligence.get("locked_entry_spx") is not None else format_price(play["entry"]["price"])
     drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
     drift_text = (
@@ -6553,7 +6973,7 @@ def render_play_card(
             <span>Signal suppressed due to decision filter</span>
         </div>
         """
-        if decision_suppressed
+        if authority_decision == "NO TRADE"
         else ""
     )
     best_contract_html = ""
@@ -6568,50 +6988,68 @@ def render_play_card(
 
     st.markdown(
         f"""
-        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}">
+        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if authority_decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{title_class}">{escape(title)}</div>
                 <div class="spx-play-topline-note">{escape(trade_state)} | {escape(play['direction'])} | Strike {escape(str(play['strike']))}</div>
             </div>
-            <div class="spx-decision-banner {action_class}">
+            <div class="spx-decision-banner {decision_class}">
                 <div>
-                    <div class="spx-decision-main">{escape(action_label)}</div>
-                    <div class="spx-decision-sub">{escape(decision_reason)}</div>
+                    <div class="spx-decision-main">{escape(authority_decision)}</div>
+                    <div class="spx-decision-sub">{escape(authority_reason)}</div>
                 </div>
                 <div class="spx-play-context">
-                    <div class="spx-play-context-label">Current SPX</div>
-                    <div class="spx-play-context-value">{current_spx_display}</div>
+                    <div class="spx-play-context-label">Confidence</div>
+                    <div class="spx-play-context-value">{authority_confidence}%</div>
                 </div>
             </div>
             <div class="spx-entry-grid">
                 <div class="spx-entry-card">
-                    <div class="spx-entry-card-label">{escape(lock_label)}</div>
+                    <div class="spx-entry-card-label">Planned Entry</div>
                     <div class="spx-entry-card-value">{locked_entry_value} SPX</div>
                     <div class="spx-entry-card-note">ES {format_price(entry_es_value) if entry_es_value is not None else '-'}</div>
                 </div>
                 <div class="spx-entry-card">
                     <div class="spx-entry-card-label">Current Mark</div>
                     <div class="spx-entry-card-value">{mark_value}</div>
-                    <div class="spx-entry-card-note">Planned Mark {planned_entry_mark}</div>
+                    <div class="spx-entry-card-note">Strike {escape(str(play['strike']))}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid secondary">
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Predicted</div>
+                    <div class="spx-metric-value">{live_predicted_mark}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Calibrated</div>
+                    <div class="spx-metric-value">{calibrated_entry_mark}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Expected Fill</div>
+                    <div class="spx-metric-value">{expected_fill_mark}</div>
+                </div>
+                <div class="spx-metric-block layer2">
+                    <div class="spx-metric-label">Evidence</div>
+                    <div class="spx-metric-value">{escape(calibration_evidence)}</div>
                 </div>
             </div>
             <div class="spx-plan-box">
                 <div class="spx-plan-header">
-                    <div class="spx-plan-title">Plan Integrity</div>
-                    <div class="spx-plan-metric">{f'{drift_pct_value:.1f}%' if drift_pct_value is not None else '-'}{'' if intelligence.get('entry_drift_abs') is None else f' | {format_price(intelligence.get("entry_drift_abs"))}'}</div>
+                    <div class="spx-plan-title">Decision Stack</div>
+                    <div class="spx-plan-metric">EV {ev_display} | Risk {escape(authority_risk_class)}</div>
                 </div>
-                <div class="spx-drift-track"><div class="spx-drift-fill {drift_fill_class}" style="width:{drift_fill_pct:.1f}%"></div></div>
+                <div class="spx-badge-row">{top_reason_html}</div>
                 <div class="spx-entry-compare">
                     <div class="spx-entry-compare-block">
-                    <div class="spx-entry-compare-label">Planned Entry Mark</div>
-                    <div class="spx-entry-compare-value planned">{planned_entry_mark}</div>
-                </div>
-                <div class="spx-entry-compare-block">
-                    <div class="spx-entry-compare-label">{escape(pred_label)}</div>
-                    <div class="spx-entry-compare-value live">{live_predicted_mark}</div>
+                        <div class="spx-entry-compare-label">Plan</div>
+                        <div class="spx-entry-compare-value planned">{escape(str(intelligence.get('plan_status', '-')))}</div>
+                    </div>
+                    <div class="spx-entry-compare-block">
+                        <div class="spx-entry-compare-label">Regime</div>
+                        <div class="spx-entry-compare-value live">{escape(str(intelligence.get('regime', '-')))}</div>
+                    </div>
                 </div>
             </div>
-        </div>
         <div class="spx-badge-row">
             <span class="spx-chip {_chip_class(intelligence.get('plan_status', '-'), 'plan')}">{escape(str(intelligence.get('plan_status', '-')))}</span>
             <span class="spx-chip {_chip_class(intelligence.get('regime', '-'), 'regime')}" title="{escape(regime_tooltip)}">{escape(str(intelligence.get('regime', '-')))}</span>
@@ -6634,7 +7072,7 @@ def render_play_card(
                     <div class="spx-metric-label">Mark</div>
                     <div class="spx-metric-value">{mark_value}</div>
                 </div>
-                <div class="spx-metric-block layer1{' muted' if decision_suppressed else ''}">
+                <div class="spx-metric-block layer1{' muted' if authority_decision == 'NO TRADE' else ''}">
                     <div class="spx-metric-label">RR</div>
                     <div class="spx-metric-value">{escape(rr_value if intelligence.get('rr_ratio') is not None else '-')}</div>
                 </div>
@@ -6645,27 +7083,33 @@ def render_play_card(
                     <div class="spx-metric-value">{stop_display}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Predicted</div>
-                    <div class="spx-metric-value">{live_predicted_mark}</div>
+                    <div class="spx-metric-label">Quality</div>
+                    <div class="spx-metric-value">{escape(quality_display)}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Calibrated</div>
-                    <div class="spx-metric-value">{calibrated_entry_mark}</div>
+                    <div class="spx-metric-label">Risk</div>
+                    <div class="spx-metric-value">{escape(authority_risk_class)}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Expected Fill</div>
-                    <div class="spx-metric-value">{expected_fill_mark}</div>
+                    <div class="spx-metric-label">Expected Value</div>
+                    <div class="spx-metric-value">{ev_display}</div>
                 </div>
             </div>
             <div class="spx-metric-grid tertiary">
                 <div class="spx-metric-block layer3">
-                    <div class="spx-metric-label">Evidence</div>
-                    <div class="spx-metric-value">{escape(calibration_evidence)}</div>
+                    <div class="spx-metric-label">20 Trades</div>
+                    <div class="spx-metric-value">{format_price(expected_return_20) if expected_return_20 is not None else 'Insufficient'}</div>
                 </div>
                 <div class="spx-metric-block layer3">
-                    <div class="spx-metric-label">Bias</div>
-                    <div class="spx-metric-value">{escape(calibration_bias_note or "-")}</div>
+                    <div class="spx-metric-label">50 Trades</div>
+                    <div class="spx-metric-value">{format_price(expected_return_50) if expected_return_50 is not None else 'Insufficient'}</div>
                 </div>
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">100 Trades</div>
+                    <div class="spx-metric-value">{format_price(expected_return_100) if expected_return_100 is not None else 'Insufficient'}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid tertiary">
                 <div class="spx-metric-block layer3">
                     <div class="spx-metric-label">Move</div>
                     <div class="spx-metric-value">{move_completion_display}</div>
@@ -6690,19 +7134,20 @@ def render_play_card(
                     <div class="spx-metric-label">Suggested Stop</div>
                     <div class="spx-metric-value">{suggested_stop_display}</div>
                 </div>
-                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                <div class="spx-metric-block layer3{' muted' if authority_decision == 'NO TRADE' else ''}">
                     <div class="spx-metric-label">Gain</div>
                     <div class="spx-metric-value">{expected_gain}</div>
                 </div>
-                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                <div class="spx-metric-block layer3{' muted' if authority_decision == 'NO TRADE' else ''}">
                     <div class="spx-metric-label">Loss</div>
                     <div class="spx-metric-value">{expected_loss}</div>
                 </div>
-                <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
+                <div class="spx-metric-block layer3{' muted' if authority_decision == 'NO TRADE' else ''}">
                     <div class="spx-metric-label">Score</div>
                     <div class="spx-metric-value">{escape(contract_score)}</div>
                 </div>
             </div>
+            <div class="spx-play-note">{escape(authority_condition if authority_decision == 'CONDITIONAL BUY' and authority_condition else ('You are overriding your system' if authority_decision == 'NO TRADE' else 'Ready to execute if price behavior holds'))}</div>
             {override_note_html}
             {best_contract_html}
         </div>
@@ -6712,7 +7157,9 @@ def render_play_card(
     if detail_bits:
         st.caption(" | ".join(detail_bits))
     button_key = f"use_play_{title.lower().replace(' ', '_')}"
-    if st.button("Use This Play", key=button_key, use_container_width=True):
+    override_intent_key = f"{button_key}_override_intent"
+    override_reason_key = f"{button_key}_override_reason"
+    if use_allowed and st.button("Use This Play", key=button_key, use_container_width=True):
         signal_package = st.session_state.get("current_signal_package")
         if signal_package is None:
             st.warning("No live signal snapshot is available for this play yet.")
@@ -6728,9 +7175,41 @@ def render_play_card(
                     intelligence=intelligence,
                     final_status=visible_status,
                     final_decision=action_label,
+                    authority=authority,
                 )
             )
             st.success("Trade Log prefilled from this play.")
+    elif not use_allowed:
+        st.warning("You are overriding your system.")
+        if not st.session_state.get(override_intent_key, False):
+            if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+                st.session_state[override_intent_key] = True
+                st.rerun()
+        else:
+            override_reason_input = st.text_input("Override reason", key=override_reason_key)
+            if st.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
+                signal_package = st.session_state.get("current_signal_package")
+                if signal_package is None:
+                    st.warning("No live signal snapshot is available for this play yet.")
+                else:
+                    inferred_play_type = "alternate" if "alternate" in title.lower() else "primary"
+                    set_trade_form_prefill(
+                        build_live_play_trade_prefill(
+                            signal_package=signal_package,
+                            play_type=inferred_play_type,
+                            play_spx=play,
+                            play_es=play_es,
+                            lead_option_quote=lead_option_quote,
+                            intelligence=intelligence,
+                            final_status=visible_status,
+                            final_decision=action_label,
+                            authority=authority,
+                            override_flag=True,
+                            override_reason=override_reason_input.strip(),
+                        )
+                    )
+                    st.session_state[override_intent_key] = False
+                    st.success("Trade Log prefilled with override flag.")
     if developer_mode and effective_offset is not None:
         entry_debug = (play.get("conversion_debug") or {}).get("entry", {})
         with st.expander(f"{title} Conversion Check", expanded=False):
@@ -7459,7 +7938,7 @@ def render_trade_log_tab(
 ) -> None:
     """Render the trade journal, history, and analytics tab."""
 
-    developer_mode = settings.get("visibility_mode") == "Developer Mode"
+    developer_mode = settings.get("visibility_mode") == "Edge Lab"
 
     st.markdown(
         """
@@ -7534,8 +8013,18 @@ def render_trade_log_tab(
         available_snapshot_options.append(option_label)
         snapshot_lookup[option_label] = (snapshot["id"], snapshot["snapshot_date"])
 
-    render_section_header("Trade Entry", "Capture the execution details while the trade context is still fresh.")
-    with st.container(border=True):
+    journal_tabs = st.tabs(["Log Trade", "Review Outcomes", "Analytics / Edge"])
+    log_tab, review_tab, analytics_tab = journal_tabs
+
+    with log_tab:
+        render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.")
+        with st.container(border=True):
+            summary_cols = st.columns(5)
+            summary_cols[0].metric("Decision", str(prefill.get("final_authority_decision") or prefill.get("final_decision") or "Unspecified"))
+            summary_cols[1].metric("Confidence", f"{float(prefill.get('final_authority_confidence', 0.0)):.0f}%")
+            summary_cols[2].metric("Risk", str(prefill.get("final_authority_risk_class") or "Unrated"))
+            summary_cols[3].metric("Expected Value", format_price(_to_float_or_none(prefill.get("final_authority_expected_value"))) if _to_float_or_none(prefill.get("final_authority_expected_value")) is not None else "Insufficient")
+            summary_cols[4].metric("Override", "Yes" if prefill.get("override_flag") else "No")
         if st.session_state.get("trade_form_notice"):
             st.info(st.session_state["trade_form_notice"])
             if st.button("Clear Prefill", type="secondary", use_container_width=False):
@@ -7649,6 +8138,18 @@ def render_trade_log_tab(
                     "chase_status": str(prefill.get("chase_status", "")),
                     "prediction_confidence": str(prefill.get("prediction_confidence", "")),
                     "final_decision": str(prefill.get("final_decision", "")),
+                    "final_authority_decision": str(prefill.get("final_authority_decision", prefill.get("final_decision", ""))),
+                    "final_authority_confidence": float(prefill.get("final_authority_confidence", 0.0)),
+                    "final_authority_expected_value": float(prefill.get("final_authority_expected_value", 0.0)),
+                    "final_authority_risk_class": str(prefill.get("final_authority_risk_class", "")),
+                    "final_authority_reason": str(prefill.get("final_authority_reason", "")),
+                    "final_authority_top_reasons": list(prefill.get("final_authority_top_reasons", [])),
+                    "expected_return_20": float(prefill.get("expected_return_20", 0.0)),
+                    "expected_return_50": float(prefill.get("expected_return_50", 0.0)),
+                    "expected_return_100": float(prefill.get("expected_return_100", 0.0)),
+                    "decision_state_at_action": str(prefill.get("decision_state_at_action", prefill.get("final_authority_decision", prefill.get("final_decision", "")))),
+                    "override_flag": bool(prefill.get("override_flag", False)),
+                    "override_reason": str(prefill.get("override_reason", "")),
                     "entry_drift_abs": float(prefill.get("entry_drift_abs", 0.0)),
                     "entry_drift_pct": float(prefill.get("entry_drift_pct", 0.0)),
                     "price_vs_plan": float(prefill.get("price_vs_plan", 0.0)),
@@ -7706,48 +8207,49 @@ def render_trade_log_tab(
         min_trade_date = current_central_time().date()
         max_trade_date = current_central_time().date()
 
-    render_section_header("Filters", "Shape the journal view by date, session, scenario, confirmation, and tags.")
-    with st.container(border=True):
-        filter_col1, filter_col2, filter_col3 = st.columns(3)
-        with filter_col1:
-            filter_date_from = st.date_input("From", value=min_trade_date, key="filter_date_from")
-            filter_scenarios = st.multiselect(
-                "Scenario",
-                options=sorted({trade["scenario_name"] for trade in normalized_trades if trade.get("scenario_name")}),
-                default=[],
-            )
-        with filter_col2:
-            filter_date_to = st.date_input("To", value=max_trade_date, key="filter_date_to")
-            filter_sessions = st.multiselect(
-                "Session",
-                options=sorted({trade["session"] for trade in normalized_trades if trade.get("session")}),
-                default=[],
-            )
-        with filter_col3:
-            filter_results = st.multiselect(
-                "Result",
-                options=RESULT_OPTIONS,
-                default=[],
-            )
-            filter_confirmation_status = st.multiselect(
-                "Confirmation status",
-                options=CONFIRMATION_STATUS_OPTIONS,
-                default=[],
-            )
+    with review_tab:
+        render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.")
+        with st.container(border=True):
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            with filter_col1:
+                filter_date_from = st.date_input("From", value=min_trade_date, key="filter_date_from")
+                filter_scenarios = st.multiselect(
+                    "Scenario",
+                    options=sorted({trade["scenario_name"] for trade in normalized_trades if trade.get("scenario_name")}),
+                    default=[],
+                )
+            with filter_col2:
+                filter_date_to = st.date_input("To", value=max_trade_date, key="filter_date_to")
+                filter_sessions = st.multiselect(
+                    "Session",
+                    options=sorted({trade["session"] for trade in normalized_trades if trade.get("session")}),
+                    default=[],
+                )
+            with filter_col3:
+                filter_results = st.multiselect(
+                    "Result",
+                    options=RESULT_OPTIONS,
+                    default=[],
+                )
+                filter_confirmation_status = st.multiselect(
+                    "Confirmation status",
+                    options=CONFIRMATION_STATUS_OPTIONS,
+                    default=[],
+                )
 
-        filter_col4, filter_col5 = st.columns(2)
-        with filter_col4:
-            filter_confluence_scores = st.multiselect(
-                "Confluence score",
-                options=sorted({int(trade.get("confluence_score", 0)) for trade in normalized_trades}),
-                default=[],
-            )
-        with filter_col5:
-            filter_tags = st.multiselect(
-                "Tags",
-                options=sorted({tag for trade in normalized_trades for tag in trade.get("tags", [])}),
-                default=[],
-            )
+            filter_col4, filter_col5 = st.columns(2)
+            with filter_col4:
+                filter_confluence_scores = st.multiselect(
+                    "Confluence score",
+                    options=sorted({int(trade.get("confluence_score", 0)) for trade in normalized_trades}),
+                    default=[],
+                )
+            with filter_col5:
+                filter_tags = st.multiselect(
+                    "Tags",
+                    options=sorted({tag for trade in normalized_trades for tag in trade.get("tags", [])}),
+                    default=[],
+                )
 
     filtered_trades = filter_trades(
         normalized_trades,
@@ -7761,19 +8263,6 @@ def render_trade_log_tab(
         tags=filter_tags,
     )
     filtered_snapshots = filter_snapshots_by_date(normalized_snapshots, filter_date_from, filter_date_to)
-
-    render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.")
-    stats = compute_trade_statistics(filtered_trades)
-    stat1, stat2, stat3 = st.columns(3)
-    stat1.metric("Total Trades", str(stats["total_trades"]))
-    stat2.metric("Total Wins", str(stats["total_wins"]))
-    stat3.metric("Total Losses", str(stats["total_losses"]))
-
-    stat4, stat5, stat6 = st.columns(3)
-    stat4.metric("Win Rate", f"{stats['win_rate']:.2f}%")
-    stat5.metric("Total P&L", format_price(stats["total_pnl"]))
-    stat6.metric("Average P&L / Trade", format_price(stats["average_pnl"]))
-
     learning_metrics = build_learning_dashboard_metrics(filtered_trades)
     outcome_review_df = build_outcome_review_dataframe(filtered_trades, developer_mode=developer_mode)
     prediction_bias_by_scenario = build_bias_breakdown_dataframe(filtered_trades, group_field="scenario_name", metric_field="prediction_error_signed")
@@ -7785,430 +8274,451 @@ def render_trade_log_tab(
     confidence_calibration_df = build_confidence_calibration_dataframe(filtered_trades)
     chase_calibration_df = build_chase_calibration_dataframe(filtered_trades)
     calibration_preview = resolve_calibration_preview(filtered_trades, prefill)
-
-    render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
-    learn_col1, learn_col2, learn_col3 = st.columns(3)
-    learn_col1.metric("Avg Prediction Error", format_price(learning_metrics["avg_prediction_error"]))
-    learn_col2.metric("Median Prediction Error", format_price(learning_metrics["median_prediction_error"]))
-    learn_col3.metric("Avg Slippage", format_price(learning_metrics["avg_slippage"]))
-    learn_col4, learn_col5, learn_col6 = st.columns(3)
-    learn_col4.metric("Filled Better Than Predicted", f"{learning_metrics['filled_better_pct']:.2f}%")
-    learn_col5.metric("Regime Correct", f"{learning_metrics['regime_correct_pct']:.2f}%")
-    learn_col6.metric("Chase Correct", f"{learning_metrics['chase_correct_pct']:.2f}%")
-    learn_col7, learn_col8, learn_col9, learn_col10 = st.columns(4)
-    learn_col7.metric("Correct Skip", str(learning_metrics["correct_skip_count"]))
-    learn_col8.metric("Wrong Skip", str(learning_metrics["wrong_skip_count"]))
-    learn_col9.metric("Correct Entry", str(learning_metrics["correct_entry_count"]))
-    learn_col10.metric("Wrong Entry", str(learning_metrics["wrong_entry_count"]))
-    plan_col1, plan_col2, plan_col3, plan_col4 = st.columns(4)
-    plan_col1.metric("Holding -> Good Entry", f"{learning_metrics['holding_good_entry_pct']:.2f}%")
-    plan_col2.metric("Broken -> Should Skip", f"{learning_metrics['broken_should_skip_pct']:.2f}%")
-    plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
-    plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
-
-    render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.")
-    calibration_col1, calibration_col2, calibration_col3, calibration_col4 = st.columns(4)
-    derived_rows = [derive_outcome_tracking_fields(trade) for trade in filtered_trades]
-    prediction_bias_values = [float(row["prediction_error_signed"]) for row in derived_rows if row.get("prediction_error_signed") is not None]
-    slippage_bias_values = [float(row["fill_slippage_signed"]) for row in derived_rows if row.get("fill_slippage_signed") is not None]
-    prediction_bias_metric = round_price(float(pd.Series(prediction_bias_values).mean())) if prediction_bias_values else 0.0
-    slippage_bias_metric = round_price(float(pd.Series(slippage_bias_values).mean())) if slippage_bias_values else 0.0
-    calibration_col1.metric("Prediction Bias", format_price(prediction_bias_metric))
-    calibration_col2.metric("Slippage Bias", format_price(slippage_bias_metric))
-    calibration_col3.metric("Calibrated Entry", format_price(calibration_preview["calibrated_entry_mark"]) if calibration_preview["calibrated_entry_mark"] is not None else "Insufficient")
-    calibration_col4.metric("Expected Fill", format_price(calibration_preview["expected_fill_mark"]) if calibration_preview["expected_fill_mark"] is not None else "Insufficient")
-    if developer_mode:
-        st.caption(
-            f"Prediction bias source: {calibration_preview['prediction_bias_source']} | "
-            f"Slippage bias source: {calibration_preview['slippage_bias_source']} | "
-            f"Prediction bias used: {format_price(calibration_preview['prediction_bias_used']) if calibration_preview['prediction_bias_used'] is not None else 'Unavailable'} | "
-            f"Slippage bias used: {format_price(calibration_preview['slippage_bias_used']) if calibration_preview['slippage_bias_used'] is not None else 'Unavailable'}"
-        )
-    else:
-        st.caption("Calibrated values are additive overlays on the raw predicted entry and current fill expectation.")
-
-    confidence_col1, confidence_col2 = st.columns(2)
-    with confidence_col1:
-        st.markdown("**Confidence Calibration**")
-        if confidence_calibration_df.empty:
-            st.info("Insufficient reviewed confidence data.")
-        else:
-            st.dataframe(confidence_calibration_df, use_container_width=True, hide_index=True)
-    with confidence_col2:
-        st.markdown("**Chase Calibration**")
-        if chase_calibration_df.empty:
-            st.info("Insufficient reviewed chase data.")
-        else:
-            st.dataframe(chase_calibration_df, use_container_width=True, hide_index=True)
-
-    if developer_mode:
-        bias_tab1, bias_tab2 = st.tabs(["Prediction Bias", "Slippage Bias"])
-        with bias_tab1:
-            st.markdown("**By Scenario**")
-            st.dataframe(prediction_bias_by_scenario, use_container_width=True, hide_index=True) if not prediction_bias_by_scenario.empty else st.info("Insufficient scenario bias data.")
-            st.markdown("**By Direction**")
-            st.dataframe(prediction_bias_by_direction, use_container_width=True, hide_index=True) if not prediction_bias_by_direction.empty else st.info("Insufficient direction bias data.")
-            st.markdown("**By Regime**")
-            st.dataframe(prediction_bias_by_regime, use_container_width=True, hide_index=True) if not prediction_bias_by_regime.empty else st.info("Insufficient regime bias data.")
-        with bias_tab2:
-            st.markdown("**By Scenario**")
-            st.dataframe(slippage_bias_by_scenario, use_container_width=True, hide_index=True) if not slippage_bias_by_scenario.empty else st.info("Insufficient scenario slippage data.")
-            st.markdown("**By Regime**")
-            st.dataframe(slippage_bias_by_regime, use_container_width=True, hide_index=True) if not slippage_bias_by_regime.empty else st.info("Insufficient regime slippage data.")
-            st.markdown("**By Chase Status**")
-            st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
-
-    render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
-    if outcome_review_df.empty:
-        st.info("No reviewed trade outcomes are available yet.")
-    else:
-        review_columns = [
-            "date",
-            "scenario",
-            "play",
-            "decision",
-            "outcome",
-            "planned_mark",
-            "actual_mark",
-            "pred_error",
-            "planned_spx",
-            "actual_spx",
-            "entry_gap",
-            "exp_gain",
-            "real_gain",
-            "gain_gap",
-            "exp_loss",
-            "real_loss",
-            "loss_gap",
-            "decision_correct",
-            "regime_correct",
-            "chase_correct",
-            "slippage",
-        ]
-        if developer_mode:
-            review_columns.extend(["plan_status", "regime", "chase", "entry_zone", "move_completion_pct"])
-        st.dataframe(outcome_review_df[review_columns], use_container_width=True, hide_index=True)
-
-    render_section_header("Version 2 Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
-    st.caption("Analytics update live from the filtered trade set below.")
-    breakdown_tabs = st.tabs(["By Scenario", "By Confluence", "By Session", "By Confirmation", "By Tag"])
-    breakdown_dimensions = [
-        ("scenario", "scenario"),
-        ("confluence", "confluence score"),
-        ("session", "session"),
-        ("confirmation", "confirmation status"),
-        ("tag", "result tag"),
-    ]
-    for tab, (dimension, label) in zip(breakdown_tabs, breakdown_dimensions, strict=False):
-        with tab:
-            breakdown = build_breakdown_dataframe(filtered_trades, dimension)
-            if breakdown.empty:
-                st.info(f"No trade data available for {label} analytics yet.")
-            else:
-                st.dataframe(breakdown, use_container_width=True, hide_index=True)
-
-    render_section_header("Version 2.1 Decision-Filter Intelligence", "Review which filters and confirmations actually improve outcomes.")
-    best_worst = compute_best_worst_summary(filtered_trades)
-    best_col1, best_col2, best_col3 = st.columns(3)
-    best_col1.metric("Best Scenario by Win Rate", best_worst["best_scenario_win_rate"])
-    best_col2.metric("Best Scenario by Total P&L", best_worst["best_scenario_total_pnl"])
-    best_col3.metric("Worst Scenario by Total P&L", best_worst["worst_scenario_total_pnl"])
-
-    best_col4, best_col5 = st.columns(2)
-    best_col4.metric("Best Confirmation Status", best_worst["best_confirmation_status"])
-    best_col5.metric("Worst Confirmation Status", best_worst["worst_confirmation_status"])
-
-    rolling_dataframe = compute_rolling_performance(filtered_trades, [7, 14, 30])
-    streaks = compute_streaks(filtered_trades)
-    rolling_col, streak_col = st.columns([1.6, 1], gap="large")
-    with rolling_col:
-        with st.container(border=True):
-            st.markdown("#### Rolling Performance")
-            if rolling_dataframe.empty:
-                st.info("No trades available for rolling performance yet.")
-            else:
-                st.dataframe(rolling_dataframe, use_container_width=True, hide_index=True)
-    with streak_col:
-        with st.container(border=True):
-            st.markdown("#### Recent Streaks")
-            st.metric("Current Streak", str(streaks["current_streak"]))
-            st.metric("Longest Win Streak", str(streaks["longest_win_streak"]))
-            st.metric("Longest Loss Streak", str(streaks["longest_loss_streak"]))
-
-    sit_out_intelligence = compute_sit_out_effectiveness(filtered_snapshots, filtered_trades)
-    st.markdown("#### Sit-Out Effectiveness")
-    sitout_col1, sitout_col2, sitout_col3 = st.columns(3)
-    sitout_col1.metric("Sit-Out Triggered", str(sit_out_intelligence["metrics"]["sit_out_triggered"]))
-    sitout_col2.metric("Sit-Out Days Traded Anyway", str(sit_out_intelligence["metrics"]["sit_out_days_traded"]))
-    sitout_col3.metric("Sit-Out Day P&L", format_price(sit_out_intelligence["metrics"]["sit_out_day_total_pnl"]))
-
-    sitout_col4, sitout_col5, sitout_col6 = st.columns(3)
-    sitout_col4.metric("Sit-Out Day Wins", str(sit_out_intelligence["metrics"]["sit_out_day_wins"]))
-    sitout_col5.metric("Sit-Out Day Losses", str(sit_out_intelligence["metrics"]["sit_out_day_losses"]))
-    sitout_col6.metric("Sit-Out Would Have Helped", str(sit_out_intelligence["metrics"]["sit_out_would_have_helped"]))
-    st.metric("Sit-Out Would Have Missed Opportunity", str(sit_out_intelligence["metrics"]["sit_out_missed_opportunity"]))
-    if sit_out_intelligence["table"].empty:
-        st.info("No sit-out-triggered snapshots are available in the selected date range.")
-    else:
-        st.dataframe(sit_out_intelligence["table"], use_container_width=True, hide_index=True)
-
-    st.markdown("#### Confirmation Intelligence")
-    confirmation_tabs = st.tabs(["Status Comparison", "Scenario x Confirmation", "Session x Confirmation"])
-    with confirmation_tabs[0]:
-        confirmation_breakdown = build_breakdown_dataframe(filtered_trades, "confirmation")
-        if confirmation_breakdown.empty:
-            st.info("No trade data available for confirmation-status analytics yet.")
-        else:
-            st.dataframe(confirmation_breakdown, use_container_width=True, hide_index=True)
-    with confirmation_tabs[1]:
-        scenario_confirmation = build_interaction_dataframe(filtered_trades, "scenario_name", "confirmation_status")
-        if scenario_confirmation.empty:
-            st.info("No scenario and confirmation interaction data available yet.")
-        else:
-            st.dataframe(scenario_confirmation, use_container_width=True, hide_index=True)
-    with confirmation_tabs[2]:
-        session_confirmation = build_interaction_dataframe(filtered_trades, "session", "confirmation_status")
-        if session_confirmation.empty:
-            st.info("No session and confirmation interaction data available yet.")
-        else:
-            st.dataframe(session_confirmation, use_container_width=True, hide_index=True)
-
-    render_section_header("V3 Edge Proof", "Expectancy, frequency, and periodic performance for deeper strategy validation.")
-    expectancy_tabs = st.tabs(["Expectancy", "Weekly", "Monthly", "Scenario Frequency", "Advanced Breakdowns"])
-    with expectancy_tabs[0]:
-        expectancy_col1, expectancy_col2 = st.columns(2)
-        with expectancy_col1:
-            st.markdown("**By Scenario**")
-            scenario_expectancy = build_expectancy_dataframe(filtered_trades, "scenario")
-            if scenario_expectancy.empty:
-                st.info("No trade data available for scenario expectancy yet.")
-            else:
-                st.dataframe(scenario_expectancy, use_container_width=True, hide_index=True)
-            st.markdown("**By Confirmation Status**")
-            confirmation_expectancy = build_expectancy_dataframe(filtered_trades, "confirmation")
-            if confirmation_expectancy.empty:
-                st.info("No trade data available for confirmation expectancy yet.")
-            else:
-                st.dataframe(confirmation_expectancy, use_container_width=True, hide_index=True)
-        with expectancy_col2:
-            st.markdown("**By Session**")
-            session_expectancy = build_expectancy_dataframe(filtered_trades, "session")
-            if session_expectancy.empty:
-                st.info("No trade data available for session expectancy yet.")
-            else:
-                st.dataframe(session_expectancy, use_container_width=True, hide_index=True)
-            st.markdown("**By Tag**")
-            tag_expectancy = build_expectancy_dataframe(filtered_trades, "tag")
-            if tag_expectancy.empty:
-                st.info("No trade data available for tag expectancy yet.")
-            else:
-                st.dataframe(tag_expectancy, use_container_width=True, hide_index=True)
-    with expectancy_tabs[1]:
-        weekly_performance = build_period_performance_dataframe(filtered_trades, "weekly")
-        if weekly_performance.empty:
-            st.info("No weekly performance data available yet.")
-        else:
-            st.dataframe(weekly_performance, use_container_width=True, hide_index=True)
-    with expectancy_tabs[2]:
-        monthly_performance = build_period_performance_dataframe(filtered_trades, "monthly")
-        if monthly_performance.empty:
-            st.info("No monthly performance data available yet.")
-        else:
-            st.dataframe(monthly_performance, use_container_width=True, hide_index=True)
-    with expectancy_tabs[3]:
-        scenario_frequency = build_scenario_frequency_dataframe(filtered_trades, filtered_snapshots)
-        if scenario_frequency.empty:
-            st.info("No scenario occurrence data available yet.")
-        else:
-            st.dataframe(scenario_frequency, use_container_width=True, hide_index=True)
-    with expectancy_tabs[4]:
-        advanced_col1, advanced_col2 = st.columns(2)
-        with advanced_col1:
-            scenario_confirmation_pnl = build_interaction_dataframe(filtered_trades, "scenario_name", "confirmation_status")
-            st.markdown("**Scenario within Confirmation Status**")
-            if scenario_confirmation_pnl.empty:
-                st.info("No scenario-within-confirmation data available yet.")
-            else:
-                st.dataframe(scenario_confirmation_pnl, use_container_width=True, hide_index=True)
-        with advanced_col2:
-            session_confirmation_pnl = build_interaction_dataframe(filtered_trades, "session", "confirmation_status")
-            st.markdown("**Session within Confirmation Status**")
-            if session_confirmation_pnl.empty:
-                st.info("No session-within-confirmation data available yet.")
-            else:
-                st.dataframe(session_confirmation_pnl, use_container_width=True, hide_index=True)
-
-    render_section_header("Setup Quality Dashboard", "Spot the strongest and weakest edges in the filtered record set.")
-    setup_quality = build_setup_quality_summary(filtered_trades)
-    quality_col1, quality_col2, quality_col3 = st.columns(3)
-    quality_col1.metric("Highest Expectancy Scenario", setup_quality["highest_expectancy_scenario"])
-    quality_col2.metric("Lowest Expectancy Scenario", setup_quality["lowest_expectancy_scenario"])
-    quality_col3.metric("Highest Expectancy Confirmation", setup_quality["highest_expectancy_confirmation"])
-    quality_col4, quality_col5 = st.columns(2)
-    quality_col4.metric("Strongest Session", setup_quality["strongest_session"])
-    quality_col5.metric("Weakest Session", setup_quality["weakest_session"])
-
     history_dataframe = build_trade_history_dataframe(filtered_trades)
 
-    history_col, actions_col = st.columns([2.3, 1], gap="large")
-    with history_col:
-        with st.container(border=True):
-            st.markdown("#### Trade History")
-            if history_dataframe.empty:
-                st.info("No trades saved yet.")
-            else:
-                st.dataframe(
-                    history_dataframe.drop(columns=["id"], errors="ignore"),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+    with review_tab:
+        render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
+        if outcome_review_df.empty:
+            st.info("No reviewed trade outcomes are available yet.")
+        else:
+            review_columns = [
+                "date",
+                "scenario",
+                "play",
+                "decision",
+                "outcome",
+                "planned_mark",
+                "actual_mark",
+                "pred_error",
+                "planned_spx",
+                "actual_spx",
+                "entry_gap",
+                "exp_gain",
+                "real_gain",
+                "gain_gap",
+                "exp_loss",
+                "real_loss",
+                "loss_gap",
+                "decision_correct",
+                "regime_correct",
+                "chase_correct",
+                "slippage",
+            ]
+            if developer_mode:
+                review_columns.extend(["plan_status", "regime", "chase", "entry_zone", "move_completion_pct"])
+            st.dataframe(outcome_review_df[review_columns], use_container_width=True, hide_index=True)
 
-            if not history_dataframe.empty:
-                st.markdown("#### Basic Visuals")
-                pnl_series = history_dataframe[["date", "pnl"]].copy()
-                pnl_series["cumulative_pnl"] = pnl_series["pnl"].cumsum()
-                st.line_chart(pnl_series.set_index("date")["cumulative_pnl"])
+        review_col, history_col = st.columns([1.15, 1], gap="large")
+        with review_col:
+            with st.container(border=True):
+                st.markdown("#### Journal History")
+                if history_dataframe.empty:
+                    st.info("No trades saved yet.")
+                else:
+                    st.dataframe(
+                        history_dataframe.drop(columns=["id"], errors="ignore"),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-                result_counts = history_dataframe["result"].value_counts()
-                st.bar_chart(result_counts)
+                    st.markdown("#### Equity Curve")
+                    pnl_series = history_dataframe[["date", "pnl"]].copy()
+                    pnl_series["cumulative_pnl"] = pnl_series["pnl"].cumsum()
+                    st.line_chart(pnl_series.set_index("date")["cumulative_pnl"])
 
-    with actions_col:
-        with st.container(border=True):
-            st.markdown("#### Export")
-            st.download_button(
-                "Export CSV",
-                data=export_trades_csv(filtered_trades),
-                file_name="spx_prophet_trade_log.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Export JSON",
-                data=export_trades_json(filtered_trades),
-                file_name="spx_prophet_trade_log.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Export Snapshots JSON",
-                data=export_snapshots_json(normalized_snapshots),
-                file_name="spx_prophet_snapshots.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Export Settings JSON",
-                data=export_settings_json(settings),
-                file_name="spx_prophet_settings.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Export All Data Backup",
-                data=json.dumps(
-                    {
-                        "app": f"{APP_TITLE} {APP_VERSION}",
-                        "trades": normalized_trades,
-                        "snapshots": normalized_snapshots,
-                        "settings": normalize_settings_record(settings),
-                    },
-                    indent=2,
-                ).encode("utf-8"),
-                file_name="spx_prophet_all_data_backup.json",
-                mime="application/json",
-                use_container_width=True,
-            )
-
-        with st.container(border=True):
-            st.markdown("#### Delete Trade")
-            if history_dataframe.empty:
-                st.info("No trades available to delete.")
-            else:
-                delete_options = {
-                    f"{row['date']} | {row['session']} | {row['direction']} | {row['scenario']}": row["id"]
-                    for _, row in history_dataframe.iterrows()
-                }
-                delete_label = st.selectbox("Select trade to delete", list(delete_options.keys()))
-                if st.button("Delete Selected Trade", type="secondary", use_container_width=True):
-                    deleted, error = delete_trade_by_id(delete_options[delete_label])
-                    if deleted:
-                        st.success("Trade deleted.")
-                        if error:
-                            st.warning(error)
-                        st.rerun()
-                    else:
-                        st.error(error or "Unable to delete trade.")
-
-        with st.container(border=True):
-            st.markdown("#### Daily Snapshots")
-            if not normalized_snapshots:
-                st.info("No daily snapshots saved yet.")
-            else:
-                snapshot_table = pd.DataFrame(
-                    [
-                        {
-                            "snapshot_date": snapshot.get("snapshot_date", ""),
-                            "captured_at": snapshot.get("captured_at", ""),
-                            "scenario": snapshot.get("scenario", {}).get("scenario_name", ""),
-                            "sit_out": snapshot.get("sit_out", {}).get("sit_out", False),
-                            "confirmation": snapshot.get("confirmation", {}).get("status", ""),
-                            "traded": snapshot.get("review", {}).get("traded", False),
-                        }
+            with st.container(border=True):
+                st.markdown("#### Snapshot Review")
+                if not normalized_snapshots:
+                    st.info("No daily snapshots saved yet.")
+                else:
+                    snapshot_table = pd.DataFrame(
+                        [
+                            {
+                                "snapshot_date": snapshot.get("snapshot_date", ""),
+                                "captured_at": snapshot.get("captured_at", ""),
+                                "scenario": snapshot.get("scenario", {}).get("scenario_name", ""),
+                                "sit_out": snapshot.get("sit_out", {}).get("sit_out", False),
+                                "confirmation": snapshot.get("confirmation", {}).get("status", ""),
+                                "traded": snapshot.get("review", {}).get("traded", False),
+                            }
+                            for snapshot in reversed(normalized_snapshots)
+                        ]
+                    )
+                    st.dataframe(snapshot_table, use_container_width=True, hide_index=True)
+                    snapshot_review_options = {
+                        f"{snapshot['snapshot_date']} | {snapshot['scenario'].get('scenario_name', 'Snapshot')}": snapshot
                         for snapshot in reversed(normalized_snapshots)
-                    ]
-                )
-                st.dataframe(snapshot_table, use_container_width=True, hide_index=True)
-                snapshot_review_options = {
-                    f"{snapshot['snapshot_date']} | {snapshot['scenario'].get('scenario_name', 'Snapshot')}": snapshot
-                    for snapshot in reversed(normalized_snapshots)
-                }
-                selected_snapshot_label = st.selectbox("Select snapshot to review", list(snapshot_review_options.keys()))
-                selected_snapshot = snapshot_review_options[selected_snapshot_label]
-                with st.expander("Review Selected Snapshot", expanded=False):
-                    with st.form("snapshot_review_form"):
-                        traded = st.checkbox("Traded", value=selected_snapshot["review"]["traded"])
-                        primary_setup_worked = st.checkbox("Primary setup worked", value=selected_snapshot["review"]["primary_setup_worked"])
-                        alternate_setup_worked = st.checkbox("Alternate setup worked", value=selected_snapshot["review"]["alternate_setup_worked"])
-                        sit_out_would_have_helped = st.checkbox("Sit-out would have helped", value=selected_snapshot["review"]["sit_out_would_have_helped"])
-                        best_move_of_day = st.text_input("Best move of day", value=selected_snapshot["review"]["best_move_of_day"])
-                        snapshot_notes = st.text_area("Snapshot notes", value=selected_snapshot["review"]["notes"], height=120)
-                        update_snapshot_submitted = st.form_submit_button("Save Snapshot Review", use_container_width=True)
-                        if update_snapshot_submitted:
-                            snapshot_saved, snapshot_message = update_snapshot_review(
-                                selected_snapshot["id"],
-                                {
-                                    "traded": traded,
-                                    "primary_setup_worked": primary_setup_worked,
-                                    "alternate_setup_worked": alternate_setup_worked,
-                                    "sit_out_would_have_helped": sit_out_would_have_helped,
-                                    "best_move_of_day": best_move_of_day,
-                                    "notes": snapshot_notes,
-                                },
-                            )
-                            if snapshot_saved:
-                                st.success("Snapshot review saved.")
-                                if snapshot_message:
-                                    st.warning(snapshot_message)
-                                st.rerun()
-                            else:
-                                st.error(snapshot_message or "Unable to save snapshot review.")
-                with st.expander("Selected Snapshot Payload", expanded=False):
-                    st.json(selected_snapshot, expanded=False)
+                    }
+                    selected_snapshot_label = st.selectbox("Select snapshot to review", list(snapshot_review_options.keys()))
+                    selected_snapshot = snapshot_review_options[selected_snapshot_label]
+                    with st.expander("Review Selected Snapshot", expanded=False):
+                        with st.form("snapshot_review_form"):
+                            traded = st.checkbox("Traded", value=selected_snapshot["review"]["traded"])
+                            primary_setup_worked = st.checkbox("Primary setup worked", value=selected_snapshot["review"]["primary_setup_worked"])
+                            alternate_setup_worked = st.checkbox("Alternate setup worked", value=selected_snapshot["review"]["alternate_setup_worked"])
+                            sit_out_would_have_helped = st.checkbox("Sit-out would have helped", value=selected_snapshot["review"]["sit_out_would_have_helped"])
+                            best_move_of_day = st.text_input("Best move of day", value=selected_snapshot["review"]["best_move_of_day"])
+                            snapshot_notes = st.text_area("Snapshot notes", value=selected_snapshot["review"]["notes"], height=120)
+                            update_snapshot_submitted = st.form_submit_button("Save Snapshot Review", use_container_width=True)
+                            if update_snapshot_submitted:
+                                snapshot_saved, snapshot_message = update_snapshot_review(
+                                    selected_snapshot["id"],
+                                    {
+                                        "traded": traded,
+                                        "primary_setup_worked": primary_setup_worked,
+                                        "alternate_setup_worked": alternate_setup_worked,
+                                        "sit_out_would_have_helped": sit_out_would_have_helped,
+                                        "best_move_of_day": best_move_of_day,
+                                        "notes": snapshot_notes,
+                                    },
+                                )
+                                if snapshot_saved:
+                                    st.success("Snapshot review saved.")
+                                    if snapshot_message:
+                                        st.warning(snapshot_message)
+                                    st.rerun()
+                                else:
+                                    st.error(snapshot_message or "Unable to save snapshot review.")
+                    if developer_mode:
+                        with st.expander("Selected Snapshot Payload", expanded=False):
+                            st.json(selected_snapshot, expanded=False)
 
-        with st.container(border=True):
-            st.markdown("#### Data Health")
-            st.write(f"Trades loaded: {data_health['trade_count']}")
-            st.write(f"Snapshots loaded: {data_health['snapshot_count']}")
-            st.write(f"Incomplete trades: {data_health['incomplete_trade_count']}")
-            st.write(f"Incomplete snapshots: {data_health['incomplete_snapshot_count']}")
-            st.write(f"Duplicate trade warnings: {data_health['duplicate_trade_count']}")
-            st.write(f"Preview-only P&L records: {data_health['preview_only_pnl_count']}")
-            if data_health["malformed_recoveries"]:
-                st.warning("Malformed stores were recovered during load.")
-                for message in data_health["malformed_recoveries"]:
-                    st.write(f"- {message}")
+        with history_col:
+            with st.container(border=True):
+                st.markdown("#### Journal Actions")
+                if history_dataframe.empty:
+                    st.info("No trades available to delete.")
+                else:
+                    delete_options = {
+                        f"{row['date']} | {row['session']} | {row['direction']} | {row['scenario']}": row["id"]
+                        for _, row in history_dataframe.iterrows()
+                    }
+                    delete_label = st.selectbox("Select trade to delete", list(delete_options.keys()))
+                    if st.button("Delete Selected Trade", type="secondary", use_container_width=True):
+                        deleted, error = delete_trade_by_id(delete_options[delete_label])
+                        if deleted:
+                            st.success("Trade deleted.")
+                            if error:
+                                st.warning(error)
+                            st.rerun()
+                        else:
+                            st.error(error or "Unable to delete trade.")
+
+            with st.container(border=True):
+                st.markdown("#### Result Mix")
+                if history_dataframe.empty:
+                    st.info("No saved trade results yet.")
+                else:
+                    result_counts = history_dataframe["result"].value_counts()
+                    st.bar_chart(result_counts)
+
+    with analytics_tab:
+        render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.")
+        render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.")
+        stats = compute_trade_statistics(filtered_trades)
+        stat1, stat2, stat3 = st.columns(3)
+        stat1.metric("Total Trades", str(stats["total_trades"]))
+        stat2.metric("Total Wins", str(stats["total_wins"]))
+        stat3.metric("Total Losses", str(stats["total_losses"]))
+
+        stat4, stat5, stat6 = st.columns(3)
+        stat4.metric("Win Rate", f"{stats['win_rate']:.2f}%")
+        stat5.metric("Total P&L", format_price(stats["total_pnl"]))
+        stat6.metric("Average P&L / Trade", format_price(stats["average_pnl"]))
+
+        render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
+        learn_col1, learn_col2, learn_col3 = st.columns(3)
+        learn_col1.metric("Avg Prediction Error", format_price(learning_metrics["avg_prediction_error"]))
+        learn_col2.metric("Median Prediction Error", format_price(learning_metrics["median_prediction_error"]))
+        learn_col3.metric("Avg Slippage", format_price(learning_metrics["avg_slippage"]))
+        learn_col4, learn_col5, learn_col6 = st.columns(3)
+        learn_col4.metric("Filled Better Than Predicted", f"{learning_metrics['filled_better_pct']:.2f}%")
+        learn_col5.metric("Regime Correct", f"{learning_metrics['regime_correct_pct']:.2f}%")
+        learn_col6.metric("Chase Correct", f"{learning_metrics['chase_correct_pct']:.2f}%")
+        learn_col7, learn_col8, learn_col9, learn_col10 = st.columns(4)
+        learn_col7.metric("Correct Skip", str(learning_metrics["correct_skip_count"]))
+        learn_col8.metric("Wrong Skip", str(learning_metrics["wrong_skip_count"]))
+        learn_col9.metric("Correct Entry", str(learning_metrics["correct_entry_count"]))
+        learn_col10.metric("Wrong Entry", str(learning_metrics["wrong_entry_count"]))
+        plan_col1, plan_col2, plan_col3, plan_col4 = st.columns(4)
+        plan_col1.metric("Holding -> Good Entry", f"{learning_metrics['holding_good_entry_pct']:.2f}%")
+        plan_col2.metric("Broken -> Should Skip", f"{learning_metrics['broken_should_skip_pct']:.2f}%")
+        plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
+        plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
+
+        render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.")
+        calibration_col1, calibration_col2, calibration_col3, calibration_col4 = st.columns(4)
+        derived_rows = [derive_outcome_tracking_fields(trade) for trade in filtered_trades]
+        prediction_bias_values = [float(row["prediction_error_signed"]) for row in derived_rows if row.get("prediction_error_signed") is not None]
+        slippage_bias_values = [float(row["fill_slippage_signed"]) for row in derived_rows if row.get("fill_slippage_signed") is not None]
+        prediction_bias_metric = round_price(float(pd.Series(prediction_bias_values).mean())) if prediction_bias_values else 0.0
+        slippage_bias_metric = round_price(float(pd.Series(slippage_bias_values).mean())) if slippage_bias_values else 0.0
+        calibration_col1.metric("Prediction Bias", format_price(prediction_bias_metric))
+        calibration_col2.metric("Slippage Bias", format_price(slippage_bias_metric))
+        calibration_col3.metric("Calibrated Entry", format_price(calibration_preview["calibrated_entry_mark"]) if calibration_preview["calibrated_entry_mark"] is not None else "Insufficient")
+        calibration_col4.metric("Expected Fill", format_price(calibration_preview["expected_fill_mark"]) if calibration_preview["expected_fill_mark"] is not None else "Insufficient")
+        if developer_mode:
+            st.caption(
+                f"Prediction bias source: {calibration_preview['prediction_bias_source']} | "
+                f"Slippage bias source: {calibration_preview['slippage_bias_source']} | "
+                f"Prediction bias used: {format_price(calibration_preview['prediction_bias_used']) if calibration_preview['prediction_bias_used'] is not None else 'Unavailable'} | "
+                f"Slippage bias used: {format_price(calibration_preview['slippage_bias_used']) if calibration_preview['slippage_bias_used'] is not None else 'Unavailable'}"
+            )
+        else:
+            st.caption("Calibrated values are additive overlays on the raw predicted entry and current fill expectation.")
+
+        confidence_col1, confidence_col2 = st.columns(2)
+        with confidence_col1:
+            st.markdown("**Confidence Calibration**")
+            if confidence_calibration_df.empty:
+                st.info("Insufficient reviewed confidence data.")
             else:
-                st.success("No malformed store recovery was needed on this run.")
+                st.dataframe(confidence_calibration_df, use_container_width=True, hide_index=True)
+        with confidence_col2:
+            st.markdown("**Chase Calibration**")
+            if chase_calibration_df.empty:
+                st.info("Insufficient reviewed chase data.")
+            else:
+                st.dataframe(chase_calibration_df, use_container_width=True, hide_index=True)
+
+        if developer_mode:
+            bias_tab1, bias_tab2 = st.tabs(["Prediction Bias", "Slippage Bias"])
+            with bias_tab1:
+                st.markdown("**By Scenario**")
+                st.dataframe(prediction_bias_by_scenario, use_container_width=True, hide_index=True) if not prediction_bias_by_scenario.empty else st.info("Insufficient scenario bias data.")
+                st.markdown("**By Direction**")
+                st.dataframe(prediction_bias_by_direction, use_container_width=True, hide_index=True) if not prediction_bias_by_direction.empty else st.info("Insufficient direction bias data.")
+                st.markdown("**By Regime**")
+                st.dataframe(prediction_bias_by_regime, use_container_width=True, hide_index=True) if not prediction_bias_by_regime.empty else st.info("Insufficient regime bias data.")
+            with bias_tab2:
+                st.markdown("**By Scenario**")
+                st.dataframe(slippage_bias_by_scenario, use_container_width=True, hide_index=True) if not slippage_bias_by_scenario.empty else st.info("Insufficient scenario slippage data.")
+                st.markdown("**By Regime**")
+                st.dataframe(slippage_bias_by_regime, use_container_width=True, hide_index=True) if not slippage_bias_by_regime.empty else st.info("Insufficient regime slippage data.")
+                st.markdown("**By Chase Status**")
+                st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
+
+        render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
+        st.caption("Analytics update live from the filtered trade set below.")
+        breakdown_tabs = st.tabs(["By Scenario", "By Confluence", "By Session", "By Confirmation", "By Tag"])
+        breakdown_dimensions = [
+            ("scenario", "scenario"),
+            ("confluence", "confluence score"),
+            ("session", "session"),
+            ("confirmation", "confirmation status"),
+            ("tag", "result tag"),
+        ]
+        for tab, (dimension, label) in zip(breakdown_tabs, breakdown_dimensions, strict=False):
+            with tab:
+                breakdown = build_breakdown_dataframe(filtered_trades, dimension)
+                if breakdown.empty:
+                    st.info(f"No trade data available for {label} analytics yet.")
+                else:
+                    st.dataframe(breakdown, use_container_width=True, hide_index=True)
+
+        render_section_header("Decision Filter Intelligence", "Review which filters and confirmations actually improve outcomes.")
+        best_worst = compute_best_worst_summary(filtered_trades)
+        best_col1, best_col2, best_col3 = st.columns(3)
+        best_col1.metric("Best Scenario by Win Rate", best_worst["best_scenario_win_rate"])
+        best_col2.metric("Best Scenario by Total P&L", best_worst["best_scenario_total_pnl"])
+        best_col3.metric("Worst Scenario by Total P&L", best_worst["worst_scenario_total_pnl"])
+
+        best_col4, best_col5 = st.columns(2)
+        best_col4.metric("Best Confirmation Status", best_worst["best_confirmation_status"])
+        best_col5.metric("Worst Confirmation Status", best_worst["worst_confirmation_status"])
+
+        rolling_dataframe = compute_rolling_performance(filtered_trades, [7, 14, 30])
+        streaks = compute_streaks(filtered_trades)
+        rolling_col, streak_col = st.columns([1.6, 1], gap="large")
+        with rolling_col:
+            with st.container(border=True):
+                st.markdown("#### Rolling Performance")
+                if rolling_dataframe.empty:
+                    st.info("No trades available for rolling performance yet.")
+                else:
+                    st.dataframe(rolling_dataframe, use_container_width=True, hide_index=True)
+        with streak_col:
+            with st.container(border=True):
+                st.markdown("#### Recent Streaks")
+                st.metric("Current Streak", str(streaks["current_streak"]))
+                st.metric("Longest Win Streak", str(streaks["longest_win_streak"]))
+                st.metric("Longest Loss Streak", str(streaks["longest_loss_streak"]))
+
+        sit_out_intelligence = compute_sit_out_effectiveness(filtered_snapshots, filtered_trades)
+        st.markdown("#### Sit-Out Effectiveness")
+        sitout_col1, sitout_col2, sitout_col3 = st.columns(3)
+        sitout_col1.metric("Sit-Out Triggered", str(sit_out_intelligence["metrics"]["sit_out_triggered"]))
+        sitout_col2.metric("Sit-Out Days Traded Anyway", str(sit_out_intelligence["metrics"]["sit_out_days_traded"]))
+        sitout_col3.metric("Sit-Out Day P&L", format_price(sit_out_intelligence["metrics"]["sit_out_day_total_pnl"]))
+
+        sitout_col4, sitout_col5, sitout_col6 = st.columns(3)
+        sitout_col4.metric("Sit-Out Day Wins", str(sit_out_intelligence["metrics"]["sit_out_day_wins"]))
+        sitout_col5.metric("Sit-Out Day Losses", str(sit_out_intelligence["metrics"]["sit_out_day_losses"]))
+        sitout_col6.metric("Sit-Out Would Have Helped", str(sit_out_intelligence["metrics"]["sit_out_would_have_helped"]))
+        st.metric("Sit-Out Would Have Missed Opportunity", str(sit_out_intelligence["metrics"]["sit_out_missed_opportunity"]))
+        if sit_out_intelligence["table"].empty:
+            st.info("No sit-out-triggered snapshots are available in the selected date range.")
+        else:
+            st.dataframe(sit_out_intelligence["table"], use_container_width=True, hide_index=True)
+
+        st.markdown("#### Confirmation Intelligence")
+        confirmation_tabs = st.tabs(["Status Comparison", "Scenario x Confirmation", "Session x Confirmation"])
+        with confirmation_tabs[0]:
+            confirmation_breakdown = build_breakdown_dataframe(filtered_trades, "confirmation")
+            if confirmation_breakdown.empty:
+                st.info("No trade data available for confirmation-status analytics yet.")
+            else:
+                st.dataframe(confirmation_breakdown, use_container_width=True, hide_index=True)
+        with confirmation_tabs[1]:
+            scenario_confirmation = build_interaction_dataframe(filtered_trades, "scenario_name", "confirmation_status")
+            if scenario_confirmation.empty:
+                st.info("No scenario and confirmation interaction data available yet.")
+            else:
+                st.dataframe(scenario_confirmation, use_container_width=True, hide_index=True)
+        with confirmation_tabs[2]:
+            session_confirmation = build_interaction_dataframe(filtered_trades, "session", "confirmation_status")
+            if session_confirmation.empty:
+                st.info("No session and confirmation interaction data available yet.")
+            else:
+                st.dataframe(session_confirmation, use_container_width=True, hide_index=True)
+
+        render_section_header("Expectancy", "See what happens when you trust the system repeatedly.")
+        expectancy_tabs = st.tabs(["Expectancy", "Weekly", "Monthly", "Scenario Frequency", "Advanced Breakdowns"])
+        with expectancy_tabs[0]:
+            expectancy_col1, expectancy_col2 = st.columns(2)
+            with expectancy_col1:
+                st.markdown("**By Scenario**")
+                scenario_expectancy = build_expectancy_dataframe(filtered_trades, "scenario")
+                if scenario_expectancy.empty:
+                    st.info("No trade data available for scenario expectancy yet.")
+                else:
+                    st.dataframe(scenario_expectancy, use_container_width=True, hide_index=True)
+                st.markdown("**By Confirmation Status**")
+                confirmation_expectancy = build_expectancy_dataframe(filtered_trades, "confirmation")
+                if confirmation_expectancy.empty:
+                    st.info("No trade data available for confirmation expectancy yet.")
+                else:
+                    st.dataframe(confirmation_expectancy, use_container_width=True, hide_index=True)
+            with expectancy_col2:
+                st.markdown("**By Session**")
+                session_expectancy = build_expectancy_dataframe(filtered_trades, "session")
+                if session_expectancy.empty:
+                    st.info("No trade data available for session expectancy yet.")
+                else:
+                    st.dataframe(session_expectancy, use_container_width=True, hide_index=True)
+                st.markdown("**By Tag**")
+                tag_expectancy = build_expectancy_dataframe(filtered_trades, "tag")
+                if tag_expectancy.empty:
+                    st.info("No trade data available for tag expectancy yet.")
+                else:
+                    st.dataframe(tag_expectancy, use_container_width=True, hide_index=True)
+        with expectancy_tabs[1]:
+            weekly_performance = build_period_performance_dataframe(filtered_trades, "weekly")
+            if weekly_performance.empty:
+                st.info("No weekly performance data available yet.")
+            else:
+                st.dataframe(weekly_performance, use_container_width=True, hide_index=True)
+        with expectancy_tabs[2]:
+            monthly_performance = build_period_performance_dataframe(filtered_trades, "monthly")
+            if monthly_performance.empty:
+                st.info("No monthly performance data available yet.")
+            else:
+                st.dataframe(monthly_performance, use_container_width=True, hide_index=True)
+        with expectancy_tabs[3]:
+            scenario_frequency = build_scenario_frequency_dataframe(filtered_trades, filtered_snapshots)
+            if scenario_frequency.empty:
+                st.info("No scenario occurrence data available yet.")
+            else:
+                st.dataframe(scenario_frequency, use_container_width=True, hide_index=True)
+        with expectancy_tabs[4]:
+            advanced_col1, advanced_col2 = st.columns(2)
+            with advanced_col1:
+                scenario_confirmation_pnl = build_interaction_dataframe(filtered_trades, "scenario_name", "confirmation_status")
+                st.markdown("**Scenario within Confirmation Status**")
+                if scenario_confirmation_pnl.empty:
+                    st.info("No scenario-within-confirmation data available yet.")
+                else:
+                    st.dataframe(scenario_confirmation_pnl, use_container_width=True, hide_index=True)
+            with advanced_col2:
+                session_confirmation_pnl = build_interaction_dataframe(filtered_trades, "session", "confirmation_status")
+                st.markdown("**Session within Confirmation Status**")
+                if session_confirmation_pnl.empty:
+                    st.info("No session-within-confirmation data available yet.")
+                else:
+                    st.dataframe(session_confirmation_pnl, use_container_width=True, hide_index=True)
+
+        render_section_header("Setup Quality", "Spot the strongest and weakest edges in the filtered record set.")
+        setup_quality = build_setup_quality_summary(filtered_trades)
+        quality_col1, quality_col2, quality_col3 = st.columns(3)
+        quality_col1.metric("Highest Expectancy Scenario", setup_quality["highest_expectancy_scenario"])
+        quality_col2.metric("Lowest Expectancy Scenario", setup_quality["lowest_expectancy_scenario"])
+        quality_col3.metric("Highest Expectancy Confirmation", setup_quality["highest_expectancy_confirmation"])
+        quality_col4, quality_col5 = st.columns(2)
+        quality_col4.metric("Strongest Session", setup_quality["strongest_session"])
+        quality_col5.metric("Weakest Session", setup_quality["weakest_session"])
+
+        export_col, health_col = st.columns([1.2, 1], gap="large")
+        with export_col:
+            with st.container(border=True):
+                st.markdown("#### Export")
+                st.download_button(
+                    "Export CSV",
+                    data=export_trades_csv(filtered_trades),
+                    file_name="spx_prophet_trade_log.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Export JSON",
+                    data=export_trades_json(filtered_trades),
+                    file_name="spx_prophet_trade_log.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Export Snapshots JSON",
+                    data=export_snapshots_json(normalized_snapshots),
+                    file_name="spx_prophet_snapshots.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Export Settings JSON",
+                    data=export_settings_json(settings),
+                    file_name="spx_prophet_settings.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+                st.download_button(
+                    "Export All Data Backup",
+                    data=json.dumps(
+                        {
+                            "app": f"{APP_TITLE} {APP_VERSION}",
+                            "trades": normalized_trades,
+                            "snapshots": normalized_snapshots,
+                            "settings": normalize_settings_record(settings),
+                        },
+                        indent=2,
+                    ).encode("utf-8"),
+                    file_name="spx_prophet_all_data_backup.json",
+                    mime="application/json",
+                    use_container_width=True,
+                )
+        with health_col:
+            with st.container(border=True):
+                st.markdown("#### Data Health")
+                st.write(f"Trades loaded: {data_health['trade_count']}")
+                st.write(f"Snapshots loaded: {data_health['snapshot_count']}")
+                st.write(f"Incomplete trades: {data_health['incomplete_trade_count']}")
+                st.write(f"Incomplete snapshots: {data_health['incomplete_snapshot_count']}")
+                st.write(f"Duplicate trade warnings: {data_health['duplicate_trade_count']}")
+                st.write(f"Preview-only P&L records: {data_health['preview_only_pnl_count']}")
+                if data_health["malformed_recoveries"]:
+                    st.warning("Malformed stores were recovered during load.")
+                    for message in data_health["malformed_recoveries"]:
+                        st.write(f"- {message}")
+                else:
+                    st.success("No malformed store recovery was needed on this run.")
 
 
 def build_synthetic_spx_session(es_candles: pd.DataFrame | None, es_spx_offset: float) -> pd.DataFrame:
@@ -8844,6 +9354,14 @@ def render_live_mode_shell(
             planned_anchor_key=primary_planned_anchor_key,
             session_plan=primary_session_plan,
         )
+        alternate_status_breakdown = resolve_final_trade_status(
+            signal_package,
+            alternate_play_spx,
+            alternate_lead_option,
+            current_spx_price=inputs["current_spx_price"],
+            planned_anchor_key=alternate_planned_anchor_key,
+            session_plan=alternate_session_plan,
+        )
         final_status = final_status_breakdown["final_status"]
         primary_adaptive_overlay = (
             resolve_adaptive_overlay(
@@ -8873,6 +9391,29 @@ def render_live_mode_shell(
             if signal_package is not None and alternate_play_spx is not None
             else None
         )
+        primary_authority = build_play_decision_authority(
+            signal_package=signal_package,
+            play=primary_play_spx,
+            lead_option_quote=primary_lead_option,
+            intelligence=final_status_breakdown.get("intelligence", {}),
+            calibration_preview=primary_calibration_preview,
+            adaptive_overlay=primary_adaptive_overlay,
+            play_role="primary",
+            trades=normalized_calibration_trades,
+            raw_final_decision=str(final_status_breakdown.get("final_decision", "")),
+        )
+        alternate_authority = build_play_decision_authority(
+            signal_package=signal_package,
+            play=alternate_play_spx,
+            lead_option_quote=alternate_lead_option,
+            intelligence=alternate_status_breakdown.get("intelligence", {}),
+            calibration_preview=alternate_calibration_preview,
+            adaptive_overlay=alternate_adaptive_overlay,
+            play_role="alternate",
+            trades=normalized_calibration_trades,
+            raw_final_decision=str(alternate_status_breakdown.get("final_decision", "")),
+        )
+        hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
         render_tab1_hero(
             signal_package,
             inputs["current_spx_price"],
@@ -8884,6 +9425,8 @@ def render_live_mode_shell(
             lead_option_quote=primary_lead_option,
             intelligence_summary=final_status_breakdown.get("intelligence"),
             adaptive_overlay=primary_adaptive_overlay,
+            hero_authority=hero_authority,
+            active_play_label=hero_active_play,
         )
         if signal_package is not None:
             render_trade_decision_summary(
@@ -8892,6 +9435,8 @@ def render_live_mode_shell(
                 final_status=final_status,
                 final_decision=final_status_breakdown.get("final_decision"),
                 intelligence_summary=final_status_breakdown.get("intelligence"),
+                authority=hero_authority,
+                active_play_label=hero_active_play,
             )
         else:
             st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
@@ -8900,7 +9445,7 @@ def render_live_mode_shell(
             primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
             if primary_play is None:
                 st.warning("No primary play is available to hand off into the Trade Log.")
-            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log"):
+            elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log", disabled=primary_authority.get("decision") == "NO TRADE"):
                 set_trade_form_prefill(
                     build_live_play_trade_prefill(
                         signal_package=signal_package,
@@ -8911,9 +9456,12 @@ def render_live_mode_shell(
                         intelligence=final_status_breakdown.get("intelligence", {}),
                         final_status=final_status,
                         final_decision=final_status_breakdown.get("final_decision"),
+                        authority=primary_authority,
                     )
                 )
                 st.success("Trade Log prefilled from Live Mode.")
+            elif primary_authority.get("decision") == "NO TRADE":
+                st.caption("Primary play is blocked by the decision authority layer. Override from the card if you still want to journal it.")
         with action_col2:
             if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
                 snapshot_payload = build_daily_snapshot(
@@ -8941,14 +9489,19 @@ def render_live_mode_shell(
             "contract_score": primary_lead_option.get("contract_score") if primary_lead_option else None,
             "stop_value": float(primary_play_spx["stop"]["price"]) if primary_play_spx and primary_play_spx.get("stop") else None,
             "integrity_flags": list((primary_contract_candidates[0].get("integrity_flags", []) if primary_contract_candidates else [])),
+            "final_authority_decision": primary_authority.get("decision"),
+            "final_authority_confidence": primary_authority.get("confidence_score"),
+            "final_authority_expected_value": primary_authority.get("expected_value"),
+            "final_authority_risk_class": primary_authority.get("risk_class"),
+            "final_authority_reason": primary_authority.get("reason_line"),
         }
 
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
