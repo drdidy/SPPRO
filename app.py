@@ -3963,6 +3963,9 @@ def resolve_calibration_preview(
             "slippage_bias_used": None,
             "prediction_bias_source": "unavailable",
             "slippage_bias_source": "unavailable",
+            "prediction_sample_count": 0,
+            "slippage_sample_count": 0,
+            "evidence_label": "No Evidence",
             "sufficient_data": False,
         }
 
@@ -3979,26 +3982,34 @@ def resolve_calibration_preview(
 
     enriched = pd.DataFrame([derive_outcome_tracking_fields(trade) | trade for trade in trades])
 
-    def _resolve_bias(metric_field: str, candidates: list[tuple[str, str, str]]) -> tuple[float | None, str]:
+    def _resolve_bias(metric_field: str, candidates: list[tuple[str, str, str]]) -> tuple[float | None, str, int]:
         if enriched.empty or metric_field not in enriched.columns:
-            return None, "unavailable"
+            return None, "unavailable", 0
         usable = enriched.loc[enriched[metric_field].notna()].copy()
         if usable.empty:
-            return None, "unavailable"
+            return None, "unavailable", 0
         for field_name, field_value, label in candidates:
             if not field_value or field_name not in usable.columns:
                 continue
             subset = usable.loc[usable[field_name].astype(str) == field_value]
             if len(subset) >= min_samples:
-                return round_price(float(subset[metric_field].mean())), label
+                return round_price(float(subset[metric_field].mean())), label, int(len(subset))
         if len(usable) >= min_samples:
-            return round_price(float(usable[metric_field].mean())), "overall"
-        return None, "insufficient"
+            return round_price(float(usable[metric_field].mean())), "overall", int(len(usable))
+        return None, "insufficient", int(len(usable))
 
-    prediction_bias, prediction_bias_source = _resolve_bias("prediction_error_signed", prediction_sources)
-    slippage_bias, slippage_bias_source = _resolve_bias("fill_slippage_signed", slippage_sources)
+    prediction_bias, prediction_bias_source, prediction_sample_count = _resolve_bias("prediction_error_signed", prediction_sources)
+    slippage_bias, slippage_bias_source, slippage_sample_count = _resolve_bias("fill_slippage_signed", slippage_sources)
     calibrated_entry_mark = round_price(base_entry + prediction_bias) if prediction_bias is not None else None
     expected_fill_mark = round_price(calibrated_entry_mark + slippage_bias) if calibrated_entry_mark is not None and slippage_bias is not None else None
+    usable_sample_count = max(prediction_sample_count, slippage_sample_count)
+    evidence_label = (
+        "Strong Evidence"
+        if usable_sample_count >= min_samples and calibrated_entry_mark is not None
+        else "Limited Evidence"
+        if usable_sample_count > 0
+        else "No Evidence"
+    )
 
     return {
         "calibrated_entry_mark": calibrated_entry_mark,
@@ -4007,6 +4018,9 @@ def resolve_calibration_preview(
         "slippage_bias_used": slippage_bias,
         "prediction_bias_source": prediction_bias_source,
         "slippage_bias_source": slippage_bias_source,
+        "prediction_sample_count": prediction_sample_count,
+        "slippage_sample_count": slippage_sample_count,
+        "evidence_label": evidence_label,
         "sufficient_data": calibrated_entry_mark is not None,
     }
 
@@ -6076,6 +6090,31 @@ def resolve_final_trade_status(
     }
 
 
+def build_calibration_bias_note(calibration_preview: dict[str, Any] | None) -> str:
+    """Build a short operator-facing calibration note."""
+
+    if not calibration_preview:
+        return ""
+
+    notes: list[str] = []
+    prediction_bias = _to_float_or_none(calibration_preview.get("prediction_bias_used"))
+    slippage_bias = _to_float_or_none(calibration_preview.get("slippage_bias_used"))
+
+    if prediction_bias is not None:
+        if prediction_bias > 0:
+            notes.append("Historically underpriced")
+        elif prediction_bias < 0:
+            notes.append("Historically overpriced")
+
+    if slippage_bias is not None:
+        if slippage_bias > 0:
+            notes.append("Fill usually worse")
+        elif slippage_bias < 0:
+            notes.append("Fill usually better")
+
+    return " | ".join(notes[:2])
+
+
 
 def render_play_card(
     title: str,
@@ -6093,6 +6132,7 @@ def render_play_card(
     current_spx_price: float | None = None,
     planned_anchor_key: str | None = None,
     session_plan: dict[str, Any] | None = None,
+    calibration_preview: dict[str, Any] | None = None,
 ) -> None:
     """Render a single structured play card."""
 
@@ -6163,6 +6203,10 @@ def render_play_card(
     pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
     planned_entry_mark = format_price(intelligence.get("planned_entry_mark")) if intelligence.get("planned_entry_mark") is not None else "-"
     live_predicted_mark = format_price(intelligence.get("live_predicted_entry_mark")) if intelligence.get("live_predicted_entry_mark") is not None else "-"
+    calibrated_entry_mark = format_price(calibration_preview.get("calibrated_entry_mark")) if calibration_preview and calibration_preview.get("calibrated_entry_mark") is not None else "-"
+    expected_fill_mark = format_price(calibration_preview.get("expected_fill_mark")) if calibration_preview and calibration_preview.get("expected_fill_mark") is not None else "-"
+    calibration_evidence = str(calibration_preview.get("evidence_label", "No Evidence")) if calibration_preview else "No Evidence"
+    calibration_bias_note = build_calibration_bias_note(calibration_preview)
     locked_entry_value = format_price(intelligence.get("locked_entry_spx")) if intelligence.get("locked_entry_spx") is not None else format_price(play["entry"]["price"])
     drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
     drift_text = (
@@ -6209,7 +6253,7 @@ def render_play_card(
         <div class="spx-best-contract">
             <div class="spx-best-contract-title">Best Contract</div>
             <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
-            <div class="spx-best-contract-meta">Mark {mark_value} | {pred_label} {live_predicted_mark} | RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} | Score {contract_score}</div>
+            <div class="spx-best-contract-meta">Mark {mark_value} | Pred {live_predicted_mark} | Cal {calibrated_entry_mark} | Fill {expected_fill_mark} | RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} | Score {contract_score}</div>
         </div>
         """
 
@@ -6287,19 +6331,41 @@ def render_play_card(
                     <div class="spx-metric-value">{stop_display}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Move Completion</div>
-                    <div class="spx-metric-value">{move_completion_display}</div>
+                    <div class="spx-metric-label">Predicted</div>
+                    <div class="spx-metric-value">{live_predicted_mark}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Zone</div>
-                    <div class="spx-metric-value">{escape(zone_display)}</div>
+                    <div class="spx-metric-label">Calibrated</div>
+                    <div class="spx-metric-value">{calibrated_entry_mark}</div>
                 </div>
                 <div class="spx-metric-block layer2">
-                    <div class="spx-metric-label">Suggested Stop</div>
-                    <div class="spx-metric-value">{suggested_stop_display}</div>
+                    <div class="spx-metric-label">Expected Fill</div>
+                    <div class="spx-metric-value">{expected_fill_mark}</div>
                 </div>
             </div>
             <div class="spx-metric-grid tertiary">
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Evidence</div>
+                    <div class="spx-metric-value">{escape(calibration_evidence)}</div>
+                </div>
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Bias</div>
+                    <div class="spx-metric-value">{escape(calibration_bias_note or "-")}</div>
+                </div>
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Move</div>
+                    <div class="spx-metric-value">{move_completion_display}</div>
+                </div>
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Zone</div>
+                    <div class="spx-metric-value">{escape(zone_display)}</div>
+                </div>
+            </div>
+            <div class="spx-metric-grid tertiary">
+                <div class="spx-metric-block layer3">
+                    <div class="spx-metric-label">Suggested Stop</div>
+                    <div class="spx-metric-value">{suggested_stop_display}</div>
+                </div>
                 <div class="spx-metric-block layer3{' muted' if decision_suppressed else ''}">
                     <div class="spx-metric-label">Gain</div>
                     <div class="spx-metric-value">{expected_gain}</div>
@@ -6386,6 +6452,15 @@ def render_play_card(
                 f"Final: {(status_breakdown or {}).get('final_status', visible_status)} | "
                 f"Decision: {(status_breakdown or {}).get('final_decision', action_label)} | "
                 f"Downgrade reason: {intelligence['downgrade_reason']}"
+            )
+            st.caption(
+                f"Calibration evidence: {calibration_evidence} | "
+                f"Prediction bias source: {(calibration_preview or {}).get('prediction_bias_source', 'unavailable')} | "
+                f"Prediction samples: {(calibration_preview or {}).get('prediction_sample_count', 0)} | "
+                f"Prediction bias: {format_price((calibration_preview or {}).get('prediction_bias_used')) if (calibration_preview or {}).get('prediction_bias_used') is not None else 'Unavailable'} | "
+                f"Slippage source: {(calibration_preview or {}).get('slippage_bias_source', 'unavailable')} | "
+                f"Slippage samples: {(calibration_preview or {}).get('slippage_sample_count', 0)} | "
+                f"Slippage bias: {format_price((calibration_preview or {}).get('slippage_bias_used')) if (calibration_preview or {}).get('slippage_bias_used') is not None else 'Unavailable'}"
             )
 
 def render_projection_verification(
@@ -8337,6 +8412,8 @@ def render_live_mode_shell(
         }
         primary_lead_option = lead_option_map.get("Primary Contracts")
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
+        saved_trades, _ = load_trades()
+        normalized_calibration_trades = [normalize_trade_record(trade) for trade in saved_trades]
         primary_pre_intelligence = assess_trade_intelligence(
             primary_play_spx,
             primary_lead_option,
@@ -8370,6 +8447,40 @@ def render_live_mode_shell(
             intelligence=alternate_pre_intelligence,
             next_trading_date=inputs["next_trading_date"],
             cutoff_label=inputs["session_plan_lock_cutoff"],
+        )
+        primary_calibration_preview = (
+            resolve_calibration_preview(
+                normalized_calibration_trades,
+                build_live_play_trade_prefill(
+                    signal_package=signal_package,
+                    play_type="primary",
+                    play_spx=primary_play_spx,
+                    play_es=primary_play_es,
+                    lead_option_quote=primary_lead_option,
+                    intelligence=primary_pre_intelligence,
+                    final_status=final_status_to_action("ELIGIBLE", signal_package),
+                    final_decision=final_status_to_action("ELIGIBLE", signal_package),
+                ),
+            )
+            if signal_package is not None and primary_play_spx is not None
+            else None
+        )
+        alternate_calibration_preview = (
+            resolve_calibration_preview(
+                normalized_calibration_trades,
+                build_live_play_trade_prefill(
+                    signal_package=signal_package,
+                    play_type="alternate",
+                    play_spx=alternate_play_spx,
+                    play_es=alternate_play_es,
+                    lead_option_quote=alternate_lead_option,
+                    intelligence=alternate_pre_intelligence,
+                    final_status=final_status_to_action("ELIGIBLE", signal_package),
+                    final_decision=final_status_to_action("ELIGIBLE", signal_package),
+                ),
+            )
+            if signal_package is not None and alternate_play_spx is not None
+            else None
         )
         final_status_breakdown = resolve_final_trade_status(
             signal_package,
@@ -8452,9 +8563,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
