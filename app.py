@@ -6568,7 +6568,7 @@ def assess_trade_intelligence(
     """Assess forward-facing trade quality without changing scenario logic."""
 
     entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play, dict) else None
-    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
+    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play, dict) and isinstance(play.get("stop"), dict) else None
     target_leg = play.get("tp1") if isinstance(play, dict) and isinstance(play.get("tp1"), dict) else None
     if not target_leg:
         target_leg = play.get("tp2") if isinstance(play, dict) and isinstance(play.get("tp2"), dict) else None
@@ -6886,7 +6886,7 @@ def render_play_card(
         play = align_play_conversion_to_effective_offset(play, play_es, effective_offset)
     entry_line_es = resolve_line_from_projected_bundle(projected_lines_es, play["entry"]["label"])
     entry_es_value = entry_line_es["projected_price"] if entry_line_es is not None else (_to_float_or_none(play_es.get("entry", {}).get("price")) if play_es else None)
-    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play.get("stop"), dict) else None
+    stop_price = _to_float_or_none(play.get("stop", {}).get("price")) if isinstance(play, dict) and isinstance(play.get("stop"), dict) else None
     entry_price = _to_float_or_none(play.get("entry", {}).get("price")) if isinstance(play.get("entry"), dict) else None
     stop_quality = classify_stop_quality(entry_price, stop_price) if stop_price is not None and not play.get("invalid_stop") else {"label": "Unavailable", "distance": None}
     intelligence = assess_trade_intelligence(
