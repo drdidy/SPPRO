@@ -432,6 +432,20 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
             }
         return chosen_date, chain.get(chosen_date, [])
 
+    @staticmethod
+    def _candidate_underlyings(request: OptionLookupRequest) -> list[str]:
+        """Return underlying symbols to try for tastytrade chain resolution."""
+
+        base = str(request.underlying_symbol or "").strip().upper() or "SPX"
+        candidates = [base]
+        if base == "SPX":
+            candidates.append("SPXW")
+        deduped: list[str] = []
+        for symbol in candidates:
+            if symbol not in deduped:
+                deduped.append(symbol)
+        return deduped
+
     async def _fetch_option_chain_async(self, request: OptionLookupRequest, diagnostics: dict[str, Any]) -> tuple[list[OptionCandidate], str]:
         """Fetch a real option chain slice and rank candidate contracts."""
 
@@ -439,69 +453,115 @@ class TastytradeProviderSkeleton(OptionsProviderBase):
         diagnostics["active_environment"] = self._active_environment_label()
         diagnostics["request"] = request.to_dict()
         sdk_session = self._build_sdk_session(diagnostics)
+        underlying_candidates = self._candidate_underlyings(request)
         diagnostics["symbol_resolution"] = {
-            "underlying_symbol": request.underlying_symbol,
+            "requested_underlying": request.underlying_symbol,
+            "underlying_candidates": underlying_candidates,
             "direction": request.direction,
             "option_type": request.resolved_option_type(),
             "requested_strike": request.strike,
+            "lookup_attempts": [],
         }
-        option_chain = await get_option_chain(sdk_session, request.underlying_symbol)
-        diagnostics["chain_lookup"] = {"success": True, "message": f"Loaded option chain for {request.underlying_symbol}."}
-        expiration_date, options = self._pick_expiration(option_chain, request, diagnostics)
-        if expiration_date is None or not options:
-            diagnostics["strike_resolution"] = {
-                "requested_strike": request.strike,
-                "available_nearby_strikes": [],
-                "reason": "No usable expiration or contracts returned.",
-            }
-            return [], "no_contracts"
-
         desired_type = request.resolved_option_type()
         desired_type_lower = desired_type.lower()
-        filtered = [
-            option
-            for option in options
-            if str(option.option_type).lower().endswith(desired_type_lower)
-            and bool(option.active)
-            and not bool(option.is_closing_only)
-        ]
-        if not filtered:
-            diagnostics["strike_resolution"] = {
-                "requested_strike": request.strike,
-                "available_nearby_strikes": [],
-                "reason": f"No active {desired_type} contracts were available in the chosen expiration.",
-            }
-            return [], "no_matching_contracts"
+        last_status = "no_contracts"
 
-        available_strikes = sorted({int(float(option.strike_price)) for option in filtered})
-        filtered.sort(
-            key=lambda option: (
-                abs(float(option.strike_price) - float(request.strike)),
-                option.days_to_expiration,
-                float(option.strike_price),
-            )
-        )
-        selected = filtered[:5]
+        for underlying_symbol in underlying_candidates:
+            attempt: dict[str, Any] = {
+                "underlying": underlying_symbol,
+                "chain_loaded": False,
+                "expiration_count": 0,
+                "chosen_expiration": None,
+                "filtered_contract_count": 0,
+                "has_exact_strike": False,
+                "nearby_strikes": [],
+                "status": "pending",
+                "reason": "",
+            }
+            try:
+                option_chain = await get_option_chain(sdk_session, underlying_symbol)
+                attempt["chain_loaded"] = True
+                attempt["expiration_count"] = len(option_chain)
+                diagnostics["chain_lookup"] = {"success": True, "message": f"Loaded option chain for {underlying_symbol}."}
+                expiration_date, options = self._pick_expiration(option_chain, request, diagnostics)
+                attempt["chosen_expiration"] = expiration_date.isoformat() if expiration_date else None
+                if expiration_date is None or not options:
+                    attempt["status"] = "no_contracts"
+                    attempt["reason"] = "No usable expiration or contracts returned."
+                    diagnostics["symbol_resolution"]["lookup_attempts"].append(attempt)
+                    last_status = "no_contracts"
+                    continue
+
+                filtered = [
+                    option
+                    for option in options
+                    if str(option.option_type).lower().endswith(desired_type_lower)
+                    and bool(option.active)
+                    and not bool(option.is_closing_only)
+                ]
+                available_strikes = sorted({int(float(option.strike_price)) for option in filtered})
+                attempt["filtered_contract_count"] = len(filtered)
+                attempt["has_exact_strike"] = int(request.strike) in available_strikes
+                attempt["nearby_strikes"] = available_strikes[:15]
+                if not filtered:
+                    attempt["status"] = "no_matching_contracts"
+                    attempt["reason"] = f"No active {desired_type} contracts were available in the chosen expiration."
+                    diagnostics["symbol_resolution"]["lookup_attempts"].append(attempt)
+                    last_status = "no_matching_contracts"
+                    continue
+
+                filtered.sort(
+                    key=lambda option: (
+                        abs(float(option.strike_price) - float(request.strike)),
+                        option.days_to_expiration,
+                        float(option.strike_price),
+                    )
+                )
+                selected = filtered[:5]
+                diagnostics["symbol_resolution"]["normalized_underlying_used"] = underlying_symbol
+                diagnostics["expiration_resolution"]["requested_date"] = request.trade_date
+                diagnostics["expiration_resolution"]["chosen_expiration"] = expiration_date.isoformat()
+                diagnostics["strike_resolution"] = {
+                    "requested_strike": request.strike,
+                    "exact_strike_exists": int(request.strike) in available_strikes,
+                    "available_nearby_strikes": available_strikes[:15],
+                    "selected_strikes": [int(float(option.strike_price)) for option in selected],
+                    "reason": "Sorted by nearest strike, then nearest expiration and strike value.",
+                }
+                attempt["status"] = "ok"
+                attempt["reason"] = "Contracts found."
+                diagnostics["symbol_resolution"]["lookup_attempts"].append(attempt)
+                candidates = [
+                    OptionCandidate(
+                        symbol=option.symbol,
+                        expiration_date=option.expiration_date.isoformat(),
+                        strike=int(float(option.strike_price)),
+                        right=desired_type,
+                        provider=self.provider_name,
+                        status="live",
+                        note="",
+                        streamer_symbol=option.streamer_symbol,
+                    )
+                    for option in selected
+                ]
+                return candidates, "ok"
+            except Exception as exc:
+                attempt["status"] = "error"
+                attempt["reason"] = f"{exc.__class__.__name__}: {exc}"
+                diagnostics["symbol_resolution"]["lookup_attempts"].append(attempt)
+                last_status = "no_contracts"
+
         diagnostics["strike_resolution"] = {
             "requested_strike": request.strike,
-            "available_nearby_strikes": available_strikes[:15],
-            "selected_strikes": [int(float(option.strike_price)) for option in selected],
-            "reason": "Sorted by nearest strike, then nearest expiration and strike value.",
+            "exact_strike_exists": False,
+            "available_nearby_strikes": [],
+            "selected_strikes": [],
+            "reason": "No matching contracts were found across the tested underlying symbols.",
         }
-        candidates = [
-            OptionCandidate(
-                symbol=option.symbol,
-                expiration_date=option.expiration_date.isoformat(),
-                strike=int(float(option.strike_price)),
-                right=desired_type,
-                provider=self.provider_name,
-                status="live",
-                note="",
-                streamer_symbol=option.streamer_symbol,
-            )
-            for option in selected
-        ]
-        return candidates, "ok"
+        if diagnostics["symbol_resolution"]["lookup_attempts"]:
+            matches = [attempt for attempt in diagnostics["symbol_resolution"]["lookup_attempts"] if attempt["status"] == "ok"]
+            diagnostics["symbol_resolution"]["matched_underlyings"] = [attempt["underlying"] for attempt in matches]
+        return [], last_status
 
     async def _fetch_live_quotes_async(self, streamer_symbols: list[str], diagnostics: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Fetch quote, trade, and summary events for the supplied symbols."""

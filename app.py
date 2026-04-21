@@ -2574,6 +2574,22 @@ def render_options_provider_preview(
                 st.write(f"Environment: {provider_diagnostics.get('active_environment') or provider_status.get('active_environment', 'sandbox')}")
                 st.write(f"Token message: {provider_diagnostics.get('token_retrieval', {}).get('message') or 'None'}")
                 st.write(f"Failure message: {provider_diagnostics.get('failure_message') or 'None'}")
+                symbol_resolution = provider_diagnostics.get("symbol_resolution", {})
+                expiration_resolution = provider_diagnostics.get("expiration_resolution", {})
+                strike_resolution = provider_diagnostics.get("strike_resolution", {})
+                if symbol_resolution:
+                    st.write(f"Requested underlying: {symbol_resolution.get('requested_underlying') or 'None'}")
+                    st.write(f"Underlying candidates: {symbol_resolution.get('underlying_candidates') or []}")
+                    st.write(f"Resolved underlying: {symbol_resolution.get('normalized_underlying_used') or 'None'}")
+                    st.write(f"Lookup attempts: {symbol_resolution.get('lookup_attempts') or []}")
+                if expiration_resolution:
+                    st.write(f"Expiration target: {expiration_resolution.get('requested_date') or 'None'}")
+                    st.write(f"Returned expirations: {expiration_resolution.get('returned_expirations') or []}")
+                    st.write(f"Chosen expiration: {expiration_resolution.get('chosen_expiration') or 'None'}")
+                if strike_resolution:
+                    st.write(f"Strike target: {strike_resolution.get('requested_strike')}")
+                    st.write(f"Exact strike exists: {strike_resolution.get('exact_strike_exists')}")
+                    st.write(f"Nearby strikes: {strike_resolution.get('available_nearby_strikes') or []}")
                 st.json(provider_diagnostics, expanded=False)
 
 
