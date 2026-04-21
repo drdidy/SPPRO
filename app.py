@@ -840,7 +840,7 @@ def inject_app_styles() -> None:
             overflow: hidden;
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 28px;
-            padding: 1.35rem 1.35rem 1.1rem 1.35rem;
+            padding: 1.1rem 1.2rem 0.95rem 1.2rem;
             background:
                 radial-gradient(circle at 12% 18%, rgba(0, 212, 255, 0.16), transparent 24%),
                 radial-gradient(circle at 88% 0%, rgba(255, 90, 118, 0.12), transparent 22%),
@@ -927,12 +927,12 @@ def inject_app_styles() -> None:
         .spx-hero-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.9rem;
+            gap: 0.75rem;
         }
         .spx-hero-stat {
             border: 1px solid rgba(255,255,255,0.08);
             border-radius: 20px;
-            padding: 0.95rem 1rem;
+            padding: 0.82rem 0.9rem;
             background: rgba(255,255,255,0.03);
             backdrop-filter: blur(8px);
         }
@@ -946,15 +946,78 @@ def inject_app_styles() -> None:
         }
         .spx-hero-stat-value {
             font-family: "JetBrains Mono", monospace;
-            font-size: 1.28rem;
+            font-size: 1.16rem;
             font-weight: 700;
             color: #f8fbff;
             line-height: 1.2;
         }
         .spx-hero-stat-note {
             color: var(--spx-muted);
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             margin-top: 0.3rem;
+        }
+        .spx-decision-action {
+            font-family: var(--spx-font-sans);
+            font-size: 2.2rem;
+            font-weight: 850;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            color: #f8fbff;
+            margin: 0.05rem 0 0.45rem 0;
+        }
+        .spx-decision-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.38rem;
+            margin-bottom: 0.2rem;
+        }
+        .spx-decision-strip {
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 18px;
+            padding: 0.72rem 0.88rem;
+            background: rgba(255,255,255,0.03);
+        }
+        .spx-decision-strip-label {
+            color: var(--spx-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.68rem;
+            font-weight: 700;
+            margin-bottom: 0.18rem;
+        }
+        .spx-decision-strip-value {
+            color: #f8fbff;
+            font-family: var(--spx-font-mono);
+            font-size: 1.22rem;
+            font-weight: 760;
+            line-height: 1.15;
+        }
+        .spx-best-contract {
+            border: 1px solid rgba(0,212,255,0.16);
+            background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(255,255,255,0.02));
+            border-radius: 16px;
+            padding: 0.75rem 0.85rem;
+            margin-bottom: 0.7rem;
+        }
+        .spx-best-contract-title {
+            color: #7fe7ff;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-size: 0.68rem;
+            font-weight: 800;
+            margin-bottom: 0.28rem;
+        }
+        .spx-best-contract-symbol {
+            color: #f8fbff;
+            font-family: var(--spx-font-mono);
+            font-size: 0.98rem;
+            font-weight: 760;
+            margin-bottom: 0.22rem;
+        }
+        .spx-best-contract-meta {
+            color: #dce8f8;
+            font-size: 0.82rem;
+            line-height: 1.45;
         }
         .spx-banner {
             position: relative;
@@ -1371,14 +1434,30 @@ def status_chip_class(status_label: str) -> tuple[str, str]:
     return "bad", "!"
 
 
+def final_status_to_action(final_status: str | None, signal_package: dict[str, Any] | None) -> str:
+    """Map internal final status to one operator-facing action label."""
+
+    if signal_package is None:
+        return "WAIT"
+
+    normalized = str(final_status or "").upper()
+    if normalized == "ELIGIBLE":
+        return "ENTER NOW"
+    if normalized == "ELIGIBLE WITH CAUTION":
+        return "ENTER WITH CAUTION"
+    return "SKIP TRADE"
+
+
 def render_tab1_hero(
     signal_package: dict[str, Any] | None,
     current_spx_price: float | None,
     current_es_price: float | None,
     effective_offset: float,
     final_status: str | None = None,
+    primary_play: dict[str, Any] | None = None,
+    lead_option_quote: dict[str, Any] | None = None,
 ) -> None:
-    """Render the compact Tab 1 hero header."""
+    """Render the compact live decision center."""
 
     if signal_package is None:
         scenario_name = "Awaiting Valid SPX Input"
@@ -1386,6 +1465,8 @@ def render_tab1_hero(
         status_label = "Workflow Limited"
         status_class = "bad"
         status_icon = "!"
+        action_label = "WAIT"
+        quality_label = "Pending"
     else:
         scenario = signal_package["scenario"]
         scenario_name = scenario["scenario_name"]
@@ -1394,25 +1475,49 @@ def render_tab1_hero(
         status_class, status_icon = status_chip_class(status_label)
         sit_out = {"sit_out": status_label != "ELIGIBLE"}
         status_icon = "●" if not sit_out["sit_out"] else "!"
+        action_label = final_status_to_action(status_label, signal_package)
+        quality_label = assess_trade_intelligence(primary_play, lead_option_quote).get("quality", "Pending")
 
     confidence_tone = get_confidence_tone(confidence)
     current_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
+    entry_spx = format_price(primary_play["entry"]["price"]) if primary_play and primary_play.get("entry") else "-"
+    strike_value = str(primary_play["strike"]) if primary_play and primary_play.get("strike") is not None else "-"
 
     st.markdown(
         f"""
         <div class="spx-hero">
             <div class="spx-hero-top">
                 <div>
-                    <div class="spx-hero-kicker">Decision Screen</div>
-                    <div class="spx-hero-title">{escape(scenario_name)}</div>
-                    <div class="spx-banner-meta">
+                    <div class="spx-hero-kicker">Decision Center</div>
+                    <div class="spx-decision-action">{escape(action_label)}</div>
+                    <div class="spx-decision-meta">
+                        <span class="spx-pill scenario-neutral">{escape(scenario_name)}</span>
                         <span class="spx-pill conf-{confidence_tone}">Confidence {escape(confidence)}</span>
+                        <span class="spx-pill scenario-neutral">Quality {escape(quality_label)}</span>
                     </div>
                 </div>
                 <div class="spx-hero-status">
                     <div class="spx-hero-status-label">Current Price (ES)</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2.1rem; font-weight:800; color:#f8fbff; text-shadow:0 0 20px rgba(0,212,255,0.22); margin-bottom:0.65rem;">{current_display}</div>
-                    <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(status_label)}</span></div>
+                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; text-shadow:0 0 20px rgba(0,212,255,0.22); margin-bottom:0.55rem;">{current_display}</div>
+                    <div class="spx-status-chip {status_class}"><span>{status_icon}</span><span>{escape(action_label)}</span></div>
+                </div>
+            </div>
+            <div class="spx-hero-grid">
+                <div class="spx-decision-strip">
+                    <div class="spx-decision-strip-label">Entry</div>
+                    <div class="spx-decision-strip-value">{entry_spx} SPX</div>
+                </div>
+                <div class="spx-decision-strip">
+                    <div class="spx-decision-strip-label">Strike</div>
+                    <div class="spx-decision-strip-value">{strike_value}</div>
+                </div>
+                <div class="spx-decision-strip">
+                    <div class="spx-decision-strip-label">Current ES</div>
+                    <div class="spx-decision-strip-value">{current_display}</div>
+                </div>
+                <div class="spx-decision-strip">
+                    <div class="spx-decision-strip-label">Offset</div>
+                    <div class="spx-decision-strip-value">{format_price(effective_offset)}</div>
                 </div>
             </div>
         </div>
@@ -4467,19 +4572,17 @@ def render_trade_decision_summary(
 
     scenario = signal_package["scenario"]
     primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
-    scenario_name = scenario["scenario_name"]
-    primary_direction = primary_play["direction"] if primary_play else "None"
-    entry_line = primary_play["entry"]["label"] if primary_play else "None"
-    contracts = str(primary_play["contracts"]) if primary_play else "0"
+    action_label = final_status_to_action(final_status, signal_package)
+    primary_direction = primary_play["direction"] if primary_play else "-"
+    entry_value = format_price(primary_play["entry"]["price"]) if primary_play else "-"
     strike = str(primary_play["strike"]) if primary_play else "-"
 
     st.markdown(
         f"""
         <div class="spx-summary">
-            <div class="spx-summary-title">Trade Decision Summary</div>
+            <div class="spx-summary-title">Trade Summary</div>
             <div class="spx-summary-body">
-                Scenario: {scenario_name} | Primary: {primary_direction} | Entry: {entry_line} |
-                Contracts: {contracts} | Strike: {strike} | Status: {final_status}
+                {action_label} | {primary_direction} | Entry {entry_value} SPX | Strike {strike}
             </div>
         </div>
         """,
@@ -4679,18 +4782,12 @@ def render_play_card(
     intelligence["stop_quality"] = stop_quality["label"]
 
     with st.container(border=True):
-        st.markdown(f"**{title}**")
-        st.markdown(f"**{play['direction']}** | Strike `{play['strike']}` | `{play['contracts']}` contracts")
-        st.markdown(
-            "Entry "
-            f"`{format_price(play['entry']['price'])} SPX`"
-            f" | ES `{format_price(entry_es_value) if entry_es_value is not None else '-'}`"
-        )
-        if play.get("stop") and not play.get("invalid_stop"):
-            st.markdown(f"Stop `{format_price(play['stop']['price'])} SPX`")
-        else:
-            st.markdown("**Stop** unavailable")
-            st.caption("Setup incomplete until a structural stop is available.")
+        is_primary = "alternate" not in title.lower()
+        visible_status = final_status or intelligence["status"]
+        action_label = final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
+        card_heading = "### Primary Trade" if is_primary else "#### Alternate Trade"
+        st.markdown(card_heading)
+        st.caption(" • ".join([play["direction"], f"Strike {play['strike']}", action_label]))
 
         mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
         predicted_entry_mark = format_price(lead_option_quote.get("predicted_entry_price")) if lead_option_quote and lead_option_quote.get("predicted_entry_price") is not None else "-"
@@ -4698,7 +4795,6 @@ def render_play_card(
         expected_loss = format_price(lead_option_quote.get("expected_loss")) if lead_option_quote and lead_option_quote.get("expected_loss") is not None else "-"
         rr_value = str(lead_option_quote.get("rr_ratio")) if lead_option_quote and lead_option_quote.get("rr_ratio") is not None else "-"
         contract_score = str(lead_option_quote.get("contract_score")) if lead_option_quote and lead_option_quote.get("contract_score") is not None else "-"
-        visible_status = final_status or intelligence["status"]
         detail_bits: list[str] = []
         if not compact and lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
             detail_bits.append(
@@ -4706,17 +4802,59 @@ def render_play_card(
                 f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / {format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}",
             )
 
-        st.markdown(f"Option Mark `{mark_value}`")
-        st.caption(" | ".join([f"Pred Entry {predicted_entry_mark}", f"Gain {expected_gain}", f"Loss {expected_loss}", f"RR {rr_value}" if intelligence.get("rr_ratio") is not None else "RR -"]))
-        st.caption(" | ".join([f"Regime {intelligence.get('regime', '-')}", f"Plan {intelligence.get('plan_status', '-')}", f"Chase {intelligence.get('chase_status', '-')}", f"Score {contract_score}"]))
-        st.caption(" | ".join([f"Stop Quality {stop_quality['label']}", f"Trade Quality {intelligence['quality']}", f"Status {visible_status}"]))
-        if stop_price is not None and intelligence.get("suggested_stop") is not None:
-            st.caption(" | ".join([f"Structural Stop {format_price(stop_price)}", f"Suggested Stop {format_price(intelligence['suggested_stop'])}"]))
+        top_left, top_right = st.columns([1.25, 1.0])
+        with top_left:
+            st.markdown(
+                f"**Entry** `{format_price(play['entry']['price'])} SPX`  \n"
+                f"ES `{format_price(entry_es_value) if entry_es_value is not None else '-'}`"
+            )
+            st.markdown(
+                f"**Stop** `{format_price(play['stop']['price'])} SPX`"
+                if play.get("stop") and not play.get("invalid_stop")
+                else "**Stop** `Unavailable`"
+            )
+        with top_right:
+            st.markdown(f"**Mark** `{mark_value}`")
+            st.markdown(f"**Pred** `{predicted_entry_mark}`")
+
+        mid_left, mid_right, mid_far = st.columns(3)
+        with mid_left:
+            st.markdown(f"**RR** `{rr_value if intelligence.get('rr_ratio') is not None else '-'}`")
+        with mid_right:
+            st.markdown(f"**Quality** `{intelligence['quality']}`")
+        with mid_far:
+            st.markdown(f"**Score** `{contract_score}`")
+
+        st.caption(
+            " • ".join(
+                [
+                    f"Gain {expected_gain}",
+                    f"Loss {expected_loss}",
+                    f"Stop {stop_quality['label']}",
+                    f"Regime {intelligence.get('regime', '-')}",
+                    f"Chase {intelligence.get('chase_status', '-')}",
+                ]
+            )
+        )
+        if stop_price is not None or intelligence.get("suggested_stop") is not None:
+            stop_bits = []
+            stop_bits.append(f"Structural Stop {format_price(stop_price)}" if stop_price is not None else "Structural Stop -")
+            stop_bits.append(f"Suggested Stop {format_price(intelligence['suggested_stop'])}" if intelligence.get("suggested_stop") is not None else "Suggested Stop -")
+            st.caption(" • ".join(stop_bits))
         if detail_bits:
             st.caption(" | ".join(detail_bits))
 
         if lead_option_quote and lead_option_quote.get("contract_symbol"):
-            st.caption(f"Best Contract {lead_option_quote['contract_symbol']}")
+            st.markdown(
+                f"""
+                <div class="spx-best-contract">
+                    <div class="spx-best-contract-title">Best Contract</div>
+                    <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
+                    <div class="spx-best-contract-meta">Mark {mark_value} • Pred {predicted_entry_mark} • RR {rr_value if intelligence.get('rr_ratio') is not None else '-'} • Score {contract_score}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         button_key = f"use_play_{title.lower().replace(' ', '_')}"
         if st.button("Use This Play", key=button_key, use_container_width=True):
             signal_package = st.session_state.get("current_signal_package")
@@ -6538,7 +6676,15 @@ def render_live_mode_shell(
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
         final_status_breakdown = resolve_final_trade_status(signal_package, primary_play_spx, primary_lead_option)
         final_status = final_status_breakdown["final_status"]
-        render_tab1_hero(signal_package, inputs["current_spx_price"], inputs["current_es_price"], effective_offset, final_status=final_status if signal_package is not None else None)
+        render_tab1_hero(
+            signal_package,
+            inputs["current_spx_price"],
+            inputs["current_es_price"],
+            effective_offset,
+            final_status=final_status if signal_package is not None else None,
+            primary_play=primary_play_spx,
+            lead_option_quote=primary_lead_option,
+        )
         if signal_package is not None:
             render_trade_decision_summary(signal_package, final_projected_lines, final_status=final_status)
         else:
