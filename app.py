@@ -3069,12 +3069,32 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "live_predicted_entry_mark": round_price(float(raw_trade.get("live_predicted_entry_mark", raw_trade.get("predicted_entry_price", 0.0)))),
         "lock_cutoff": str(raw_trade.get("lock_cutoff", "")),
         "session_plan_locked": bool(raw_trade.get("session_plan_locked", False)),
+        "locked_timestamp": str(raw_trade.get("locked_timestamp", "")),
         "locked_entry_spx": round_price(float(raw_trade.get("locked_entry_spx", raw_trade.get("entry_spx", 0.0)))),
+        "locked_entry_es": round_price(float(raw_trade.get("locked_entry_es", raw_trade.get("entry_es", 0.0)))),
         "locked_entry_mark": round_price(float(raw_trade.get("locked_entry_mark", raw_trade.get("planned_entry_mark", raw_trade.get("predicted_entry_price", 0.0))))),
+        "locked_strike": str(raw_trade.get("locked_strike", raw_trade.get("strike_or_contract_label", ""))),
+        "locked_direction": str(raw_trade.get("locked_direction", raw_trade.get("direction", ""))),
+        "locked_stop_spx": round_price(float(raw_trade.get("locked_stop_spx", raw_trade.get("stop_value", 0.0)))),
+        "locked_suggested_stop_spx": round_price(float(raw_trade.get("locked_suggested_stop_spx", raw_trade.get("suggested_stop_spx", 0.0)))),
+        "locked_expected_gain": round_price(float(raw_trade.get("locked_expected_gain", raw_trade.get("expected_gain", 0.0)))),
+        "locked_expected_loss": round_price(float(raw_trade.get("locked_expected_loss", raw_trade.get("expected_loss", 0.0)))),
+        "locked_rr_ratio": round(float(raw_trade.get("locked_rr_ratio", raw_trade.get("rr_ratio", 0.0))), 3),
+        "locked_contract_symbol": str(raw_trade.get("locked_contract_symbol", raw_trade.get("selected_contract_symbol", ""))),
+        "locked_contract_score": round(float(raw_trade.get("locked_contract_score", raw_trade.get("contract_score", 0.0))), 4),
+        "play_role": str(raw_trade.get("play_role", raw_trade.get("play_type", ""))),
+        "plan_locked": bool(raw_trade.get("plan_locked", raw_trade.get("session_plan_locked", False))),
+        "lock_cutoff_used": str(raw_trade.get("lock_cutoff_used", raw_trade.get("lock_cutoff", ""))),
+        "plan_locked_timestamp": str(raw_trade.get("plan_locked_timestamp", raw_trade.get("locked_timestamp", ""))),
+        "final_decision_at_lock": str(raw_trade.get("final_decision_at_lock", raw_trade.get("final_decision", ""))),
         "entry_zone_status": str(raw_trade.get("entry_zone_status", "")),
         "move_completion_pct": round(float(raw_trade.get("move_completion_pct", 0.0)), 2),
         "current_mark": round_price(float(raw_trade.get("current_mark", raw_trade.get("option_mark_at_decision", 0.0)))),
+        "current_spx_at_decision": round_price(float(raw_trade.get("current_spx_at_decision", raw_trade.get("entry_spx", 0.0)))),
+        "current_es_at_decision": round_price(float(raw_trade.get("current_es_at_decision", raw_trade.get("entry_es", 0.0)))),
+        "current_mark_at_decision": round_price(float(raw_trade.get("current_mark_at_decision", raw_trade.get("current_mark", raw_trade.get("option_mark_at_decision", 0.0))))),
         "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
+        "best_contract_selected": bool(raw_trade.get("best_contract_selected", bool(raw_trade.get("selected_contract_symbol", "")))),
         "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
         "suggested_stop_spx": round_price(float(raw_trade.get("suggested_stop_spx", 0.0))),
         "expected_gain": round_price(float(raw_trade.get("expected_gain", 0.0))),
@@ -3092,6 +3112,17 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "stop_quality": str(raw_trade.get("stop_quality", "")),
         "trade_quality": str(raw_trade.get("trade_quality", "")),
         "integrity_flags": list(raw_trade.get("integrity_flags", [])) if isinstance(raw_trade.get("integrity_flags", []), list) else [],
+        "actual_trade_taken": bool(raw_trade.get("actual_trade_taken", False)),
+        "actual_entry_price_option": _positive_price_or_none(raw_trade.get("actual_entry_price_option", raw_trade.get("entry_value"))),
+        "actual_entry_price_spx": _positive_price_or_none(raw_trade.get("actual_entry_price_spx", raw_trade.get("entry_spx"))),
+        "actual_contract_symbol": str(raw_trade.get("actual_contract_symbol", raw_trade.get("selected_contract_symbol", ""))),
+        "actual_contract_mark_if_known": _positive_price_or_none(raw_trade.get("actual_contract_mark_if_known", raw_trade.get("entry_value"))),
+        "actual_stop_used": _positive_price_or_none(raw_trade.get("actual_stop_used", raw_trade.get("stop_value"))),
+        "actual_exit_price_option": _positive_price_or_none(raw_trade.get("actual_exit_price_option", raw_trade.get("exit_value"))),
+        "actual_exit_price_spx": _positive_price_or_none(raw_trade.get("actual_exit_price_spx", 0.0)),
+        "actual_exit_reason": str(raw_trade.get("actual_exit_reason", raw_trade.get("result", ""))),
+        "actual_contracts": int(raw_trade.get("actual_contracts", raw_trade.get("contracts", 1)) or 1),
+        "actual_notes": str(raw_trade.get("actual_notes", raw_trade.get("notes", ""))),
         "exit_value": round_price(float(raw_trade.get("exit_value", 0.0))),
         "contracts": int(raw_trade.get("contracts", 1)),
         "confluence_score": int(raw_trade.get("confluence_score", 0)),
@@ -3108,6 +3139,7 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "integrity_flags": [],
         "record_signature": "",
     }
+    normalized_trade.update(derive_outcome_tracking_fields(normalized_trade))
     normalized_trade["integrity_flags"] = build_trade_integrity_flags(normalized_trade)
     normalized_trade["record_status"] = "incomplete" if normalized_trade["integrity_flags"] else "complete"
     normalized_trade["record_signature"] = compute_trade_signature(normalized_trade)
@@ -3280,10 +3312,30 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "live_predicted_entry_mark": 0.0,
         "lock_cutoff": "",
         "session_plan_locked": False,
+        "locked_timestamp": "",
         "locked_entry_spx": 0.0,
+        "locked_entry_es": 0.0,
         "locked_entry_mark": 0.0,
+        "locked_strike": "",
+        "locked_direction": "",
+        "locked_stop_spx": 0.0,
+        "locked_suggested_stop_spx": 0.0,
+        "locked_expected_gain": 0.0,
+        "locked_expected_loss": 0.0,
+        "locked_rr_ratio": 0.0,
+        "locked_contract_symbol": "",
+        "locked_contract_score": 0.0,
+        "play_role": "primary",
+        "plan_locked": False,
+        "lock_cutoff_used": "",
+        "plan_locked_timestamp": "",
+        "final_decision_at_lock": "",
         "entry_zone_status": "",
         "move_completion_pct": 0.0,
+        "current_spx_at_decision": 0.0,
+        "current_es_at_decision": 0.0,
+        "current_mark_at_decision": 0.0,
+        "best_contract_selected": False,
         "expected_gain": 0.0,
         "expected_loss": 0.0,
         "rr_ratio": 0.0,
@@ -3298,6 +3350,17 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "price_vs_plan": 0.0,
         "stop_quality": "",
         "trade_quality": "",
+        "actual_trade_taken": False,
+        "actual_entry_price_option": 0.0,
+        "actual_entry_price_spx": 0.0,
+        "actual_contract_symbol": "",
+        "actual_contract_mark_if_known": 0.0,
+        "actual_stop_used": 0.0,
+        "actual_exit_price_option": 0.0,
+        "actual_exit_price_spx": 0.0,
+        "actual_exit_reason": "",
+        "actual_contracts": 1,
+        "actual_notes": "",
         "integrity_flags": [],
     }
     merged = {**default_prefill, **st.session_state.get("trade_form_prefill", {})}
@@ -3411,10 +3474,30 @@ def build_live_play_trade_prefill(
         "live_predicted_entry_mark": float(intelligence.get("live_predicted_entry_mark") or 0.0),
         "lock_cutoff": str(intelligence.get("lock_cutoff_label") or ""),
         "session_plan_locked": bool(intelligence.get("session_plan_locked")),
+        "locked_timestamp": str(intelligence.get("locked_timestamp") or ""),
         "locked_entry_spx": float(intelligence.get("locked_entry_spx") or play_spx["entry"]["price"]),
+        "locked_entry_es": entry_es,
         "locked_entry_mark": float(intelligence.get("planned_entry_mark") or 0.0),
+        "locked_strike": str(play_spx.get("strike", "")),
+        "locked_direction": str(play_spx.get("direction", "")),
+        "locked_stop_spx": stop_spx,
+        "locked_suggested_stop_spx": float(intelligence.get("suggested_stop") or 0.0),
+        "locked_expected_gain": expected_gain,
+        "locked_expected_loss": expected_loss,
+        "locked_rr_ratio": rr_ratio,
+        "locked_contract_symbol": contract_symbol,
+        "locked_contract_score": contract_score,
+        "play_role": play_type,
+        "plan_locked": bool(intelligence.get("session_plan_locked")),
+        "lock_cutoff_used": str(intelligence.get("lock_cutoff_label") or ""),
+        "plan_locked_timestamp": str(intelligence.get("locked_timestamp") or ""),
+        "final_decision_at_lock": str(final_decision or final_status),
         "entry_zone_status": str(intelligence.get("entry_zone_status", "")),
         "move_completion_pct": float(intelligence.get("move_completion_pct") or 0.0),
+        "current_spx_at_decision": float(lead_option_quote.get("spx_price_at_lookup")) if lead_option_quote and lead_option_quote.get("spx_price_at_lookup") is not None else 0.0,
+        "current_es_at_decision": float(lead_option_quote.get("es_price_at_lookup")) if lead_option_quote and lead_option_quote.get("es_price_at_lookup") is not None else 0.0,
+        "current_mark_at_decision": current_mark,
+        "best_contract_selected": bool(contract_symbol),
         "expected_gain": expected_gain,
         "expected_loss": expected_loss,
         "rr_ratio": rr_ratio,
@@ -3429,6 +3512,17 @@ def build_live_play_trade_prefill(
         "price_vs_plan": float(intelligence.get("price_vs_plan") or 0.0),
         "stop_quality": str(intelligence.get("stop_quality", "")),
         "trade_quality": str(intelligence.get("quality", "")),
+        "actual_trade_taken": False,
+        "actual_entry_price_option": 0.0,
+        "actual_entry_price_spx": 0.0,
+        "actual_contract_symbol": contract_symbol,
+        "actual_contract_mark_if_known": 0.0,
+        "actual_stop_used": stop_spx,
+        "actual_exit_price_option": 0.0,
+        "actual_exit_price_spx": 0.0,
+        "actual_exit_reason": "",
+        "actual_contracts": int(play_spx["contracts"]),
+        "actual_notes": "",
         "integrity_flags": list(play_spx.get("integrity_flags", [])),
     }
 
@@ -3531,6 +3625,314 @@ def _to_float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _positive_price_or_none(value: Any) -> float | None:
+    """Return a positive numeric price when available."""
+
+    parsed = _to_float_or_none(value)
+    if parsed is None or abs(parsed) < 1e-9:
+        return None
+    return float(parsed)
+
+
+def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
+    """Derive outcome-tracking and learning-loop fields from a stored trade snapshot."""
+
+    planned_entry_mark = _positive_price_or_none(trade.get("planned_entry_mark")) or _positive_price_or_none(trade.get("locked_entry_mark"))
+    live_predicted_entry_mark = _positive_price_or_none(trade.get("live_predicted_entry_mark")) or _positive_price_or_none(trade.get("predicted_entry_price"))
+    current_mark_at_decision = _positive_price_or_none(trade.get("current_mark_at_decision")) or _positive_price_or_none(trade.get("current_mark")) or _positive_price_or_none(trade.get("option_mark_at_decision"))
+    current_spx_at_decision = _positive_price_or_none(trade.get("current_spx_at_decision")) or _positive_price_or_none(trade.get("entry_spx"))
+    current_es_at_decision = _positive_price_or_none(trade.get("current_es_at_decision")) or _positive_price_or_none(trade.get("entry_es"))
+    locked_entry_spx = _positive_price_or_none(trade.get("locked_entry_spx")) or _positive_price_or_none(trade.get("entry_spx"))
+    locked_entry_es = _positive_price_or_none(trade.get("locked_entry_es")) or _positive_price_or_none(trade.get("entry_es"))
+    locked_entry_mark = _positive_price_or_none(trade.get("locked_entry_mark")) or planned_entry_mark
+
+    actual_trade_taken = bool(trade.get("actual_trade_taken", False))
+    actual_entry_price_option = _positive_price_or_none(trade.get("actual_entry_price_option"))
+    actual_entry_price_spx = _positive_price_or_none(trade.get("actual_entry_price_spx"))
+    actual_exit_price_option = _positive_price_or_none(trade.get("actual_exit_price_option"))
+    actual_exit_price_spx = _positive_price_or_none(trade.get("actual_exit_price_spx"))
+
+    prediction_anchor = live_predicted_entry_mark or planned_entry_mark
+    prediction_error_abs = (
+        round_price(abs(actual_entry_price_option - prediction_anchor))
+        if actual_entry_price_option is not None and prediction_anchor is not None
+        else None
+    )
+    prediction_error_pct = (
+        round(prediction_error_abs / max(abs(prediction_anchor), 0.01), 4)
+        if prediction_error_abs is not None and prediction_anchor is not None
+        else None
+    )
+    fill_slippage_abs = (
+        round_price(actual_entry_price_option - current_mark_at_decision)
+        if actual_entry_price_option is not None and current_mark_at_decision is not None
+        else None
+    )
+    fill_slippage_pct = (
+        round(fill_slippage_abs / max(abs(current_mark_at_decision), 0.01), 4)
+        if fill_slippage_abs is not None and current_mark_at_decision is not None
+        else None
+    )
+    plan_vs_actual_entry_gap = (
+        round_price(actual_entry_price_spx - locked_entry_spx)
+        if actual_entry_price_spx is not None and locked_entry_spx is not None
+        else None
+    )
+
+    realized_move = (
+        round_price(actual_exit_price_option - actual_entry_price_option)
+        if actual_entry_price_option is not None and actual_exit_price_option is not None
+        else None
+    )
+    realized_gain = round_price(max(realized_move or 0.0, 0.0)) if realized_move is not None else None
+    realized_loss = round_price(max(-(realized_move or 0.0), 0.0)) if realized_move is not None else None
+    actual_rr_if_available = (
+        round(realized_gain / realized_loss, 3)
+        if realized_gain is not None and realized_loss is not None and realized_loss > 0
+        else None
+    )
+
+    expected_gain = _positive_price_or_none(trade.get("locked_expected_gain")) or _positive_price_or_none(trade.get("expected_gain"))
+    expected_loss = _positive_price_or_none(trade.get("locked_expected_loss")) or _positive_price_or_none(trade.get("expected_loss"))
+    expected_vs_realized_gain_gap = (
+        round_price(realized_gain - expected_gain)
+        if realized_gain is not None and expected_gain is not None
+        else None
+    )
+    expected_vs_realized_loss_gap = (
+        round_price(realized_loss - expected_loss)
+        if realized_loss is not None and expected_loss is not None
+        else None
+    )
+
+    normalized_result = normalize_result_value(trade.get("result", ""))
+    final_decision = str(trade.get("final_decision", "") or "").upper()
+    regime = str(trade.get("regime", "") or "").upper()
+    chase_status = str(trade.get("chase_status", "") or "").upper()
+    plan_status = str(trade.get("plan_status", "") or "").upper()
+    stop_quality = str(trade.get("stop_quality", "") or "").upper()
+    entry_zone_status = str(trade.get("entry_zone_status", "") or "").upper()
+
+    if actual_trade_taken:
+        if actual_entry_price_option is None:
+            trade_outcome_class = "INCOMPLETE"
+        elif normalized_result == "Win":
+            trade_outcome_class = "WIN"
+        elif normalized_result == "Loss" or normalized_result == "Time Stop":
+            trade_outcome_class = "LOSS"
+        elif normalized_result == "Breakeven":
+            trade_outcome_class = "BREAKEVEN"
+        else:
+            trade_outcome_class = "UNREVIEWED"
+    else:
+        if (
+            actual_entry_price_option is None
+            and actual_exit_price_option is None
+            and actual_exit_price_spx is None
+            and not str(trade.get("actual_exit_reason", "")).strip()
+            and normalized_result == "Breakeven"
+        ):
+            trade_outcome_class = "UNREVIEWED"
+        elif normalized_result == "Win":
+            trade_outcome_class = "MISSED_WIN"
+        elif normalized_result == "Loss" or normalized_result == "Time Stop":
+            trade_outcome_class = "MISSED_LOSS"
+        elif normalized_result == "Breakeven":
+            trade_outcome_class = "BREAKEVEN"
+        else:
+            trade_outcome_class = "UNREVIEWED"
+
+    if trade_outcome_class == "UNREVIEWED":
+        decision_correctness = "UNREVIEWED"
+    elif final_decision == "SKIP TRADE":
+        decision_correctness = "WRONG_SKIP" if trade_outcome_class in {"WIN", "MISSED_WIN"} else "CORRECT_SKIP"
+    else:
+        decision_correctness = "CORRECT_ENTRY" if trade_outcome_class in {"WIN", "MISSED_WIN"} else "WRONG_ENTRY"
+
+    if trade_outcome_class == "UNREVIEWED":
+        regime_correctness = "UNREVIEWED"
+    elif regime == "PULLBACK":
+        if entry_zone_status in {"IN ZONE", "APPROACHING"} and trade_outcome_class in {"WIN", "MISSED_WIN", "BREAKEVEN"}:
+            regime_correctness = "CORRECT"
+        elif entry_zone_status == "MISSED":
+            regime_correctness = "WRONG"
+        else:
+            regime_correctness = "PARTIAL"
+    elif regime == "EXPANSION":
+        if trade_outcome_class in {"WIN", "MISSED_WIN"} and chase_status in {"ENTER NOW", "ENTER WITH CAUTION"}:
+            regime_correctness = "CORRECT"
+        elif trade_outcome_class in {"LOSS", "MISSED_LOSS", "BREAKEVEN"} and chase_status in {"WAIT", "CHASE NOT ALLOWED"}:
+            regime_correctness = "CORRECT"
+        else:
+            regime_correctness = "PARTIAL"
+    else:
+        regime_correctness = "UNREVIEWED"
+
+    if trade_outcome_class == "UNREVIEWED":
+        chase_correctness = "UNREVIEWED"
+    elif chase_status in {"ENTER NOW", "ENTER WITH CAUTION"}:
+        chase_correctness = "CORRECT" if trade_outcome_class in {"WIN", "MISSED_WIN"} else "WRONG"
+    elif chase_status in {"WAIT", "CHASE NOT ALLOWED"}:
+        chase_correctness = "CORRECT" if trade_outcome_class in {"LOSS", "MISSED_LOSS", "BREAKEVEN"} else "WRONG"
+    else:
+        chase_correctness = "UNREVIEWED"
+
+    if trade_outcome_class == "UNREVIEWED":
+        stop_quality_correctness = "UNREVIEWED"
+    elif stop_quality in {"WIDE", "VERY WIDE"}:
+        stop_quality_correctness = "CORRECT" if trade_outcome_class in {"LOSS", "MISSED_LOSS"} else "WRONG"
+    elif stop_quality in {"TIGHT", "BALANCED"}:
+        stop_quality_correctness = "CORRECT" if trade_outcome_class in {"WIN", "MISSED_WIN"} else "WRONG"
+    else:
+        stop_quality_correctness = "UNREVIEWED"
+
+    return {
+        "plan_locked": bool(trade.get("plan_locked", trade.get("session_plan_locked", False))),
+        "lock_cutoff_used": str(trade.get("lock_cutoff_used", trade.get("lock_cutoff", ""))),
+        "plan_locked_timestamp": str(trade.get("plan_locked_timestamp", trade.get("locked_timestamp", ""))),
+        "play_role": str(trade.get("play_role", trade.get("play_type", ""))),
+        "final_decision_at_lock": str(trade.get("final_decision_at_lock", trade.get("final_decision", ""))),
+        "locked_entry_spx": locked_entry_spx,
+        "locked_entry_es": locked_entry_es,
+        "locked_entry_mark": locked_entry_mark,
+        "locked_strike": str(trade.get("locked_strike", trade.get("strike_or_contract_label", ""))),
+        "locked_direction": str(trade.get("locked_direction", trade.get("direction", ""))),
+        "locked_stop_spx": _positive_price_or_none(trade.get("locked_stop_spx")) or _positive_price_or_none(trade.get("stop_value")),
+        "locked_suggested_stop_spx": _positive_price_or_none(trade.get("locked_suggested_stop_spx")) or _positive_price_or_none(trade.get("suggested_stop_spx")),
+        "locked_expected_gain": expected_gain,
+        "locked_expected_loss": expected_loss,
+        "locked_rr_ratio": _to_float_or_none(trade.get("locked_rr_ratio")) or _to_float_or_none(trade.get("rr_ratio")),
+        "locked_contract_symbol": str(trade.get("locked_contract_symbol", trade.get("selected_contract_symbol", ""))),
+        "locked_contract_score": _to_float_or_none(trade.get("locked_contract_score")) or _to_float_or_none(trade.get("contract_score")),
+        "current_spx_at_decision": current_spx_at_decision,
+        "current_es_at_decision": current_es_at_decision,
+        "current_mark_at_decision": current_mark_at_decision,
+        "actual_trade_taken": actual_trade_taken,
+        "actual_entry_price_option": actual_entry_price_option,
+        "actual_entry_price_spx": actual_entry_price_spx,
+        "actual_contract_symbol": str(trade.get("actual_contract_symbol", trade.get("selected_contract_symbol", ""))),
+        "actual_contract_mark_if_known": _positive_price_or_none(trade.get("actual_contract_mark_if_known")) or actual_entry_price_option,
+        "actual_stop_used": _positive_price_or_none(trade.get("actual_stop_used")) or _positive_price_or_none(trade.get("stop_value")),
+        "actual_exit_price_option": actual_exit_price_option,
+        "actual_exit_price_spx": actual_exit_price_spx,
+        "actual_exit_reason": str(trade.get("actual_exit_reason", trade.get("result", ""))),
+        "actual_contracts": int(trade.get("actual_contracts", trade.get("contracts", 1)) or 1),
+        "actual_notes": str(trade.get("actual_notes", trade.get("notes", ""))),
+        "prediction_error_abs": prediction_error_abs,
+        "prediction_error_pct": prediction_error_pct,
+        "fill_slippage_abs": fill_slippage_abs,
+        "fill_slippage_pct": fill_slippage_pct,
+        "plan_vs_actual_entry_gap": plan_vs_actual_entry_gap,
+        "trade_outcome_class": trade_outcome_class,
+        "decision_correctness": decision_correctness,
+        "regime_correctness": regime_correctness,
+        "chase_correctness": chase_correctness,
+        "stop_quality_correctness": stop_quality_correctness,
+        "expected_vs_realized_gain_gap": expected_vs_realized_gain_gap,
+        "expected_vs_realized_loss_gap": expected_vs_realized_loss_gap,
+        "actual_rr_if_available": actual_rr_if_available,
+        "realized_gain": realized_gain,
+        "realized_loss": realized_loss,
+    }
+
+
+def build_outcome_review_dataframe(trades: list[dict[str, Any]], *, developer_mode: bool = False) -> pd.DataFrame:
+    """Build a compact planned-vs-actual review table."""
+
+    rows: list[dict[str, Any]] = []
+    for trade in trades:
+        outcome = derive_outcome_tracking_fields(trade)
+        row = {
+            "date": trade.get("trade_date", ""),
+            "scenario": trade.get("scenario_name", ""),
+            "play": outcome.get("play_role", ""),
+            "decision": trade.get("final_decision", ""),
+            "outcome": outcome.get("trade_outcome_class", ""),
+            "planned_mark": outcome.get("locked_entry_mark"),
+            "actual_mark": outcome.get("actual_entry_price_option"),
+            "pred_error": outcome.get("prediction_error_abs"),
+            "planned_spx": outcome.get("locked_entry_spx"),
+            "actual_spx": outcome.get("actual_entry_price_spx"),
+            "entry_gap": outcome.get("plan_vs_actual_entry_gap"),
+            "exp_gain": outcome.get("locked_expected_gain"),
+            "real_gain": outcome.get("realized_gain"),
+            "gain_gap": outcome.get("expected_vs_realized_gain_gap"),
+            "exp_loss": outcome.get("locked_expected_loss"),
+            "real_loss": outcome.get("realized_loss"),
+            "loss_gap": outcome.get("expected_vs_realized_loss_gap"),
+            "decision_correct": outcome.get("decision_correctness"),
+            "regime_correct": outcome.get("regime_correctness"),
+            "chase_correct": outcome.get("chase_correctness"),
+            "slippage": outcome.get("fill_slippage_abs"),
+        }
+        if developer_mode:
+            row.update(
+                {
+                    "plan_status": trade.get("plan_status", ""),
+                    "regime": trade.get("regime", ""),
+                    "chase": trade.get("chase_status", ""),
+                    "entry_zone": trade.get("entry_zone_status", ""),
+                    "move_completion_pct": trade.get("move_completion_pct", None),
+                }
+            )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def build_learning_dashboard_metrics(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize prediction quality, decision quality, and plan-integrity feedback."""
+
+    if not trades:
+        return {
+            "avg_prediction_error": 0.0,
+            "median_prediction_error": 0.0,
+            "avg_slippage": 0.0,
+            "filled_better_pct": 0.0,
+            "filled_worse_pct": 0.0,
+            "correct_skip_count": 0,
+            "wrong_skip_count": 0,
+            "correct_entry_count": 0,
+            "wrong_entry_count": 0,
+            "regime_correct_pct": 0.0,
+            "chase_correct_pct": 0.0,
+            "holding_good_entry_pct": 0.0,
+            "broken_should_skip_pct": 0.0,
+            "avg_move_completion_before_entry": 0.0,
+            "avg_move_completion_missed": 0.0,
+        }
+
+    enriched = [derive_outcome_tracking_fields(trade) | trade for trade in trades]
+    prediction_errors = [float(item["prediction_error_abs"]) for item in enriched if item.get("prediction_error_abs") is not None]
+    slippages = [float(item["fill_slippage_abs"]) for item in enriched if item.get("fill_slippage_abs") is not None]
+    fills = [item for item in enriched if item.get("actual_entry_price_option") is not None and item.get("current_mark_at_decision") is not None]
+    regime_reviewed = [item for item in enriched if item.get("regime_correctness") in {"CORRECT", "PARTIAL", "WRONG"}]
+    chase_reviewed = [item for item in enriched if item.get("chase_correctness") in {"CORRECT", "WRONG"}]
+    holding_rows = [item for item in enriched if str(item.get("plan_status", "")).upper() == "HOLDING"]
+    broken_rows = [item for item in enriched if str(item.get("plan_status", "")).upper() == "BROKEN"]
+    entered_rows = [item for item in enriched if item.get("actual_trade_taken")]
+    missed_rows = [item for item in enriched if item.get("trade_outcome_class") in {"MISSED_WIN", "MISSED_LOSS"}]
+    entered_move_completion = [float(item.get("move_completion_pct")) for item in entered_rows if item.get("move_completion_pct") not in {None, ""}]
+    missed_move_completion = [float(item.get("move_completion_pct")) for item in missed_rows if item.get("move_completion_pct") not in {None, ""}]
+
+    return {
+        "avg_prediction_error": round_price(float(pd.Series(prediction_errors).mean())) if prediction_errors else 0.0,
+        "median_prediction_error": round_price(float(pd.Series(prediction_errors).median())) if prediction_errors else 0.0,
+        "avg_slippage": round_price(float(pd.Series(slippages).mean())) if slippages else 0.0,
+        "filled_better_pct": round_price((sum(1 for item in fills if float(item["actual_entry_price_option"]) <= float(item["current_mark_at_decision"])) / len(fills)) * 100.0) if fills else 0.0,
+        "filled_worse_pct": round_price((sum(1 for item in fills if float(item["actual_entry_price_option"]) > float(item["current_mark_at_decision"])) / len(fills)) * 100.0) if fills else 0.0,
+        "correct_skip_count": sum(1 for item in enriched if item.get("decision_correctness") == "CORRECT_SKIP"),
+        "wrong_skip_count": sum(1 for item in enriched if item.get("decision_correctness") == "WRONG_SKIP"),
+        "correct_entry_count": sum(1 for item in enriched if item.get("decision_correctness") == "CORRECT_ENTRY"),
+        "wrong_entry_count": sum(1 for item in enriched if item.get("decision_correctness") == "WRONG_ENTRY"),
+        "regime_correct_pct": round_price((sum(1 for item in regime_reviewed if item.get("regime_correctness") == "CORRECT") / len(regime_reviewed)) * 100.0) if regime_reviewed else 0.0,
+        "chase_correct_pct": round_price((sum(1 for item in chase_reviewed if item.get("chase_correctness") == "CORRECT") / len(chase_reviewed)) * 100.0) if chase_reviewed else 0.0,
+        "holding_good_entry_pct": round_price((sum(1 for item in holding_rows if item.get("trade_outcome_class") in {"WIN", "MISSED_WIN"}) / len(holding_rows)) * 100.0) if holding_rows else 0.0,
+        "broken_should_skip_pct": round_price((sum(1 for item in broken_rows if item.get("decision_correctness") == "CORRECT_SKIP") / len(broken_rows)) * 100.0) if broken_rows else 0.0,
+        "avg_move_completion_before_entry": round_price(float(pd.Series(entered_move_completion).mean())) if entered_move_completion else 0.0,
+        "avg_move_completion_missed": round_price(float(pd.Series(missed_move_completion).mean())) if missed_move_completion else 0.0,
+    }
 
 
 def _normalize_series(values: list[float | None], *, higher_is_better: bool = True) -> list[float]:
@@ -3728,6 +4130,8 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         "expected_loss": float(lead["expected_loss"]) if lead.get("expected_loss") not in {"", None} else None,
         "rr_ratio": float(lead["rr_ratio"]) if lead.get("rr_ratio") not in {"", None} else None,
         "contract_score": float(lead["contract_score"]) if lead.get("contract_score") not in {"", None} else None,
+        "spx_price_at_lookup": _to_float_or_none(candidates[0].get("spx_price_at_lookup")) if candidates else None,
+        "es_price_at_lookup": _to_float_or_none(candidates[0].get("es_price_at_lookup")) if candidates else None,
     }
 
 
@@ -6453,6 +6857,8 @@ def render_trade_log_tab(
 ) -> None:
     """Render the trade journal, history, and analytics tab."""
 
+    developer_mode = settings.get("visibility_mode") == "Developer Mode"
+
     st.markdown(
         """
         <div class="spx-hero">
@@ -6564,6 +6970,18 @@ def render_trade_log_tab(
                 notes = st.text_area("Notes", value=prefill.get("notes", ""), height=120)
 
             quick_tags = st.multiselect("Quick tags", QUICK_TAG_OPTIONS, default=[])
+            with st.expander("Outcome Tracking", expanded=False):
+                review_col1, review_col2 = st.columns(2)
+                with review_col1:
+                    actual_trade_taken = st.checkbox("Trade actually taken", value=bool(prefill.get("actual_trade_taken", False)))
+                    actual_entry_price_spx = st.number_input("Actual entry SPX", value=float(prefill.get("actual_entry_price_spx", prefill.get("entry_spx", 0.0))), step=0.25, format="%.2f")
+                    actual_exit_price_spx = st.number_input("Actual exit SPX", value=float(prefill.get("actual_exit_price_spx", 0.0)), step=0.25, format="%.2f")
+                    actual_stop_used = st.number_input("Actual stop used", value=float(prefill.get("actual_stop_used", prefill.get("stop_value", 0.0))), step=0.25, format="%.2f")
+                    actual_exit_reason = st.text_input("Actual exit reason", value=str(prefill.get("actual_exit_reason", "")))
+                with review_col2:
+                    actual_contract_symbol = st.text_input("Actual contract symbol", value=str(prefill.get("actual_contract_symbol", prefill.get("selected_contract_symbol", ""))))
+                    actual_contract_mark_if_known = st.number_input("Actual fill mark", value=float(prefill.get("actual_contract_mark_if_known", prefill.get("entry_value", 0.0))), step=0.05, format="%.2f")
+                    actual_notes = st.text_area("Execution notes", value=str(prefill.get("actual_notes", "")), height=80)
             preview_pnl = compute_preview_pnl(direction, entry_value, exit_value, int(contracts))
             st.info(
                 "P&L Preview (simple journal logic): "
@@ -6594,11 +7012,31 @@ def render_trade_log_tab(
                     "live_predicted_entry_mark": float(prefill.get("live_predicted_entry_mark", prefill.get("predicted_entry_price", 0.0))),
                     "lock_cutoff": str(prefill.get("lock_cutoff", "")),
                     "session_plan_locked": bool(prefill.get("session_plan_locked", False)),
+                    "locked_timestamp": str(prefill.get("locked_timestamp", "")),
                     "locked_entry_spx": float(prefill.get("locked_entry_spx", prefill.get("entry_spx", entry_line_value))),
+                    "locked_entry_es": float(prefill.get("locked_entry_es", prefill.get("entry_es", 0.0))),
                     "locked_entry_mark": float(prefill.get("locked_entry_mark", prefill.get("planned_entry_mark", prefill.get("predicted_entry_price", 0.0)))),
+                    "locked_strike": str(prefill.get("locked_strike", strike_or_contract_label)),
+                    "locked_direction": str(prefill.get("locked_direction", direction)),
+                    "locked_stop_spx": float(prefill.get("locked_stop_spx", stop_value)),
+                    "locked_suggested_stop_spx": float(prefill.get("locked_suggested_stop_spx", prefill.get("suggested_stop_spx", 0.0))),
+                    "locked_expected_gain": float(prefill.get("locked_expected_gain", prefill.get("expected_gain", 0.0))),
+                    "locked_expected_loss": float(prefill.get("locked_expected_loss", prefill.get("expected_loss", 0.0))),
+                    "locked_rr_ratio": float(prefill.get("locked_rr_ratio", prefill.get("rr_ratio", 0.0))),
+                    "locked_contract_symbol": str(prefill.get("locked_contract_symbol", prefill.get("selected_contract_symbol", ""))),
+                    "locked_contract_score": float(prefill.get("locked_contract_score", prefill.get("contract_score", 0.0))),
+                    "play_role": str(prefill.get("play_role", prefill.get("play_type", ""))),
+                    "plan_locked": bool(prefill.get("plan_locked", prefill.get("session_plan_locked", False))),
+                    "lock_cutoff_used": str(prefill.get("lock_cutoff_used", prefill.get("lock_cutoff", ""))),
+                    "plan_locked_timestamp": str(prefill.get("plan_locked_timestamp", prefill.get("locked_timestamp", ""))),
+                    "final_decision_at_lock": str(prefill.get("final_decision_at_lock", prefill.get("final_decision", ""))),
                     "entry_zone_status": str(prefill.get("entry_zone_status", "")),
                     "move_completion_pct": float(prefill.get("move_completion_pct", 0.0)),
+                    "current_spx_at_decision": float(prefill.get("current_spx_at_decision", prefill.get("entry_spx", entry_line_value))),
+                    "current_es_at_decision": float(prefill.get("current_es_at_decision", prefill.get("entry_es", 0.0))),
+                    "current_mark_at_decision": float(prefill.get("current_mark_at_decision", prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0)))),
                     "selected_contract_symbol": str(prefill.get("selected_contract_symbol", "")),
+                    "best_contract_selected": bool(prefill.get("best_contract_selected", False)),
                     "play_type": str(prefill.get("play_type", "")),
                     "expected_gain": float(prefill.get("expected_gain", 0.0)),
                     "expected_loss": float(prefill.get("expected_loss", 0.0)),
@@ -6615,6 +7053,17 @@ def render_trade_log_tab(
                     "stop_quality": str(prefill.get("stop_quality", "")),
                     "trade_quality": str(prefill.get("trade_quality", "")),
                     "integrity_flags": list(prefill.get("integrity_flags", [])),
+                    "actual_trade_taken": actual_trade_taken,
+                    "actual_entry_price_option": entry_value if actual_trade_taken else 0.0,
+                    "actual_entry_price_spx": actual_entry_price_spx if actual_trade_taken else 0.0,
+                    "actual_contract_symbol": actual_contract_symbol,
+                    "actual_contract_mark_if_known": actual_contract_mark_if_known if actual_trade_taken else 0.0,
+                    "actual_stop_used": actual_stop_used if actual_trade_taken else 0.0,
+                    "actual_exit_price_option": exit_value if actual_trade_taken else 0.0,
+                    "actual_exit_price_spx": actual_exit_price_spx if actual_trade_taken else 0.0,
+                    "actual_exit_reason": actual_exit_reason,
+                    "actual_contracts": int(contracts),
+                    "actual_notes": actual_notes,
                     "exit_value": exit_value,
                     "contracts": int(contracts),
                     "confluence_score": int(confluence_score),
@@ -6722,6 +7171,60 @@ def render_trade_log_tab(
     stat4.metric("Win Rate", f"{stats['win_rate']:.2f}%")
     stat5.metric("Total P&L", format_price(stats["total_pnl"]))
     stat6.metric("Average P&L / Trade", format_price(stats["average_pnl"]))
+
+    learning_metrics = build_learning_dashboard_metrics(filtered_trades)
+    outcome_review_df = build_outcome_review_dataframe(filtered_trades, developer_mode=developer_mode)
+
+    render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
+    learn_col1, learn_col2, learn_col3 = st.columns(3)
+    learn_col1.metric("Avg Prediction Error", format_price(learning_metrics["avg_prediction_error"]))
+    learn_col2.metric("Median Prediction Error", format_price(learning_metrics["median_prediction_error"]))
+    learn_col3.metric("Avg Slippage", format_price(learning_metrics["avg_slippage"]))
+    learn_col4, learn_col5, learn_col6 = st.columns(3)
+    learn_col4.metric("Filled Better Than Predicted", f"{learning_metrics['filled_better_pct']:.2f}%")
+    learn_col5.metric("Regime Correct", f"{learning_metrics['regime_correct_pct']:.2f}%")
+    learn_col6.metric("Chase Correct", f"{learning_metrics['chase_correct_pct']:.2f}%")
+    learn_col7, learn_col8, learn_col9, learn_col10 = st.columns(4)
+    learn_col7.metric("Correct Skip", str(learning_metrics["correct_skip_count"]))
+    learn_col8.metric("Wrong Skip", str(learning_metrics["wrong_skip_count"]))
+    learn_col9.metric("Correct Entry", str(learning_metrics["correct_entry_count"]))
+    learn_col10.metric("Wrong Entry", str(learning_metrics["wrong_entry_count"]))
+    plan_col1, plan_col2, plan_col3, plan_col4 = st.columns(4)
+    plan_col1.metric("Holding -> Good Entry", f"{learning_metrics['holding_good_entry_pct']:.2f}%")
+    plan_col2.metric("Broken -> Should Skip", f"{learning_metrics['broken_should_skip_pct']:.2f}%")
+    plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
+    plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
+
+    render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
+    if outcome_review_df.empty:
+        st.info("No reviewed trade outcomes are available yet.")
+    else:
+        review_columns = [
+            "date",
+            "scenario",
+            "play",
+            "decision",
+            "outcome",
+            "planned_mark",
+            "actual_mark",
+            "pred_error",
+            "planned_spx",
+            "actual_spx",
+            "entry_gap",
+            "exp_gain",
+            "real_gain",
+            "gain_gap",
+            "exp_loss",
+            "real_loss",
+            "loss_gap",
+            "decision_correct",
+            "regime_correct",
+            "chase_correct",
+            "slippage",
+        ]
+        if developer_mode:
+            review_columns.extend(["plan_status", "regime", "chase", "entry_zone", "move_completion_pct"])
+        st.dataframe(outcome_review_df[review_columns], use_container_width=True, hide_index=True)
 
     render_section_header("Version 2 Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
     st.caption("Analytics update live from the filtered trade set below.")
@@ -7670,7 +8173,18 @@ def render_live_mode_shell(
             if primary_play is None:
                 st.warning("No primary play is available to hand off into the Trade Log.")
             elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log"):
-                set_trade_form_prefill(build_tab1_trade_prefill(signal_package))
+                set_trade_form_prefill(
+                    build_live_play_trade_prefill(
+                        signal_package=signal_package,
+                        play_type="primary",
+                        play_spx=primary_play_spx,
+                        play_es=primary_play_es,
+                        lead_option_quote=primary_lead_option,
+                        intelligence=final_status_breakdown.get("intelligence", {}),
+                        final_status=final_status,
+                        final_decision=final_status_breakdown.get("final_decision"),
+                    )
+                )
                 st.success("Trade Log prefilled from Live Mode.")
         with action_col2:
             if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
