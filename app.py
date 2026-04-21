@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any
