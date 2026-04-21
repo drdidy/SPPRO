@@ -2280,6 +2280,9 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "entry_line_label": str(raw_trade.get("entry_line_label", "")),
         "entry_line_value": round_price(float(raw_trade.get("entry_line_value", 0.0))),
         "entry_value": round_price(float(raw_trade.get("entry_value", 0.0))),
+        "option_mark_at_decision": round_price(float(raw_trade.get("option_mark_at_decision", 0.0))),
+        "predicted_entry_price": round_price(float(raw_trade.get("predicted_entry_price", 0.0))),
+        "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
         "exit_value": round_price(float(raw_trade.get("exit_value", 0.0))),
         "contracts": int(raw_trade.get("contracts", 1)),
         "confluence_score": int(raw_trade.get("confluence_score", 0)),
@@ -2448,12 +2451,16 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "strike_or_contract_label": str(primary_play["strike"]) if primary_play else "",
         "entry_line_label": primary_play["entry"]["label"] if primary_play else "",
         "entry_line_value": float(primary_play["entry"]["price"]) if primary_play else 0.0,
+        "entry_value": 0.0,
         "contracts": int(primary_play["contracts"]) if primary_play else 1,
         "confidence_note": signal_package["scenario"]["confidence_level"] if signal_package else "",
         "confirmation_status": "Not Recorded",
         "linked_snapshot_id": "",
         "linked_snapshot_date": "",
         "notes": f"Confidence: {signal_package['scenario']['confidence_level']}" if signal_package else "",
+        "selected_contract_symbol": "",
+        "option_mark_at_decision": 0.0,
+        "predicted_entry_price": 0.0,
     }
     merged = {**default_prefill, **st.session_state.get("trade_form_prefill", {})}
     try:
@@ -2470,21 +2477,35 @@ def build_tab1_trade_prefill(signal_package: dict[str, Any]) -> dict[str, Any]:
     if primary_play is None:
         raise ValueError("No primary play is available to prefill the trade log.")
 
+    selected_contract = st.session_state.get("tab1_primary_selected_contract", {})
+    strike_or_contract_label = selected_contract.get("contract_symbol") or str(primary_play["strike"])
+    notes = [f"Confidence: {signal_package['scenario']['confidence_level']}"]
+    if selected_contract.get("option_mark_at_decision") is not None:
+        notes.append(f"Option mark at decision: {format_price(selected_contract['option_mark_at_decision'])}")
+    if selected_contract.get("predicted_entry_price") is not None:
+        notes.append(f"Predicted entry price: {format_price(selected_contract['predicted_entry_price'])}")
+    if selected_contract.get("contract_symbol"):
+        notes.append(f"Selected contract: {selected_contract['contract_symbol']}")
+
     return {
         "source": "Tab 1 primary play",
         "trade_date": current_central_time().date().isoformat(),
         "session": "NY Options",
         "scenario_name": signal_package["scenario"]["scenario_name"],
         "direction": primary_play["direction"],
-        "strike_or_contract_label": str(primary_play["strike"]),
+        "strike_or_contract_label": strike_or_contract_label,
         "entry_line_label": primary_play["entry"]["label"],
         "entry_line_value": float(primary_play["entry"]["price"]),
+        "entry_value": float(selected_contract["option_mark_at_decision"]) if selected_contract.get("option_mark_at_decision") is not None else 0.0,
         "contracts": int(primary_play["contracts"]),
         "confidence_note": signal_package["scenario"]["confidence_level"],
         "confirmation_status": "Not Recorded",
         "linked_snapshot_id": "",
         "linked_snapshot_date": "",
-        "notes": f"Confidence: {signal_package['scenario']['confidence_level']}",
+        "notes": " | ".join(notes),
+        "selected_contract_symbol": selected_contract.get("contract_symbol", ""),
+        "option_mark_at_decision": float(selected_contract["option_mark_at_decision"]) if selected_contract.get("option_mark_at_decision") is not None else 0.0,
+        "predicted_entry_price": float(selected_contract["predicted_entry_price"]) if selected_contract.get("predicted_entry_price") is not None else 0.0,
     }
 
 
@@ -2565,9 +2586,147 @@ def normalize_option_candidate_rows(candidates: list[dict[str, Any]] | None) -> 
                 "theta": candidate.get("theta", ""),
                 "vega": candidate.get("vega", ""),
                 "implied_volatility": candidate.get("implied_volatility", ""),
+                "predicted_entry_price": candidate.get("predicted_entry_price", ""),
+                "expected_gain": candidate.get("expected_gain", ""),
+                "expected_loss": candidate.get("expected_loss", ""),
+                "rr_ratio": candidate.get("rr_ratio", ""),
+                "contract_score": candidate.get("contract_score", ""),
+                "selection": candidate.get("selection_label", ""),
             }
         )
     return normalized_rows
+
+
+def _to_float_or_none(value: Any) -> float | None:
+    """Return a float when the value is numeric-like, otherwise None."""
+
+    try:
+        if value in {"", None}:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_series(values: list[float | None], *, higher_is_better: bool = True) -> list[float]:
+    """Normalize a list of numeric values onto a 0-1 scale."""
+
+    clean_values = [value for value in values if value is not None]
+    if not clean_values:
+        return [0.0 for _ in values]
+
+    floor = min(clean_values)
+    ceiling = max(clean_values)
+    if abs(ceiling - floor) < 1e-9:
+        return [1.0 if value is not None else 0.0 for value in values]
+
+    normalized: list[float] = []
+    for value in values:
+        if value is None:
+            normalized.append(0.0)
+            continue
+        raw = (value - floor) / (ceiling - floor)
+        normalized.append(raw if higher_is_better else 1.0 - raw)
+    return normalized
+
+
+def rank_option_candidates(
+    candidates: list[dict[str, Any]] | None,
+    *,
+    play_spx: dict[str, Any] | None,
+    current_spx_price: float | None,
+) -> list[dict[str, Any]]:
+    """Attach prediction and scoring fields to option candidates and sort the best first."""
+
+    if not candidates or play_spx is None:
+        return list(candidates or [])
+
+    entry_price = _to_float_or_none(play_spx.get("entry", {}).get("price"))
+    stop_price = _to_float_or_none(play_spx.get("stop", {}).get("price"))
+    target_leg = play_spx.get("tp1") or play_spx.get("tp2") or {}
+    target_price = _to_float_or_none(target_leg.get("price"))
+    if entry_price is None or stop_price is None or target_price is None:
+        return list(candidates)
+
+    strike_anchor = current_spx_price if is_valid_price_input(current_spx_price) else entry_price
+    distance_to_entry_signed = (entry_price - float(current_spx_price)) if is_valid_price_input(current_spx_price) else 0.0
+    target_move = abs(target_price - entry_price)
+    stop_move = abs(stop_price - entry_price)
+
+    deltas = [_to_float_or_none(candidate.get("delta")) for candidate in candidates]
+    gammas = [_to_float_or_none(candidate.get("gamma")) for candidate in candidates]
+    spreads = []
+    liquidities = []
+    strike_distances = []
+    delta_fit = []
+
+    for candidate, delta_value in zip(candidates, deltas, strict=False):
+        bid = _to_float_or_none(candidate.get("bid"))
+        ask = _to_float_or_none(candidate.get("ask"))
+        strike = _to_float_or_none(candidate.get("strike"))
+        volume = max(_to_float_or_none(candidate.get("volume")) or 0.0, 0.0)
+        open_interest = max(_to_float_or_none(candidate.get("open_interest")) or 0.0, 0.0)
+        spread = (ask - bid) if bid is not None and ask is not None else None
+        spreads.append(spread if spread is None or spread >= 0 else None)
+        liquidities.append(volume + open_interest)
+        strike_distances.append(abs(strike - strike_anchor) if strike is not None else None)
+        if delta_value is None:
+            delta_fit.append(None)
+        else:
+            delta_fit.append(max(0.0, 1.0 - (abs(abs(delta_value) - 0.60) / 0.60)))
+
+    gamma_scores = _normalize_series(gammas, higher_is_better=True)
+    liquidity_scores = _normalize_series(liquidities, higher_is_better=True)
+    spread_scores = _normalize_series(spreads, higher_is_better=False)
+    distance_scores = _normalize_series(strike_distances, higher_is_better=False)
+
+    ranked_candidates: list[dict[str, Any]] = []
+    for idx, candidate in enumerate(candidates):
+        enriched = dict(candidate)
+        delta_value = deltas[idx]
+        absolute_delta = abs(delta_value) if delta_value is not None else 0.0
+        mark_value = _to_float_or_none(candidate.get("mark"))
+        if mark_value is None:
+            mark_value = _to_float_or_none(candidate.get("last"))
+        if mark_value is None:
+            mark_value = _to_float_or_none(candidate.get("ask"))
+        if mark_value is None:
+            mark_value = _to_float_or_none(candidate.get("bid"))
+
+        expected_gain = target_move * absolute_delta
+        expected_loss = stop_move * absolute_delta
+        rr_ratio = expected_gain / expected_loss if expected_loss > 0 else None
+        predicted_entry_price = (
+            mark_value + (distance_to_entry_signed * delta_value)
+            if mark_value is not None and delta_value is not None
+            else None
+        )
+        contract_score = (
+            (delta_fit[idx] or 0.0) * 0.30
+            + gamma_scores[idx] * 0.25
+            + liquidity_scores[idx] * 0.20
+            + spread_scores[idx] * 0.15
+            + distance_scores[idx] * 0.10
+        )
+
+        enriched.update(
+            {
+                "distance_to_entry": abs(distance_to_entry_signed),
+                "target_move": target_move,
+                "stop_move": stop_move,
+                "predicted_entry_price": round_price(predicted_entry_price) if predicted_entry_price is not None else None,
+                "expected_gain": round_price(expected_gain),
+                "expected_loss": round_price(expected_loss),
+                "rr_ratio": round(rr_ratio, 3) if rr_ratio is not None else None,
+                "contract_score": round(contract_score, 4),
+            }
+        )
+        ranked_candidates.append(enriched)
+
+    ranked_candidates.sort(key=lambda row: row.get("contract_score", 0.0), reverse=True)
+    for idx, candidate in enumerate(ranked_candidates):
+        candidate["selection_label"] = "BEST STRUCTURAL CONTRACT" if idx == 0 else ""
+    return ranked_candidates
 
 
 def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -2591,6 +2750,11 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         "ask": float(lead["ask"]) if lead.get("ask") not in {"", None} else None,
         "expiration": lead.get("expiration", ""),
         "strike": lead.get("strike", ""),
+        "predicted_entry_price": float(lead["predicted_entry_price"]) if lead.get("predicted_entry_price") not in {"", None} else None,
+        "expected_gain": float(lead["expected_gain"]) if lead.get("expected_gain") not in {"", None} else None,
+        "expected_loss": float(lead["expected_loss"]) if lead.get("expected_loss") not in {"", None} else None,
+        "rr_ratio": float(lead["rr_ratio"]) if lead.get("rr_ratio") not in {"", None} else None,
+        "contract_score": float(lead["contract_score"]) if lead.get("contract_score") not in {"", None} else None,
     }
 
 
@@ -2704,7 +2868,23 @@ def render_options_provider_preview(
 
             st.markdown("**Candidate Contracts**")
             if preview_candidates:
-                st.dataframe(preview_candidates, use_container_width=True, hide_index=True)
+                preview_df = pd.DataFrame(preview_candidates)
+                if "selection" in preview_df.columns:
+                    def _highlight_best(row):
+                        return [
+                            "background-color: rgba(0, 230, 118, 0.14); font-weight: 600;"
+                            if row.get("selection") == "BEST STRUCTURAL CONTRACT"
+                            else ""
+                            for _ in row
+                        ]
+
+                    st.dataframe(
+                        preview_df.style.apply(_highlight_best, axis=1),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.dataframe(preview_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No live option candidates are available.")
             if developer_mode:
@@ -4816,7 +4996,7 @@ def render_trade_log_tab(
                 entry_line_label = st.text_input("Entry line label", value=default_entry_label)
                 entry_line_value = st.number_input("Entry line value", value=float(default_entry_value), step=0.25, format="%.2f")
             with col2:
-                entry_value = st.number_input("Entry premium or entry price", value=0.0, step=0.05, format="%.2f")
+                entry_value = st.number_input("Entry premium or entry price", value=float(prefill.get("entry_value", 0.0)), step=0.05, format="%.2f")
                 exit_value = st.number_input("Exit premium or exit price", value=0.0, step=0.05, format="%.2f")
                 contracts = st.number_input("Contracts", min_value=1, value=int(default_contracts), step=1)
                 confluence_score = st.number_input("Confluence score", min_value=0, max_value=5, value=default_confluence, step=1)
@@ -4854,6 +5034,9 @@ def render_trade_log_tab(
                     "entry_line_label": entry_line_label,
                     "entry_line_value": entry_line_value,
                     "entry_value": entry_value,
+                    "option_mark_at_decision": float(prefill.get("option_mark_at_decision", 0.0)),
+                    "predicted_entry_price": float(prefill.get("predicted_entry_price", 0.0)),
+                    "selected_contract_symbol": str(prefill.get("selected_contract_symbol", "")),
                     "exit_value": exit_value,
                     "contracts": int(contracts),
                     "confluence_score": int(confluence_score),
@@ -5821,6 +6004,11 @@ def render_live_mode_shell(
                         source_line_es=float(play_es["entry"]["price"]) if play_es else None,
                         computed_spx_entry=float(play_spx["entry"]["price"]) if play_spx else None,
                     )
+                    chain_snapshot["contracts"] = rank_option_candidates(
+                        chain_snapshot.get("contracts"),
+                        play_spx=play_spx,
+                        current_spx_price=inputs.get("current_spx_price"),
+                    )
                     option_sections.append(
                         {
                             "title": section_title,
@@ -5838,6 +6026,11 @@ def render_live_mode_shell(
         }
         primary_lead_option = lead_option_map.get("Primary Contracts")
         alternate_lead_option = lead_option_map.get("Alternate Contracts")
+        st.session_state["tab1_primary_selected_contract"] = {
+            "contract_symbol": primary_lead_option.get("contract_symbol", "") if primary_lead_option else "",
+            "option_mark_at_decision": primary_lead_option.get("price") if primary_lead_option else None,
+            "predicted_entry_price": primary_lead_option.get("predicted_entry_price") if primary_lead_option else None,
+        }
 
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if signal_package is not None:
