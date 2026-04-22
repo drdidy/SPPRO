@@ -11,6 +11,7 @@ from app import (
     compute_live_structure_state,
     get_structure_assertion_warnings,
     resolve_effective_offset,
+    resolve_live_current_spx,
     resolve_play_display_values,
 )
 
@@ -146,6 +147,11 @@ class AppUnitTests(unittest.TestCase):
         snapshot = compute_live_structure_state(7168.00, line_values)
 
         self.assertEqual(snapshot["live_structure_state"], "BETWEEN_CHANNELS")
+
+    def test_live_current_spx_prefers_es_minus_effective_offset(self) -> None:
+        resolved = resolve_live_current_spx(7178.18, 39.5, 7120.07)
+
+        self.assertEqual(resolved, 7138.68)
 
     def test_live_scenario_snapshot_remaps_inside_descending(self) -> None:
         line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}

@@ -2003,6 +2003,14 @@ def build_low_data_state(records: list[dict[str, Any]] | pd.DataFrame | None, *,
     }
 
 
+def resolve_live_current_spx(current_es_price: float | None, effective_offset: float, fallback_spx: float | None) -> float | None:
+    """Resolve the current live SPX proxy from current ES and the active offset."""
+
+    if is_valid_price_input(current_es_price):
+        return round_price(float(current_es_price) - float(effective_offset))
+    return _to_float_or_none(fallback_spx)
+
+
 def is_live_market_session() -> bool:
     """Return whether the current CT time is during the regular live session."""
 
@@ -7452,7 +7460,7 @@ def render_play_card(
     override_intent_key = f"{button_key}_override_intent"
     override_reason_key = f"{button_key}_override_reason"
     if use_allowed and st.button("Use This Play", key=button_key, use_container_width=True):
-        signal_package = st.session_state.get("current_signal_package")
+        signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
         if signal_package is None:
             st.warning("No live signal snapshot is available for this play yet.")
         else:
@@ -7480,7 +7488,7 @@ def render_play_card(
         else:
             override_reason_input = st.text_input("Override reason", key=override_reason_key)
             if st.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
-                signal_package = st.session_state.get("current_signal_package")
+                signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
                 if signal_package is None:
                     st.warning("No live signal snapshot is available for this play yet.")
                 else:
@@ -9498,7 +9506,7 @@ def render_live_decision_center(
     active_play_label: str = "None",
     live_context: dict[str, Any] | None = None,
 ) -> None:
-    """Render the production-first live decision center using the live scenario snapshot."""
+    """Render the production-first live decision center using native Streamlit components."""
 
     authority = hero_authority or {}
     live_scenario = str((live_context or {}).get("live_scenario") or "Awaiting Valid SPX Input")
@@ -9521,62 +9529,30 @@ def render_live_decision_center(
         primary_play = signal_package["scenario"].get("primary_play")
         if isinstance(primary_play, dict) and primary_play.get("strike") is not None:
             strike_value = str(primary_play["strike"])
-    lock_label = "Locked" if intelligence_summary and intelligence_summary.get("session_plan_locked") else ""
-    badge_class = {"STRONG BUY": "good", "CONDITIONAL BUY": "warn", "NO TRADE": "bad"}.get(decision, "neutral")
+    lock_label = "Locked" if intelligence_summary and intelligence_summary.get("session_plan_locked") else "-"
 
-    st.markdown(
-        f"""
-        <div class="spx-hero">
-            <div class="spx-hero-top">
-                <div>
-                    <div class="spx-hero-kicker">Decision Center</div>
-                    <div class="spx-decision-action">{escape(decision)}</div>
-                    <div class="spx-decision-meta">
-                        <span class="spx-pill scenario-neutral">{escape(live_scenario)}</span>
-                        <span class="spx-pill scenario-neutral">{escape(live_structure_state)}</span>
-                        <span class="spx-pill scenario-neutral">Confidence {confidence}%</span>
-                        <span class="spx-pill scenario-neutral">Risk {escape(risk_class)}</span>
-                    </div>
-                    <div class="spx-hero-subtitle">{escape(reason_line)}</div>
-                    {f'<div class="spx-hero-stat-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note else ''}
-                </div>
-                <div class="spx-hero-status">
-                    <div class="spx-hero-status-label">Current Price (ES)</div>
-                    <div style="font-family:'JetBrains Mono', monospace; font-size:2rem; font-weight:800; color:#f8fbff; text-shadow:0 0 20px rgba(0,212,255,0.22); margin-bottom:0.55rem;">{current_es_display}</div>
-                    <div class="spx-status-chip {badge_class}"><span>{escape(decision)}</span></div>
-                </div>
-            </div>
-            <div class="spx-hero-grid">
-                <div class="spx-decision-strip">
-                    <div class="spx-decision-strip-label">Planned Entry</div>
-                    <div class="spx-decision-strip-value">{format_price(entry_value) if entry_value is not None else '-'} SPX</div>
-                </div>
-                <div class="spx-decision-strip">
-                    <div class="spx-decision-strip-label">Strike</div>
-                    <div class="spx-decision-strip-value">{escape(str(strike_value))}</div>
-                </div>
-                <div class="spx-decision-strip">
-                    <div class="spx-decision-strip-label">Current ES</div>
-                    <div class="spx-decision-strip-value">{current_es_display}</div>
-                </div>
-                <div class="spx-decision-strip" style="{'' if expected_value is not None else 'opacity:0.72;'}">
-                    <div class="spx-decision-strip-label">Expected Value</div>
-                    <div class="spx-decision-strip-value">{format_price(expected_value) if expected_value is not None else 'Insufficient'}</div>
-                </div>
-                <div class="spx-decision-strip">
-                    <div class="spx-decision-strip-label">Active Play</div>
-                    <div class="spx-decision-strip-value">{escape(active_play_label)}</div>
-                </div>
-                <div class="spx-decision-strip" style="opacity:0.82;">
-                    <div class="spx-decision-strip-label">Evidence</div>
-                    <div class="spx-decision-strip-value">{escape(evidence_label)}</div>
-                </div>
-                {f'<div class="spx-decision-strip" style="opacity:0.82;"><div class="spx-decision-strip-label">Lock</div><div class="spx-decision-strip-value">{lock_label}</div></div>' if lock_label else ''}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        top_left, top_right = st.columns([3, 1.2], gap="large")
+        with top_left:
+            st.caption("Decision Center")
+            st.markdown(f"### {decision}")
+            st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
+            st.write(reason_line)
+            if transition_note:
+                st.caption(transition_note)
+        with top_right:
+            st.metric("Current Price (ES)", current_es_display)
+            st.caption(f"Active Play: {active_play_label}")
+
+        stat1, stat2, stat3, stat4, stat5, stat6 = st.columns(6)
+        stat1.metric("Planned Entry", f"{format_price(entry_value) if entry_value is not None else '-'} SPX")
+        stat2.metric("Strike", str(strike_value))
+        stat3.metric("Confidence", f"{confidence}%")
+        stat4.metric("Risk", risk_class)
+        stat5.metric("Expected Value", format_price(expected_value) if expected_value is not None else "Insufficient")
+        stat6.metric("Evidence", evidence_label if evidence_label else "None")
+        if lock_label != "-":
+            st.caption(f"Lock Status: {lock_label}")
 
 
 def render_operator_play_card(
@@ -9864,16 +9840,32 @@ def render_live_mode_shell(
         if not inputs.get("live_es_available", True) and not is_valid_price_input(inputs["current_es_price"]):
             st.warning("Live ES price is unavailable. Enter the current ES price manually before relying on futures-relative displays.")
 
-        primary_play_spx_raw = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines) if signal_package else None
-        primary_play_es = resolve_play_display_values(signal_package["scenario"].get("primary_play"), final_projected_lines_es) if signal_package else None
-        alternate_play_spx_raw = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines) if signal_package else None
-        alternate_play_es = resolve_play_display_values(signal_package["scenario"].get("alternate_play"), final_projected_lines_es) if signal_package else None
+        live_current_spx = resolve_live_current_spx(inputs.get("current_es_price"), effective_offset, inputs.get("current_spx_price"))
+        line_values_spx = {name: float(details["projected_price"]) for name, details in final_projected_lines.items()}
+        live_signal_package = None
+        if signal_package is not None and live_current_spx is not None:
+            try:
+                live_signal_package = build_signal_package(
+                    current_price=float(live_current_spx),
+                    line_values=line_values_spx,
+                    confirmation=confirmation,
+                    news_day=inputs["news_day"],
+                    current_time=resolve_signal_evaluation_time(inputs["next_trading_date"], inputs["historical_mode"]),
+                    open_price=inputs["open_reference"],
+                )
+            except Exception:
+                live_signal_package = None
+        display_signal_package = live_signal_package or signal_package
+        st.session_state["current_live_signal_package"] = display_signal_package
+        primary_play_spx_raw = resolve_play_display_values(display_signal_package["scenario"].get("primary_play"), final_projected_lines) if display_signal_package else None
+        primary_play_es = resolve_play_display_values(display_signal_package["scenario"].get("primary_play"), final_projected_lines_es) if display_signal_package else None
+        alternate_play_spx_raw = resolve_play_display_values(display_signal_package["scenario"].get("alternate_play"), final_projected_lines) if display_signal_package else None
+        alternate_play_es = resolve_play_display_values(display_signal_package["scenario"].get("alternate_play"), final_projected_lines_es) if display_signal_package else None
         primary_play_spx = align_play_conversion_to_effective_offset(primary_play_spx_raw, primary_play_es, effective_offset) if primary_play_spx_raw else None
         alternate_play_spx = align_play_conversion_to_effective_offset(alternate_play_spx_raw, alternate_play_es, effective_offset) if alternate_play_spx_raw else None
-        line_values_spx = {name: float(details["projected_price"]) for name, details in final_projected_lines.items()}
         live_context = (
             resolve_live_scenario_context(
-                current_price=inputs["current_spx_price"],
+                current_price=live_current_spx,
                 line_values=line_values_spx,
                 open_price=inputs["open_reference"],
                 scenario_origin=str(signal_package["scenario"].get("scenario_name", "")),
@@ -9899,16 +9891,16 @@ def render_live_mode_shell(
                         direction=str(play_spx.get("direction", "")),
                         strike=int(play_spx.get("strike", 0)),
                         trade_date=inputs["next_trading_date"],
-                        scenario_name=str(signal_package["scenario"].get("scenario_name", "")) if signal_package else "",
+                        scenario_name=str((live_context or {}).get("live_scenario") or (display_signal_package["scenario"].get("scenario_name", "") if display_signal_package else "")),
                     )
                     chain_snapshot = options_provider.get_option_chain_snapshot(option_request) if options_provider is not None else {"status": "unavailable", "contracts": []}
                     chain_snapshot["contracts"] = attach_option_lookup_context(
                         chain_snapshot.get("contracts"),
                         lookup_timestamp=current_central_time(),
                         current_es_price=inputs.get("current_es_price"),
-                        current_spx_price=inputs.get("current_spx_price"),
+                        current_spx_price=live_current_spx,
                         effective_offset=effective_offset,
-                        scenario_name=str(signal_package["scenario"].get("scenario_name", "")) if signal_package else "",
+                        scenario_name=str((live_context or {}).get("live_scenario") or (display_signal_package["scenario"].get("scenario_name", "") if display_signal_package else "")),
                         direction=str(play_spx.get("direction", "")),
                         source_line_es=float(play_es["entry"]["price"]) if play_es else None,
                         computed_spx_entry=float(play_spx["entry"]["price"]) if play_spx else None,
@@ -9916,7 +9908,7 @@ def render_live_mode_shell(
                     chain_snapshot["contracts"] = rank_option_candidates(
                         chain_snapshot.get("contracts"),
                         play_spx=play_spx,
-                        current_spx_price=inputs.get("current_spx_price"),
+                        current_spx_price=live_current_spx,
                     )
                     option_sections.append(
                         {
@@ -9940,13 +9932,13 @@ def render_live_mode_shell(
         primary_pre_intelligence = assess_trade_intelligence(
             primary_play_spx,
             primary_lead_option,
-            current_spx_price=inputs["current_spx_price"],
+            current_spx_price=live_current_spx,
             planned_anchor_key=primary_planned_anchor_key,
         )
         alternate_pre_intelligence = assess_trade_intelligence(
             alternate_play_spx,
             alternate_lead_option,
-            current_spx_price=inputs["current_spx_price"],
+            current_spx_price=live_current_spx,
             planned_anchor_key=alternate_planned_anchor_key,
         )
         primary_session_plan = resolve_session_plan_state(
@@ -10008,18 +10000,18 @@ def render_live_mode_shell(
             else None
         )
         final_status_breakdown = resolve_final_trade_status(
-            signal_package,
+            display_signal_package,
             primary_play_spx,
             primary_lead_option,
-            current_spx_price=inputs["current_spx_price"],
+            current_spx_price=live_current_spx,
             planned_anchor_key=primary_planned_anchor_key,
             session_plan=primary_session_plan,
         )
         alternate_status_breakdown = resolve_final_trade_status(
-            signal_package,
+            display_signal_package,
             alternate_play_spx,
             alternate_lead_option,
-            current_spx_price=inputs["current_spx_price"],
+            current_spx_price=live_current_spx,
             planned_anchor_key=alternate_planned_anchor_key,
             session_plan=alternate_session_plan,
         )
@@ -10027,7 +10019,7 @@ def render_live_mode_shell(
         primary_adaptive_overlay = (
             resolve_adaptive_overlay(
                 normalized_calibration_trades,
-                scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
+                scenario_name=str(display_signal_package["scenario"].get("scenario_name", "")),
                 regime=str(primary_pre_intelligence.get("regime", "")),
                 raw_prediction_confidence=str(primary_pre_intelligence.get("prediction_confidence", "")),
                 raw_final_decision=str(final_status_breakdown.get("final_decision", "")),
@@ -10041,7 +10033,7 @@ def render_live_mode_shell(
         alternate_adaptive_overlay = (
             resolve_adaptive_overlay(
                 normalized_calibration_trades,
-                scenario_name=str(signal_package["scenario"].get("scenario_name", "")),
+                scenario_name=str(display_signal_package["scenario"].get("scenario_name", "")),
                 regime=str(alternate_pre_intelligence.get("regime", "")),
                 raw_prediction_confidence=str(alternate_pre_intelligence.get("prediction_confidence", "")),
                 raw_final_decision=str(final_status_to_action(alternate_pre_intelligence.get("status", "ELIGIBLE"), signal_package)),
@@ -10053,7 +10045,7 @@ def render_live_mode_shell(
             else None
         )
         primary_authority = build_play_decision_authority(
-            signal_package=signal_package,
+            signal_package=display_signal_package,
             play=primary_play_spx,
             lead_option_quote=primary_lead_option,
             intelligence=final_status_breakdown.get("intelligence", {}),
@@ -10064,7 +10056,7 @@ def render_live_mode_shell(
             raw_final_decision=str(final_status_breakdown.get("final_decision", "")),
         )
         alternate_authority = build_play_decision_authority(
-            signal_package=signal_package,
+            signal_package=display_signal_package,
             play=alternate_play_spx,
             lead_option_quote=alternate_lead_option,
             intelligence=alternate_status_breakdown.get("intelligence", {}),
@@ -10076,8 +10068,8 @@ def render_live_mode_shell(
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
         render_live_decision_center(
-            signal_package,
-            inputs["current_spx_price"],
+            display_signal_package,
+            live_current_spx,
             inputs["current_es_price"],
             effective_offset,
             intelligence_summary=final_status_breakdown.get("intelligence"),
@@ -10086,9 +10078,9 @@ def render_live_mode_shell(
             active_play_label=hero_active_play,
             live_context=live_context,
         )
-        if signal_package is not None:
+        if display_signal_package is not None:
             render_trade_decision_summary(
-                signal_package,
+                display_signal_package,
                 final_projected_lines,
                 final_status=final_status,
                 final_decision=final_status_breakdown.get("final_decision"),
@@ -10101,34 +10093,34 @@ def render_live_mode_shell(
             st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
-            primary_play = signal_package["scenario"].get("primary_play") if signal_package else None
+            primary_play = display_signal_package["scenario"].get("primary_play") if display_signal_package else None
             if primary_play is None:
                 st.warning("No primary play is available to hand off into the Trade Log.")
             elif st.button("Prefill Trade Log from Primary Play", use_container_width=True, key="live_prefill_trade_log", disabled=primary_authority.get("decision") == "NO TRADE"):
                 set_trade_form_prefill(
                     build_live_play_trade_prefill(
-                        signal_package=signal_package,
+                        signal_package=display_signal_package,
                         play_type="primary",
                         play_spx=primary_play_spx,
                         play_es=primary_play_es,
                         lead_option_quote=primary_lead_option,
-                    intelligence=final_status_breakdown.get("intelligence", {}),
-                    final_status=final_status,
-                    final_decision=final_status_breakdown.get("final_decision"),
-                    authority=primary_authority,
-                    live_context=live_context,
+                        intelligence=final_status_breakdown.get("intelligence", {}),
+                        final_status=final_status,
+                        final_decision=final_status_breakdown.get("final_decision"),
+                        authority=primary_authority,
+                        live_context=live_context,
+                    )
                 )
-            )
                 st.success("Trade Log prefilled from Live Mode.")
             elif primary_authority.get("decision") == "NO TRADE":
                 st.caption("Primary play is blocked by the decision authority layer. Override from the card if you still want to journal it.")
         with action_col2:
-            if st.button("Save Daily Snapshot", use_container_width=True, disabled=signal_package is None, key="live_save_snapshot"):
+            if st.button("Save Daily Snapshot", use_container_width=True, disabled=display_signal_package is None, key="live_save_snapshot"):
                 snapshot_payload = build_daily_snapshot(
                     next_trading_date=inputs["next_trading_date"],
                     projected_lines=final_projected_lines,
-                    scenario=signal_package["scenario"],
-                    sit_out=signal_package["sit_out"],
+                    scenario=display_signal_package["scenario"],
+                    sit_out=display_signal_package["sit_out"],
                     confirmation=confirmation,
                 )
                 snapshot_saved, snapshot_error = append_snapshot(snapshot_payload)
@@ -10157,20 +10149,20 @@ def render_live_mode_shell(
         }
 
         decision_col1, decision_col2 = st.columns(2, gap="large")
-        if signal_package is not None:
+        if display_signal_package is not None:
             with decision_col1:
-                render_operator_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context)
+                render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context)
             with decision_col2:
-                render_operator_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=inputs["current_spx_price"], planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context)
+                render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
 
         if developer_mode:
             with st.expander("Structure Details", expanded=False):
-                if signal_package is not None:
-                    render_scenario_section(signal_package["scenario"])
-                    render_sit_out_section(signal_package["sit_out"])
+                if display_signal_package is not None:
+                    render_scenario_section(display_signal_package["scenario"])
+                    render_sit_out_section(display_signal_package["sit_out"])
                 render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
             with st.expander("Verification", expanded=False):
                 render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
