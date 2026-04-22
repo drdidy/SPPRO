@@ -2200,6 +2200,8 @@ def build_session_plan_snapshot(
     expected_gain = _to_float_or_none(lead_option_quote.get("expected_gain")) if lead_option_quote else None
     expected_loss = _to_float_or_none(lead_option_quote.get("expected_loss")) if lead_option_quote else None
     contract_symbol = str(lead_option_quote.get("contract_symbol", "")) if lead_option_quote else ""
+    option_type = str(lead_option_quote.get("option_type", "")) if lead_option_quote else ""
+    expiration = str(lead_option_quote.get("expiration", "")) if lead_option_quote else ""
 
     return {
         "play_role": play_role,
@@ -2219,6 +2221,8 @@ def build_session_plan_snapshot(
         "rr_ratio": round(float(rr_ratio), 4) if rr_ratio is not None else None,
         "stop_spx": round_price(stop_price) if stop_price is not None else None,
         "contract_symbol": contract_symbol,
+        "option_type": option_type,
+        "expiration": expiration,
         "entry_label": str(play_spx.get("entry", {}).get("label", "")),
     }
 
@@ -2259,6 +2263,8 @@ def resolve_session_plan_state(
         "rr_ratio": None,
         "stop_spx": None,
         "contract_symbol": "",
+        "option_type": "",
+        "expiration": "",
         "entry_label": str(play_spx.get("entry", {}).get("label", "")) if play_spx else "",
         "lock_unavailable_reason": None,
     }
@@ -3414,6 +3420,8 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "locked_rr_ratio": round(float(raw_trade.get("locked_rr_ratio", raw_trade.get("rr_ratio", 0.0))), 3),
         "locked_contract_symbol": str(raw_trade.get("locked_contract_symbol", raw_trade.get("selected_contract_symbol", ""))),
         "locked_contract_score": round(float(raw_trade.get("locked_contract_score", raw_trade.get("contract_score", 0.0))), 4),
+        "locked_option_type": str(raw_trade.get("locked_option_type", "")),
+        "locked_expiration": str(raw_trade.get("locked_expiration", "")),
         "play_role": str(raw_trade.get("play_role", raw_trade.get("play_type", ""))),
         "plan_locked": bool(raw_trade.get("plan_locked", raw_trade.get("session_plan_locked", False))),
         "lock_cutoff_used": str(raw_trade.get("lock_cutoff_used", raw_trade.get("lock_cutoff", ""))),
@@ -3434,6 +3442,15 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "current_es_at_decision": round_price(float(raw_trade.get("current_es_at_decision", raw_trade.get("entry_es", 0.0)))),
         "current_mark_at_decision": round_price(float(raw_trade.get("current_mark_at_decision", raw_trade.get("current_mark", raw_trade.get("option_mark_at_decision", 0.0))))),
         "selected_contract_symbol": str(raw_trade.get("selected_contract_symbol", "")),
+        "recommended_contract_symbol": str(raw_trade.get("recommended_contract_symbol", raw_trade.get("locked_contract_symbol", ""))),
+        "recommended_strike": round_price(float(raw_trade.get("recommended_strike", raw_trade.get("locked_strike", 0.0)))) if raw_trade.get("recommended_strike", raw_trade.get("locked_strike", "")) not in {"", None} else None,
+        "operator_selected_contract_symbol": str(raw_trade.get("operator_selected_contract_symbol", raw_trade.get("selected_contract_symbol", ""))),
+        "operator_selected_strike": round_price(float(raw_trade.get("operator_selected_strike", 0.0))) if raw_trade.get("operator_selected_strike", "") not in {"", None} else None,
+        "manual_strike_override": bool(raw_trade.get("manual_strike_override", False)),
+        "estimated_entry_cost": round_price(float(raw_trade.get("estimated_entry_cost", 0.0))) if raw_trade.get("estimated_entry_cost", "") not in {"", None} else None,
+        "estimated_fill_cost": round_price(float(raw_trade.get("estimated_fill_cost", 0.0))) if raw_trade.get("estimated_fill_cost", "") not in {"", None} else None,
+        "budget_status": str(raw_trade.get("budget_status", "")),
+        "ladder_anchor_strike": round_price(float(raw_trade.get("ladder_anchor_strike", 0.0))) if raw_trade.get("ladder_anchor_strike", "") not in {"", None} else None,
         "best_contract_selected": bool(raw_trade.get("best_contract_selected", bool(raw_trade.get("selected_contract_symbol", "")))),
         "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
         "suggested_stop_spx": round_price(float(raw_trade.get("suggested_stop_spx", 0.0))),
@@ -3664,6 +3681,15 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "linked_snapshot_date": "",
         "notes": f"Confidence: {signal_package['scenario']['confidence_level']}" if signal_package else "",
         "selected_contract_symbol": "",
+        "recommended_contract_symbol": "",
+        "recommended_strike": None,
+        "operator_selected_contract_symbol": "",
+        "operator_selected_strike": None,
+        "manual_strike_override": False,
+        "estimated_entry_cost": None,
+        "estimated_fill_cost": None,
+        "budget_status": "",
+        "ladder_anchor_strike": None,
         "option_mark_at_decision": 0.0,
         "current_mark": 0.0,
         "predicted_entry_price": 0.0,
@@ -3684,6 +3710,8 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "locked_rr_ratio": 0.0,
         "locked_contract_symbol": "",
         "locked_contract_score": 0.0,
+        "locked_option_type": "",
+        "locked_expiration": "",
         "play_role": "primary",
         "plan_locked": False,
         "lock_cutoff_used": "",
@@ -3811,6 +3839,8 @@ def build_live_play_trade_prefill(
     final_decision: str | None = None,
     authority: dict[str, Any] | None = None,
     live_context: dict[str, Any] | None = None,
+    recommended_contract_quote: dict[str, Any] | None = None,
+    selection_context: dict[str, Any] | None = None,
     override_flag: bool = False,
     override_reason: str = "",
 ) -> dict[str, Any]:
@@ -3827,6 +3857,25 @@ def build_live_play_trade_prefill(
     stop_spx = float(play_spx["stop"]["price"]) if play_spx.get("stop") else 0.0
     entry_es = float(play_es["entry"]["price"]) if play_es and play_es.get("entry") else 0.0
     locked_entry_spx = float(intelligence.get("locked_entry_spx") or play_spx["entry"]["price"])
+    recommended_contract_quote = recommended_contract_quote or lead_option_quote
+    selection_context = selection_context or {}
+    recommended_contract_symbol = str((recommended_contract_quote or {}).get("contract_symbol", "") or "")
+    recommended_strike = _to_float_or_none((recommended_contract_quote or {}).get("strike"))
+    recommended_contract_score = _to_float_or_none((recommended_contract_quote or {}).get("contract_score"))
+    operator_selected_contract_symbol = str((lead_option_quote or {}).get("contract_symbol", "") or "")
+    operator_selected_strike = _to_float_or_none((lead_option_quote or {}).get("strike"))
+    estimated_entry_cost = _to_float_or_none((lead_option_quote or {}).get("estimated_entry_cost"))
+    estimated_fill_cost = _to_float_or_none((lead_option_quote or {}).get("estimated_fill_cost"))
+    budget_status = str((lead_option_quote or {}).get("budget_status", "") or "")
+    ladder_anchor_strike = _to_float_or_none(selection_context.get("ladder_anchor_strike"))
+    manual_strike_override = bool(
+        selection_context.get("manual_override")
+        or (
+            operator_selected_contract_symbol
+            and recommended_contract_symbol
+            and operator_selected_contract_symbol != recommended_contract_symbol
+        )
+    )
 
     return {
         "source": f"Tab 1 {play_type} play",
@@ -3850,6 +3899,15 @@ def build_live_play_trade_prefill(
         "linked_snapshot_date": "",
         "notes": " | ".join(notes),
         "selected_contract_symbol": contract_symbol,
+        "recommended_contract_symbol": recommended_contract_symbol,
+        "recommended_strike": round_price(recommended_strike) if recommended_strike is not None else None,
+        "operator_selected_contract_symbol": operator_selected_contract_symbol,
+        "operator_selected_strike": round_price(operator_selected_strike) if operator_selected_strike is not None else None,
+        "manual_strike_override": manual_strike_override,
+        "estimated_entry_cost": round_price(estimated_entry_cost) if estimated_entry_cost is not None else None,
+        "estimated_fill_cost": round_price(estimated_fill_cost) if estimated_fill_cost is not None else None,
+        "budget_status": budget_status,
+        "ladder_anchor_strike": round_price(ladder_anchor_strike) if ladder_anchor_strike is not None else None,
         "option_mark_at_decision": current_mark,
         "current_mark": current_mark,
         "predicted_entry_price": predicted_entry,
@@ -3861,15 +3919,17 @@ def build_live_play_trade_prefill(
         "locked_entry_spx": float(intelligence.get("locked_entry_spx") or play_spx["entry"]["price"]),
         "locked_entry_es": entry_es,
         "locked_entry_mark": float(intelligence.get("planned_entry_mark") or 0.0),
-        "locked_strike": str(play_spx.get("strike", "")),
+        "locked_strike": str(int(recommended_strike) if recommended_strike is not None else play_spx.get("strike", "")),
         "locked_direction": str(play_spx.get("direction", "")),
         "locked_stop_spx": stop_spx,
         "locked_suggested_stop_spx": float(intelligence.get("suggested_stop") or 0.0),
         "locked_expected_gain": expected_gain,
         "locked_expected_loss": expected_loss,
         "locked_rr_ratio": rr_ratio,
-        "locked_contract_symbol": contract_symbol,
-        "locked_contract_score": contract_score,
+        "locked_contract_symbol": recommended_contract_symbol or contract_symbol,
+        "locked_contract_score": recommended_contract_score if recommended_contract_score is not None else contract_score,
+        "locked_option_type": str((recommended_contract_quote or {}).get("option_type", "") or ""),
+        "locked_expiration": str((recommended_contract_quote or {}).get("expiration", "") or ""),
         "play_role": play_type,
         "plan_locked": bool(intelligence.get("session_plan_locked")),
         "lock_cutoff_used": str(intelligence.get("lock_cutoff_label") or ""),
@@ -5482,7 +5542,32 @@ def resolve_recommended_contract_row(
     locked = bool(session_plan and session_plan.get("session_plan_locked"))
     locked_symbol = str((session_plan or {}).get("contract_symbol", "") or "")
     locked_strike = _to_float_or_none((session_plan or {}).get("planned_strike"))
+    locked_option_type = str((session_plan or {}).get("option_type", "") or "")
+    locked_expiration = str((session_plan or {}).get("expiration", "") or "")
     locked_match = next((row for row in rows if str(row.get("symbol", "")) == locked_symbol), None) if locked and locked_symbol else None
+    rebound_match = None
+    fallback_suggestion = None
+    if locked and locked_match is None and locked_strike is not None:
+        rebound_match = next(
+            (
+                row for row in rows
+                if _to_float_or_none(row.get("strike")) is not None
+                and abs((_to_float_or_none(row.get("strike")) or 0.0) - locked_strike) < 1e-9
+                and str(row.get("option_type") or row.get("right", "") or "") == locked_option_type
+                and str(row.get("expiration") or row.get("expiration_date", "") or "") == locked_expiration
+            ),
+            None,
+        )
+        same_chain_rows = [
+            row for row in rows
+            if str(row.get("option_type") or row.get("right", "") or "") == locked_option_type
+            and str(row.get("expiration") or row.get("expiration_date", "") or "") == locked_expiration
+        ]
+        if same_chain_rows and locked_strike is not None:
+            fallback_suggestion = min(
+                same_chain_rows,
+                key=lambda row: abs((_to_float_or_none(row.get("strike")) or 0.0) - locked_strike),
+            )
 
     if locked and locked_match is not None:
         return {
@@ -5491,15 +5576,33 @@ def resolve_recommended_contract_row(
             "ladder_locked": True,
             "centered_from_locked_plan": True,
             "fallback_used": False,
+            "recommended_unavailable": False,
+            "fallback_reason": "",
+            "fallback_contract": None,
         }
 
-    if locked and locked_match is None and top_row is not None:
+    if locked and rebound_match is not None:
         return {
-            "recommended_contract": top_row,
-            "ladder_anchor_strike": _to_float_or_none(top_row.get("strike")),
+            "recommended_contract": rebound_match,
+            "ladder_anchor_strike": locked_strike or _to_float_or_none(rebound_match.get("strike")),
             "ladder_locked": True,
-            "centered_from_locked_plan": False,
-            "fallback_used": True,
+            "centered_from_locked_plan": True,
+            "fallback_used": False,
+            "recommended_unavailable": False,
+            "fallback_reason": "rebound_same_strike_same_chain",
+            "fallback_contract": None,
+        }
+
+    if locked and locked_match is None:
+        return {
+            "recommended_contract": None,
+            "ladder_anchor_strike": locked_strike,
+            "ladder_locked": True,
+            "centered_from_locked_plan": True,
+            "fallback_used": fallback_suggestion is not None,
+            "recommended_unavailable": True,
+            "fallback_reason": "locked_contract_unavailable",
+            "fallback_contract": fallback_suggestion,
         }
 
     return {
@@ -5508,6 +5611,9 @@ def resolve_recommended_contract_row(
         "ladder_locked": locked,
         "centered_from_locked_plan": False,
         "fallback_used": False,
+        "recommended_unavailable": False,
+        "fallback_reason": "",
+        "fallback_contract": None,
     }
 
 
@@ -5546,17 +5652,30 @@ def build_nearby_strike_ladder(
     ladder_anchor_strike: float | None,
     selected_contract_symbol: str = "",
     calibration_overlays: dict[str, dict[str, Any]] | None = None,
+    locked_option_type: str = "",
+    locked_expiration: str = "",
+    recommended_contract_symbol: str = "",
     window_each_side: int = 5,
 ) -> list[dict[str, Any]]:
     """Build a same-type, same-expiration strike ladder centered on the recommended strike anchor."""
 
     calibration_overlays = calibration_overlays or {}
-    if recommended_contract is None:
+    if recommended_contract is None and not (locked_option_type and locked_expiration):
         return []
 
-    recommended_symbol = str(recommended_contract.get("symbol", "") or "")
-    option_type = str(recommended_contract.get("option_type") or recommended_contract.get("right", "") or "")
-    expiration = str(recommended_contract.get("expiration") or recommended_contract.get("expiration_date", "") or "")
+    recommended_symbol = str(recommended_contract_symbol or ((recommended_contract or {}).get("symbol", "") or ""))
+    option_type = str(
+        (recommended_contract or {}).get("option_type")
+        or (recommended_contract or {}).get("right", "")
+        or locked_option_type
+        or ""
+    )
+    expiration = str(
+        (recommended_contract or {}).get("expiration")
+        or (recommended_contract or {}).get("expiration_date", "")
+        or locked_expiration
+        or ""
+    )
     anchor_value = _to_float_or_none(ladder_anchor_strike)
     filtered = [
         dict(row)
@@ -5603,6 +5722,7 @@ def build_nearby_strike_ladder(
                 "expiration": expiration,
                 "current_mark": _to_float_or_none(row.get("mark")) or _to_float_or_none(row.get("last")) or _to_float_or_none(row.get("ask")) or _to_float_or_none(row.get("bid")),
                 "predicted_entry_price": predicted_entry,
+                "calibrated_entry_mark": calibrated_entry,
                 "expected_fill_mark": expected_fill,
                 "delta": _to_float_or_none(row.get("delta")),
                 "rr_ratio": _to_float_or_none(row.get("rr_ratio")),
@@ -5634,6 +5754,30 @@ def build_option_display_state(
     live_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Build the complete options display state for one play without changing ranking logic."""
+
+    def _merge_quote_display_fields(
+        quote: dict[str, Any] | None,
+        ladder_row: dict[str, Any] | None,
+        calibration: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if quote is None:
+            return None
+        merged = dict(quote)
+        ladder_row = ladder_row or {}
+        calibration = calibration or {}
+        for source in (ladder_row, calibration):
+            for key in [
+                "calibrated_entry_mark",
+                "expected_fill_mark",
+                "estimated_entry_cost",
+                "estimated_fill_cost",
+                "budget_status",
+                "contract_score",
+                "rr_ratio",
+            ]:
+                if source.get(key) is not None:
+                    merged[key] = source.get(key)
+        return merged
 
     recommended_resolution = resolve_recommended_contract_row(candidates, session_plan=session_plan)
     recommended_contract = recommended_resolution.get("recommended_contract")
@@ -5678,6 +5822,29 @@ def build_option_display_state(
         ladder_anchor_strike=recommended_resolution.get("ladder_anchor_strike"),
         selected_contract_symbol=selected_symbol,
         calibration_overlays=calibration_overlays,
+        locked_option_type=str((session_plan or {}).get("option_type", "") or ""),
+        locked_expiration=str((session_plan or {}).get("expiration", "") or ""),
+        recommended_contract_symbol=str((session_plan or {}).get("contract_symbol", "") or recommended_symbol),
+    )
+    recommended_row = next((row for row in ladder_rows if row.get("contract_symbol") == recommended_symbol), None)
+    selected_row = next((row for row in ladder_rows if row.get("contract_symbol") == selected_symbol), None)
+    selected_display_quote = _merge_quote_display_fields(
+        extract_lead_option_quote([selected_contract]) if selected_contract is not None else None,
+        selected_row,
+        calibration_overlays.get(selected_symbol, {}),
+    )
+    binding_snapshot = (
+        validate_contract_binding(
+            selected_display_quote,
+            build_selected_contract_binding(
+                play_spx,
+                selected_display_quote,
+                calibrated_entry_mark=_to_float_or_none((selected_display_quote or {}).get("calibrated_entry_mark")),
+                expected_fill_mark=_to_float_or_none((selected_display_quote or {}).get("expected_fill_mark")),
+            ),
+        )
+        if selected_display_quote is not None
+        else {"binding_status": "UNBOUND"}
     )
     within_budget_rows = [row for row in ladder_rows if row.get("budget_status") == "Within Budget"]
     cheapest_within_budget = min(
@@ -5688,11 +5855,17 @@ def build_option_display_state(
     return {
         "selection_key": selection_key,
         "recommended_contract": recommended_contract,
-        "recommended_quote": extract_lead_option_quote([recommended_contract]) if recommended_contract is not None else None,
+        "recommended_quote": _merge_quote_display_fields(
+            extract_lead_option_quote([recommended_contract]) if recommended_contract is not None else None,
+            recommended_row,
+            calibration_overlays.get(recommended_symbol, {}),
+        ),
         "selected_contract": selected_contract,
-        "selected_quote": extract_lead_option_quote([selected_contract]) if selected_contract is not None else None,
+        "selected_quote": selected_display_quote,
         "recommended_contract_symbol": recommended_symbol,
+        "recommended_strike": _to_float_or_none((recommended_contract or {}).get("strike")) or _to_float_or_none((session_plan or {}).get("planned_strike")),
         "user_selected_contract_symbol": selected_resolution.get("user_selected_contract_symbol", ""),
+        "operator_selected_strike": _to_float_or_none((selected_contract or {}).get("strike")),
         "manual_override": bool(selected_resolution.get("manual_override")),
         "ladder_rows": ladder_rows,
         "nearby_contract_count": len(ladder_rows),
@@ -5703,6 +5876,10 @@ def build_option_display_state(
         "ladder_locked": bool(recommended_resolution.get("ladder_locked")),
         "centered_from_locked_plan": bool(recommended_resolution.get("centered_from_locked_plan")),
         "fallback_used": bool(recommended_resolution.get("fallback_used")),
+        "recommended_unavailable": bool(recommended_resolution.get("recommended_unavailable")),
+        "fallback_reason": str(recommended_resolution.get("fallback_reason") or ""),
+        "fallback_contract": recommended_resolution.get("fallback_contract"),
+        "binding_status": binding_snapshot.get("binding_status", "UNBOUND"),
         "calibration_overlays": calibration_overlays,
     }
 
@@ -5805,6 +5982,7 @@ def render_options_provider_preview(
             recommended_symbol = str(display_state.get("recommended_contract_symbol", "") or "")
             selected_symbol = str(display_state.get("user_selected_contract_symbol", "") or "") or str((selected_quote or {}).get("contract_symbol", "") or "")
             recommended_row = next((row for row in ladder_rows if row.get("contract_symbol") == recommended_symbol), None)
+            fallback_contract = display_state.get("fallback_contract") or {}
             with st.container(border=True):
                 st.markdown("**Recommended Contract Summary**")
                 summary_bits = [
@@ -5816,7 +5994,7 @@ def render_options_provider_preview(
                 st.caption(
                     f"Nearby strikes within budget: {display_state.get('nearby_within_budget_count', 0)} of {display_state.get('nearby_contract_count', 0)}"
                     f" | Recommended strike: {recommended_row.get('budget_status') if recommended_row else 'Unknown'}"
-                    f" | Cheapest valid nearby strike: {str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or '-') if display_state.get('cheapest_within_budget') else '-'}"
+                    f" | Cheapest valid nearby strike: {str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or 'No nearby contract fits budget') if display_state.get('cheapest_within_budget') else 'No nearby contract fits budget'}"
                 )
                 if recommended_quote:
                     st.caption(
@@ -5824,11 +6002,23 @@ def render_options_provider_preview(
                         f" | Mark {format_price(recommended_quote.get('price')) if recommended_quote.get('price') is not None else '-'}"
                         f" | Pred {format_price(recommended_quote.get('predicted_entry_price')) if recommended_quote.get('predicted_entry_price') is not None else '-'}"
                     )
+                elif display_state.get("recommended_unavailable"):
+                    fallback_symbol = str(fallback_contract.get("symbol", "") or fallback_contract.get("contract_symbol", "") or "-")
+                    fallback_strike = _to_float_or_none(fallback_contract.get("strike"))
+                    st.caption(
+                        f"System Recommended: unavailable"
+                        f" | Original strike {format_price(display_state.get('ladder_anchor_strike')) if display_state.get('ladder_anchor_strike') is not None else '-'}"
+                        f" | Fallback suggestion {fallback_symbol if fallback_symbol != '-' else '-'}"
+                        f"{f' @ {format_price(fallback_strike)}' if fallback_strike is not None else ''}"
+                    )
                 if selected_quote:
                     st.caption(
                         f"Selected for Entry: {selected_quote.get('contract_symbol', '-')}"
                         f" | Mark {format_price(selected_quote.get('price')) if selected_quote.get('price') is not None else '-'}"
                         f" | Pred {format_price(selected_quote.get('predicted_entry_price')) if selected_quote.get('predicted_entry_price') is not None else '-'}"
+                        f" | Est Cost {format_price(selected_quote.get('estimated_entry_cost')) if selected_quote.get('estimated_entry_cost') is not None else '-'}"
+                        f" | Fill Cost {format_price(selected_quote.get('estimated_fill_cost')) if selected_quote.get('estimated_fill_cost') is not None else '-'}"
+                        f" | {selected_quote.get('budget_status') or 'Unknown'}"
                     )
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
@@ -5849,11 +6039,13 @@ def render_options_provider_preview(
                             "expiration": row.get("expiration", ""),
                             "mark": row.get("current_mark", ""),
                             "predicted_entry_price": row.get("predicted_entry_price", ""),
+                            "calibrated_entry_mark": row.get("calibrated_entry_mark", ""),
                             "expected_fill_mark": row.get("expected_fill_mark", ""),
                             "delta": row.get("delta", ""),
                             "rr_ratio": row.get("rr_ratio", ""),
                             "contract_score": row.get("contract_score", ""),
                             "estimated_entry_cost": row.get("estimated_entry_cost", ""),
+                            "estimated_fill_cost": row.get("estimated_fill_cost", ""),
                             "budget_status": row.get("budget_status", ""),
                         }
                         for row in ladder_rows
@@ -5947,6 +6139,8 @@ def render_options_provider_preview(
                     f" | nearby_within_budget_count {display_state.get('nearby_within_budget_count', 0)}"
                     f" | budget_cap {format_price(display_state.get('budget_cap')) if display_state.get('budget_cap') is not None else '-'}"
                     f" | centered_from_locked_plan {display_state.get('centered_from_locked_plan', False)}"
+                    f" | fallback_applied {display_state.get('fallback_used', False)}"
+                    f" | binding_status {display_state.get('binding_status', 'UNBOUND')}"
                 )
 
         notes = provider_status.get("notes", [])
@@ -8913,6 +9107,8 @@ def render_trade_log_tab(
                     "locked_rr_ratio": float(prefill.get("locked_rr_ratio", prefill.get("rr_ratio", 0.0))),
                     "locked_contract_symbol": str(prefill.get("locked_contract_symbol", prefill.get("selected_contract_symbol", ""))),
                     "locked_contract_score": float(prefill.get("locked_contract_score", prefill.get("contract_score", 0.0))),
+                    "locked_option_type": str(prefill.get("locked_option_type", "")),
+                    "locked_expiration": str(prefill.get("locked_expiration", "")),
                     "play_role": str(prefill.get("play_role", prefill.get("play_type", ""))),
                     "plan_locked": bool(prefill.get("plan_locked", prefill.get("session_plan_locked", False))),
                     "lock_cutoff_used": str(prefill.get("lock_cutoff_used", prefill.get("lock_cutoff", ""))),
@@ -8924,6 +9120,15 @@ def render_trade_log_tab(
                     "current_es_at_decision": float(prefill.get("current_es_at_decision", prefill.get("entry_es", 0.0))),
                     "current_mark_at_decision": float(prefill.get("current_mark_at_decision", prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0)))),
                     "selected_contract_symbol": str(prefill.get("selected_contract_symbol", "")),
+                    "recommended_contract_symbol": str(prefill.get("recommended_contract_symbol", prefill.get("locked_contract_symbol", ""))),
+                    "recommended_strike": prefill.get("recommended_strike"),
+                    "operator_selected_contract_symbol": str(prefill.get("operator_selected_contract_symbol", prefill.get("selected_contract_symbol", ""))),
+                    "operator_selected_strike": prefill.get("operator_selected_strike"),
+                    "manual_strike_override": bool(prefill.get("manual_strike_override", False)),
+                    "estimated_entry_cost": prefill.get("estimated_entry_cost"),
+                    "estimated_fill_cost": prefill.get("estimated_fill_cost"),
+                    "budget_status": str(prefill.get("budget_status", "")),
+                    "ladder_anchor_strike": prefill.get("ladder_anchor_strike"),
                     "best_contract_selected": bool(prefill.get("best_contract_selected", False)),
                     "play_type": str(prefill.get("play_type", "")),
                     "expected_gain": float(prefill.get("expected_gain", 0.0)),
@@ -10154,10 +10359,14 @@ def render_operator_play_card(
     evidence_note = build_calibration_bias_note(calibration_preview)
     drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
     drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
-    calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
-    expected_fill = calibration_preview.get("expected_fill_mark") if calibration_preview else None
     recommended_contract_quote = lead_option_quote
     display_contract_quote = selected_contract_quote or recommended_contract_quote
+    calibrated_value = _to_float_or_none((display_contract_quote or {}).get("calibrated_entry_mark"))
+    if calibrated_value is None:
+        calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
+    expected_fill = _to_float_or_none((display_contract_quote or {}).get("expected_fill_mark"))
+    if expected_fill is None:
+        expected_fill = calibration_preview.get("expected_fill_mark") if calibration_preview else None
     selected_contract = build_selected_contract_binding(
         play,
         display_contract_quote,
@@ -10174,6 +10383,9 @@ def render_operator_play_card(
     recommended_contract_symbol = str((recommended_contract_quote or {}).get("contract_symbol", "") or "")
     selected_symbol = str((display_contract_quote or {}).get("contract_symbol", "") or "")
     selected_strike = _to_float_or_none((display_contract_quote or {}).get("strike"))
+    selected_estimated_entry_cost = _to_float_or_none((display_contract_quote or {}).get("estimated_entry_cost"))
+    selected_estimated_fill_cost = _to_float_or_none((display_contract_quote or {}).get("estimated_fill_cost"))
+    selected_budget_status = str((display_contract_quote or {}).get("budget_status", "") or "")
     manual_override_active = bool(
         selected_symbol
         and recommended_contract_symbol
@@ -10268,6 +10480,16 @@ def render_operator_play_card(
             f"Manual strike override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
             f" | Mark {format_price(selected_mark) if selected_mark is not None else '-'}"
         )
+    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None or selected_budget_status:
+        st.caption(
+            " | ".join(
+                [
+                    f"Est Entry Cost {format_price(selected_estimated_entry_cost) if selected_estimated_entry_cost is not None else '-'}",
+                    f"Est Fill Cost {format_price(selected_estimated_fill_cost) if selected_estimated_fill_cost is not None else '-'}",
+                    selected_budget_status or "Budget Unknown",
+                ]
+            )
+        )
     if top_reason_summary:
         st.caption(f"Top reasons: {top_reason_summary}")
     if decision == "NO TRADE":
@@ -10295,11 +10517,16 @@ def render_operator_play_card(
                     play_spx=play,
                     play_es=play_es,
                     lead_option_quote=selected_contract_quote or lead_option_quote,
+                    recommended_contract_quote=lead_option_quote,
                     intelligence=intelligence,
                     final_status=final_status or intelligence["status"],
                     final_decision=(status_breakdown or {}).get("final_decision"),
                     authority=authority,
                     live_context=live_context,
+                    selection_context={
+                        "manual_override": manual_override_active,
+                        "ladder_anchor_strike": _to_float_or_none((session_plan or {}).get("planned_strike")) or displayed_strike,
+                    },
                 )
             )
             st.success("Trade Log prefilled from this play.")
@@ -10324,11 +10551,16 @@ def render_operator_play_card(
                             play_spx=play,
                             play_es=play_es,
                             lead_option_quote=selected_contract_quote or lead_option_quote,
+                            recommended_contract_quote=lead_option_quote,
                             intelligence=intelligence,
                             final_status=final_status or intelligence["status"],
                             final_decision=(status_breakdown or {}).get("final_decision"),
                             authority=authority,
                             live_context=live_context,
+                            selection_context={
+                                "manual_override": manual_override_active,
+                                "ladder_anchor_strike": _to_float_or_none((session_plan or {}).get("planned_strike")) or displayed_strike,
+                            },
                             override_flag=True,
                             override_reason=override_reason_input.strip(),
                         )
@@ -10705,11 +10937,13 @@ def render_live_mode_shell(
                         play_spx=primary_play_spx,
                         play_es=primary_play_es,
                         lead_option_quote=primary_selected_contract_quote,
+                        recommended_contract_quote=primary_display_contract_quote,
                         intelligence=final_status_breakdown.get("intelligence", {}),
                         final_status=final_status,
                         final_decision=final_status_breakdown.get("final_decision"),
                         authority=primary_authority,
                         live_context=live_context,
+                        selection_context=primary_option_display,
                     )
                 )
                 st.success("Trade Log prefilled from Live Mode.")
@@ -10735,6 +10969,15 @@ def render_live_mode_shell(
         st.session_state["tab1_primary_selected_contract"] = {
             "contract_symbol": primary_selected_contract_quote.get("contract_symbol", "") if primary_selected_contract_quote else "",
             "system_recommended_contract_symbol": primary_display_contract_quote.get("contract_symbol", "") if primary_display_contract_quote else "",
+            "recommended_contract_symbol": primary_option_display.get("recommended_contract_symbol", ""),
+            "recommended_strike": primary_option_display.get("recommended_strike"),
+            "operator_selected_contract_symbol": primary_option_display.get("user_selected_contract_symbol", "") or (primary_selected_contract_quote.get("contract_symbol", "") if primary_selected_contract_quote else ""),
+            "operator_selected_strike": primary_option_display.get("operator_selected_strike"),
+            "manual_strike_override": bool(primary_option_display.get("manual_override")),
+            "estimated_entry_cost": primary_selected_contract_quote.get("estimated_entry_cost") if primary_selected_contract_quote else None,
+            "estimated_fill_cost": primary_selected_contract_quote.get("estimated_fill_cost") if primary_selected_contract_quote else None,
+            "budget_status": primary_selected_contract_quote.get("budget_status", "") if primary_selected_contract_quote else "",
+            "ladder_anchor_strike": primary_option_display.get("ladder_anchor_strike"),
             "option_mark_at_decision": primary_selected_contract_quote.get("price") if primary_selected_contract_quote else None,
             "predicted_entry_price": primary_selected_contract_quote.get("predicted_entry_price") if primary_selected_contract_quote else None,
             "expected_gain": primary_selected_contract_quote.get("expected_gain") if primary_selected_contract_quote else None,

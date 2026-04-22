@@ -7,6 +7,7 @@ import app as app_module
 
 from app import (
     align_play_conversion_to_effective_offset,
+    build_live_play_trade_prefill,
     build_selected_contract_binding,
     build_nearby_strike_ladder,
     build_line_rows,
@@ -350,14 +351,22 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(validation["binding_status"], "OK")
 
     def test_locked_contract_fallback_recenters_when_locked_symbol_disappears(self) -> None:
-        session_plan = {"session_plan_locked": True, "contract_symbol": "SPXW 260422P07100000", "planned_strike": 7100}
+        session_plan = {
+            "session_plan_locked": True,
+            "contract_symbol": "SPXW 260422P07100000",
+            "planned_strike": 7100,
+            "option_type": "PUT",
+            "expiration": "2026-04-22",
+        }
         candidates_without_locked = [row for row in self.option_candidates if row["symbol"] != "SPXW 260422P07100000" and row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
 
         resolved = resolve_recommended_contract_row(candidates_without_locked, session_plan=session_plan)
 
         self.assertTrue(resolved["fallback_used"])
-        self.assertFalse(resolved["centered_from_locked_plan"])
-        self.assertEqual(resolved["recommended_contract"]["symbol"], "SPXW 260422P07090000")
+        self.assertTrue(resolved["centered_from_locked_plan"])
+        self.assertIsNone(resolved["recommended_contract"])
+        self.assertTrue(resolved["recommended_unavailable"])
+        self.assertEqual(resolved["fallback_contract"]["symbol"], "SPXW 260422P07095000")
 
     def test_ladder_handles_fewer_than_five_strikes_on_one_side(self) -> None:
         recommended = self.option_candidates[0]
@@ -371,6 +380,65 @@ class AppUnitTests(unittest.TestCase):
         )
 
         self.assertEqual([row["strike"] for row in ladder], [7090, 7095, 7100, 7105, 7110])
+
+    def test_trade_prefill_preserves_recommended_and_selected_contract_identity(self) -> None:
+        signal_package = {"scenario": {"scenario_name": "SCENARIO 2: INSIDE ASCENDING CHANNEL", "confidence_level": "High"}}
+        play_spx = {"direction": "PUT", "strike": 7100, "contracts": 2, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}}
+        play_es = {"entry": {"price": 7159.5}}
+        recommended_quote = {
+            "contract_symbol": "SPXW 260422P07100000",
+            "strike": 7100,
+            "option_type": "PUT",
+            "expiration": "2026-04-22",
+        }
+        selected_quote = {
+            "contract_symbol": "SPXW 260422P07095000",
+            "strike": 7095,
+            "option_type": "PUT",
+            "expiration": "2026-04-22",
+            "price": 18.0,
+            "predicted_entry_price": 11.2,
+            "estimated_entry_cost": 2240.0,
+            "estimated_fill_cost": 2300.0,
+            "budget_status": "Within Budget",
+        }
+        intelligence = {
+            "planned_entry_mark": 13.0,
+            "live_predicted_entry_mark": 13.0,
+            "locked_entry_spx": 7120.0,
+            "lock_cutoff_label": "8:25 AM CT",
+            "session_plan_locked": True,
+            "locked_timestamp": "2026-04-22T08:25:00-05:00",
+            "entry_zone_status": "APPROACHING",
+            "move_completion_pct": 22.0,
+            "regime": "PULLBACK",
+            "plan_status": "HOLDING",
+            "chase_status": "WAIT",
+            "prediction_confidence": "MEDIUM",
+            "stop_quality": "Balanced",
+            "quality": "Acceptable",
+        }
+
+        prefill = build_live_play_trade_prefill(
+            signal_package=signal_package,
+            play_type="primary",
+            play_spx=play_spx,
+            play_es=play_es,
+            lead_option_quote=selected_quote,
+            recommended_contract_quote=recommended_quote,
+            intelligence=intelligence,
+            final_status="ELIGIBLE",
+            selection_context={"manual_override": True, "ladder_anchor_strike": 7100},
+        )
+
+        self.assertEqual(prefill["recommended_contract_symbol"], "SPXW 260422P07100000")
+        self.assertEqual(prefill["recommended_strike"], 7100)
+        self.assertEqual(prefill["operator_selected_contract_symbol"], "SPXW 260422P07095000")
+        self.assertEqual(prefill["operator_selected_strike"], 7095)
+        self.assertTrue(prefill["manual_strike_override"])
+        self.assertEqual(prefill["estimated_entry_cost"], 2240.0)
+        self.assertEqual(prefill["budget_status"], "Within Budget")
+        self.assertEqual(prefill["ladder_anchor_strike"], 7100)
 
 
 if __name__ == "__main__":
