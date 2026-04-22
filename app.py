@@ -189,6 +189,7 @@ DEFAULT_SETTINGS = {
     "options_provider": DEFAULT_OPTIONS_PROVIDER,
     "options_mode_enabled": DEFAULT_OPTIONS_PROVIDER != "none",
     "session_plan_lock_cutoff": "8:25 AM CT",
+    "max_estimated_entry_cost": 500.0,
 }
 
 
@@ -472,6 +473,7 @@ def initialize_app_state() -> None:
     st.session_state.setdefault("trade_form_prefill", {})
     st.session_state.setdefault("trade_form_notice", None)
     st.session_state.setdefault("live_state_store", {})
+    st.session_state.setdefault("contract_override_store", {})
 
 
 def clear_trade_form_prefill() -> None:
@@ -5451,6 +5453,260 @@ def validate_contract_binding(selected_contract: dict[str, Any] | None, displaye
     return result
 
 
+def build_contract_selection_key(next_trading_date: date, play_role: str) -> str:
+    """Build a stable key for manual contract selection state."""
+
+    return f"{next_trading_date.isoformat()}|{play_role}|contract_override"
+
+
+def classify_budget_status(estimated_cost: float | None, budget_cap: float | None) -> str:
+    """Classify entry affordability for the nearby strike ladder."""
+
+    if estimated_cost is None or budget_cap is None or budget_cap <= 0:
+        return "Unknown"
+    if estimated_cost <= budget_cap:
+        return "Within Budget"
+    if estimated_cost <= budget_cap * 1.10:
+        return "Near Budget"
+    return "Above Budget"
+
+
+def resolve_recommended_contract_row(
+    candidates: list[dict[str, Any]] | None,
+    session_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve the official displayed recommendation, respecting the locked session plan when possible."""
+
+    rows = [dict(row) for row in (candidates or [])]
+    top_row = rows[0] if rows else None
+    locked = bool(session_plan and session_plan.get("session_plan_locked"))
+    locked_symbol = str((session_plan or {}).get("contract_symbol", "") or "")
+    locked_strike = _to_float_or_none((session_plan or {}).get("planned_strike"))
+    locked_match = next((row for row in rows if str(row.get("symbol", "")) == locked_symbol), None) if locked and locked_symbol else None
+
+    if locked and locked_match is not None:
+        return {
+            "recommended_contract": locked_match,
+            "ladder_anchor_strike": _to_float_or_none(locked_match.get("strike")) or locked_strike,
+            "ladder_locked": True,
+            "centered_from_locked_plan": True,
+            "fallback_used": False,
+        }
+
+    if locked and locked_match is None and top_row is not None:
+        return {
+            "recommended_contract": top_row,
+            "ladder_anchor_strike": _to_float_or_none(top_row.get("strike")),
+            "ladder_locked": True,
+            "centered_from_locked_plan": False,
+            "fallback_used": True,
+        }
+
+    return {
+        "recommended_contract": top_row,
+        "ladder_anchor_strike": _to_float_or_none(top_row.get("strike")) if top_row is not None else locked_strike,
+        "ladder_locked": locked,
+        "centered_from_locked_plan": False,
+        "fallback_used": False,
+    }
+
+
+def resolve_selected_contract_row(
+    candidates: list[dict[str, Any]] | None,
+    recommended_contract: dict[str, Any] | None,
+    *,
+    selection_key: str,
+) -> dict[str, Any]:
+    """Resolve the operator-selected contract while preserving the original recommendation."""
+
+    rows = [dict(row) for row in (candidates or [])]
+    override_store = st.session_state.setdefault("contract_override_store", {})
+    requested_symbol = str(override_store.get(selection_key, "") or "")
+    recommended_symbol = str((recommended_contract or {}).get("symbol", "") or "")
+    selected_row = next((row for row in rows if str(row.get("symbol", "")) == requested_symbol), None) if requested_symbol else None
+
+    if requested_symbol and selected_row is None:
+        override_store.pop(selection_key, None)
+
+    final_selected = selected_row or recommended_contract
+    final_symbol = str((final_selected or {}).get("symbol", "") or "")
+    return {
+        "selected_contract": final_selected,
+        "user_selected_contract_symbol": final_symbol if final_symbol and final_symbol != recommended_symbol else "",
+        "manual_override": bool(final_symbol and recommended_symbol and final_symbol != recommended_symbol),
+    }
+
+
+def build_nearby_strike_ladder(
+    candidates: list[dict[str, Any]] | None,
+    recommended_contract: dict[str, Any] | None,
+    *,
+    contracts: int,
+    budget_cap: float | None,
+    ladder_anchor_strike: float | None,
+    selected_contract_symbol: str = "",
+    calibration_overlays: dict[str, dict[str, Any]] | None = None,
+    window_each_side: int = 5,
+) -> list[dict[str, Any]]:
+    """Build a same-type, same-expiration strike ladder centered on the recommended strike anchor."""
+
+    calibration_overlays = calibration_overlays or {}
+    if recommended_contract is None:
+        return []
+
+    recommended_symbol = str(recommended_contract.get("symbol", "") or "")
+    option_type = str(recommended_contract.get("option_type") or recommended_contract.get("right", "") or "")
+    expiration = str(recommended_contract.get("expiration") or recommended_contract.get("expiration_date", "") or "")
+    anchor_value = _to_float_or_none(ladder_anchor_strike)
+    filtered = [
+        dict(row)
+        for row in (candidates or [])
+        if str(row.get("option_type") or row.get("right", "") or "") == option_type
+        and str(row.get("expiration") or row.get("expiration_date", "") or "") == expiration
+    ]
+    filtered.sort(key=lambda row: _to_float_or_none(row.get("strike")) or 0.0)
+    if not filtered:
+        return []
+
+    anchor_index = 0
+    if anchor_value is not None:
+        anchor_index = min(
+            range(len(filtered)),
+            key=lambda idx: abs((_to_float_or_none(filtered[idx].get("strike")) or 0.0) - anchor_value),
+        )
+    start = max(0, anchor_index - window_each_side)
+    end = min(len(filtered), anchor_index + window_each_side + 1)
+    window_rows = filtered[start:end]
+
+    ladder_rows: list[dict[str, Any]] = []
+    for row in window_rows:
+        symbol = str(row.get("symbol", "") or "")
+        predicted_entry = _to_float_or_none(row.get("predicted_entry_price"))
+        calibration = calibration_overlays.get(symbol, {})
+        calibrated_entry = _to_float_or_none(calibration.get("calibrated_entry_mark"))
+        expected_fill = _to_float_or_none(calibration.get("expected_fill_mark"))
+        estimated_entry_cost = round_price(predicted_entry * 100 * int(contracts)) if predicted_entry is not None else None
+        estimated_fill_cost = round_price(expected_fill * 100 * int(contracts)) if expected_fill is not None else None
+        budget_reference = estimated_fill_cost if estimated_fill_cost is not None else estimated_entry_cost
+        labels: list[str] = []
+        if symbol == recommended_symbol:
+            labels.append("Recommended")
+        if selected_contract_symbol and symbol == selected_contract_symbol:
+            labels.append("Selected by You")
+        if labels == ["Selected by You"] and classify_budget_status(budget_reference, budget_cap) == "Within Budget":
+            labels.append("Budget-Friendly Alternative")
+        ladder_rows.append(
+            {
+                "contract_symbol": symbol,
+                "strike": _to_float_or_none(row.get("strike")),
+                "option_type": option_type,
+                "expiration": expiration,
+                "current_mark": _to_float_or_none(row.get("mark")) or _to_float_or_none(row.get("last")) or _to_float_or_none(row.get("ask")) or _to_float_or_none(row.get("bid")),
+                "predicted_entry_price": predicted_entry,
+                "expected_fill_mark": expected_fill,
+                "delta": _to_float_or_none(row.get("delta")),
+                "rr_ratio": _to_float_or_none(row.get("rr_ratio")),
+                "contract_score": _to_float_or_none(row.get("contract_score")),
+                "estimated_entry_cost": estimated_entry_cost,
+                "estimated_fill_cost": estimated_fill_cost,
+                "budget_status": classify_budget_status(budget_reference, budget_cap),
+                "labels": labels,
+                "is_recommended": symbol == recommended_symbol,
+                "is_selected": bool(selected_contract_symbol and symbol == selected_contract_symbol),
+            }
+        )
+    return ladder_rows
+
+
+def build_option_display_state(
+    *,
+    play_role: str,
+    candidates: list[dict[str, Any]] | None,
+    play_spx: dict[str, Any] | None,
+    play_es: dict[str, Any] | None,
+    next_trading_date: date,
+    session_plan: dict[str, Any] | None,
+    signal_package: dict[str, Any],
+    trades: list[dict[str, Any]],
+    current_spx_price: float | None,
+    planned_anchor_key: str | None,
+    budget_cap: float | None,
+    live_context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build the complete options display state for one play without changing ranking logic."""
+
+    recommended_resolution = resolve_recommended_contract_row(candidates, session_plan=session_plan)
+    recommended_contract = recommended_resolution.get("recommended_contract")
+    selection_key = build_contract_selection_key(next_trading_date, play_role)
+    selected_resolution = resolve_selected_contract_row(candidates, recommended_contract, selection_key=selection_key)
+    selected_contract = selected_resolution.get("selected_contract")
+
+    calibration_overlays: dict[str, dict[str, Any]] = {}
+    for candidate in candidates or []:
+        candidate_quote = extract_lead_option_quote([candidate])
+        if candidate_quote is None or play_spx is None:
+            continue
+        candidate_intelligence = assess_trade_intelligence(
+            play_spx,
+            candidate_quote,
+            current_spx_price=current_spx_price,
+            planned_anchor_key=planned_anchor_key,
+            session_plan=session_plan,
+        )
+        calibration_overlays[str(candidate.get("symbol", "") or "")] = resolve_calibration_preview(
+            trades,
+            build_live_play_trade_prefill(
+                signal_package=signal_package,
+                play_type=play_role,
+                play_spx=play_spx,
+                play_es=play_es,
+                lead_option_quote=candidate_quote,
+                intelligence=candidate_intelligence,
+                final_status="ELIGIBLE",
+                final_decision=None,
+                live_context=live_context,
+            ),
+        )
+
+    recommended_symbol = str((recommended_contract or {}).get("symbol", "") or "")
+    selected_symbol = str((selected_contract or {}).get("symbol", "") or "")
+    ladder_rows = build_nearby_strike_ladder(
+        candidates,
+        recommended_contract,
+        contracts=int((play_spx or {}).get("contracts", 1) or 1),
+        budget_cap=budget_cap,
+        ladder_anchor_strike=recommended_resolution.get("ladder_anchor_strike"),
+        selected_contract_symbol=selected_symbol,
+        calibration_overlays=calibration_overlays,
+    )
+    within_budget_rows = [row for row in ladder_rows if row.get("budget_status") == "Within Budget"]
+    cheapest_within_budget = min(
+        within_budget_rows,
+        key=lambda row: row.get("estimated_entry_cost") if row.get("estimated_entry_cost") is not None else float("inf"),
+    ) if within_budget_rows else None
+
+    return {
+        "selection_key": selection_key,
+        "recommended_contract": recommended_contract,
+        "recommended_quote": extract_lead_option_quote([recommended_contract]) if recommended_contract is not None else None,
+        "selected_contract": selected_contract,
+        "selected_quote": extract_lead_option_quote([selected_contract]) if selected_contract is not None else None,
+        "recommended_contract_symbol": recommended_symbol,
+        "user_selected_contract_symbol": selected_resolution.get("user_selected_contract_symbol", ""),
+        "manual_override": bool(selected_resolution.get("manual_override")),
+        "ladder_rows": ladder_rows,
+        "nearby_contract_count": len(ladder_rows),
+        "nearby_within_budget_count": len(within_budget_rows),
+        "budget_cap": budget_cap,
+        "cheapest_within_budget": cheapest_within_budget,
+        "ladder_anchor_strike": recommended_resolution.get("ladder_anchor_strike"),
+        "ladder_locked": bool(recommended_resolution.get("ladder_locked")),
+        "centered_from_locked_plan": bool(recommended_resolution.get("centered_from_locked_plan")),
+        "fallback_used": bool(recommended_resolution.get("fallback_used")),
+        "calibration_overlays": calibration_overlays,
+    }
+
+
 def attach_option_lookup_context(
     contracts: list[dict[str, Any]] | None,
     *,
@@ -5537,39 +5793,43 @@ def render_options_provider_preview(
             play_spx = section.get("play_spx")
             play_es = section.get("play_es")
             chain_snapshot = section.get("chain_snapshot") or {"status": "unavailable", "contracts": []}
+            display_state = section.get("display_state") or {}
             preview_candidates = normalize_option_candidate_rows(chain_snapshot.get("contracts"))
             if not preview_candidates and not provider_status.get("live_mode_available", False):
                 preview_candidates = normalize_option_candidate_rows(provider.find_candidate_contracts(section["request"]))
 
             st.markdown(f"**{section['title']}**")
-            summary_bits = [
-                str(request_payload.get("direction", "")),
-                f"ES {format_price(play_es['entry']['price'])}" if play_es else "ES -",
-                f"SPX {format_price(play_spx['entry']['price'])}" if play_spx else "SPX -",
-                f"Strike {play_spx['strike']}" if play_spx else "Strike -",
-            ]
-            lead_quote = extract_lead_option_quote(chain_snapshot.get("contracts"))
-            if lead_quote and lead_quote.get("price") is not None:
-                summary_bits.append(f"Mark {format_price(lead_quote['price'])}")
-            st.markdown(" | ".join(str(bit) for bit in summary_bits if bit))
-            best_contract = (chain_snapshot.get("contracts") or [None])[0]
-            if best_contract:
-                best_mark_value = _to_float_or_none(best_contract.get("mark"))
-                if best_mark_value is None:
-                    best_mark_value = _to_float_or_none(best_contract.get("last"))
-                intelligence_bits = [
-                    "BEST CONTRACT",
-                    str(best_contract.get("symbol") or "-"),
-                    f"Pred Entry {format_price(best_contract.get('predicted_entry_price'))}" if best_contract.get("predicted_entry_price") is not None else "Pred Entry -",
-                    f"Mark {format_price(best_mark_value)}" if best_mark_value is not None else "Mark -",
-                    f"Gain {format_price(best_contract.get('expected_gain'))}" if best_contract.get("expected_gain") is not None else "Gain -",
-                    f"Loss {format_price(best_contract.get('expected_loss'))}" if best_contract.get("expected_loss") is not None else "Loss -",
-                    f"RR {best_contract.get('rr_ratio')}" if best_contract.get("rr_ratio") is not None else "RR -",
-                    f"Score {best_contract.get('contract_score')}" if best_contract.get("contract_score") is not None else "Score -",
+            recommended_quote = display_state.get("recommended_quote")
+            selected_quote = display_state.get("selected_quote") or recommended_quote
+            ladder_rows = display_state.get("ladder_rows", [])
+            recommended_symbol = str(display_state.get("recommended_contract_symbol", "") or "")
+            selected_symbol = str(display_state.get("user_selected_contract_symbol", "") or "") or str((selected_quote or {}).get("contract_symbol", "") or "")
+            recommended_row = next((row for row in ladder_rows if row.get("contract_symbol") == recommended_symbol), None)
+            with st.container(border=True):
+                st.markdown("**Recommended Contract Summary**")
+                summary_bits = [
+                    str(request_payload.get("direction", "")),
+                    f"ES {format_price(play_es['entry']['price'])}" if play_es else "ES -",
+                    f"SPX {format_price(play_spx['entry']['price'])}" if play_spx else "SPX -",
                 ]
-                st.caption(" • ".join(intelligence_bits))
-                if best_contract.get("stop_unavailable"):
-                    st.caption("Setup incomplete: structural stop unavailable. RR stays blank until a valid stop exists.")
+                st.markdown(" | ".join(str(bit) for bit in summary_bits if bit))
+                st.caption(
+                    f"Nearby strikes within budget: {display_state.get('nearby_within_budget_count', 0)} of {display_state.get('nearby_contract_count', 0)}"
+                    f" | Recommended strike: {recommended_row.get('budget_status') if recommended_row else 'Unknown'}"
+                    f" | Cheapest valid nearby strike: {str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or '-') if display_state.get('cheapest_within_budget') else '-'}"
+                )
+                if recommended_quote:
+                    st.caption(
+                        f"System Recommended: {recommended_quote.get('contract_symbol', '-')}"
+                        f" | Mark {format_price(recommended_quote.get('price')) if recommended_quote.get('price') is not None else '-'}"
+                        f" | Pred {format_price(recommended_quote.get('predicted_entry_price')) if recommended_quote.get('predicted_entry_price') is not None else '-'}"
+                    )
+                if selected_quote:
+                    st.caption(
+                        f"Selected for Entry: {selected_quote.get('contract_symbol', '-')}"
+                        f" | Mark {format_price(selected_quote.get('price')) if selected_quote.get('price') is not None else '-'}"
+                        f" | Pred {format_price(selected_quote.get('predicted_entry_price')) if selected_quote.get('predicted_entry_price') is not None else '-'}"
+                    )
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
             if developer_mode and chain_snapshot.get("message"):
@@ -5577,9 +5837,75 @@ def render_options_provider_preview(
             if chain_snapshot.get("error"):
                 st.warning(chain_snapshot["error"])
 
+            if ladder_rows:
+                st.markdown("**Nearby Strike Ladder**")
+                ladder_df = pd.DataFrame(
+                    [
+                        {
+                            "labels": " | ".join(row.get("labels", [])),
+                            "strike": int(row["strike"]) if row.get("strike") is not None else "",
+                            "contract_symbol": row.get("contract_symbol", ""),
+                            "option_type": row.get("option_type", ""),
+                            "expiration": row.get("expiration", ""),
+                            "mark": row.get("current_mark", ""),
+                            "predicted_entry_price": row.get("predicted_entry_price", ""),
+                            "expected_fill_mark": row.get("expected_fill_mark", ""),
+                            "delta": row.get("delta", ""),
+                            "rr_ratio": row.get("rr_ratio", ""),
+                            "contract_score": row.get("contract_score", ""),
+                            "estimated_entry_cost": row.get("estimated_entry_cost", ""),
+                            "budget_status": row.get("budget_status", ""),
+                        }
+                        for row in ladder_rows
+                    ]
+                )
+
+                def _highlight_ladder(row):
+                    if "Recommended" in str(row.get("labels", "")):
+                        return ["background-color: rgba(0, 230, 118, 0.14); font-weight: 600;" for _ in row]
+                    if "Selected by You" in str(row.get("labels", "")):
+                        return ["background-color: rgba(255, 193, 7, 0.12);" for _ in row]
+                    return ["" for _ in row]
+
+                st.dataframe(
+                    ladder_df.style.apply(_highlight_ladder, axis=1),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                option_labels = {
+                    f"{int(row['strike']) if row.get('strike') is not None else '-'} | {row.get('contract_symbol', '-')} | {row.get('budget_status', 'Unknown')}": row.get("contract_symbol", "")
+                    for row in ladder_rows
+                }
+                current_selection_symbol = selected_symbol or recommended_symbol
+                current_selection_label = next((label for label, symbol in option_labels.items() if symbol == current_selection_symbol), next(iter(option_labels)))
+                selection_key = str(display_state.get("selection_key", f"{section['title']}_contract_override"))
+                selected_label = st.selectbox(
+                    "Select nearby contract",
+                    options=list(option_labels.keys()),
+                    index=safe_option_index(list(option_labels.keys()), current_selection_label),
+                    key=f"{selection_key}_picker",
+                )
+                ladder_action_col1, ladder_action_col2 = st.columns(2)
+                with ladder_action_col1:
+                    if st.button("Use This Strike", key=f"{selection_key}_use", use_container_width=True):
+                        chosen_symbol = option_labels[selected_label]
+                        override_store = st.session_state.setdefault("contract_override_store", {})
+                        if chosen_symbol and chosen_symbol != recommended_symbol:
+                            override_store[selection_key] = chosen_symbol
+                        else:
+                            override_store.pop(selection_key, None)
+                        st.rerun()
+                with ladder_action_col2:
+                    if st.button("Reset To Recommended", key=f"{selection_key}_reset", use_container_width=True, disabled=not display_state.get("manual_override")):
+                        st.session_state.setdefault("contract_override_store", {}).pop(selection_key, None)
+                        st.rerun()
+            elif not preview_candidates:
+                st.info("No live option candidates are available.")
+
             if preview_candidates:
                 preview_df = pd.DataFrame(preview_candidates)
-                default_columns = [
+                full_chain_columns = [
                     "selection",
                     "contract_symbol",
                     "option_type",
@@ -5587,14 +5913,13 @@ def render_options_provider_preview(
                     "expiration",
                     "bid",
                     "ask",
+                    "last",
                     "mark",
                     "volume",
                     "open_interest",
                     "delta",
                     "implied_volatility",
                     "predicted_entry_price",
-                ]
-                research_columns = [
                     "gamma",
                     "theta",
                     "vega",
@@ -5602,48 +5927,27 @@ def render_options_provider_preview(
                     "expected_loss",
                     "rr_ratio",
                     "contract_score",
-                    "delta_score",
-                    "gamma_score",
-                    "liquidity_score",
-                    "spread_score",
-                    "distance_score",
-                    "score_penalty",
-                    "penalty_flags",
                 ]
-                visible_columns = [column for column in default_columns if column in preview_df.columns]
-                if developer_mode:
-                    visible_columns.extend([column for column in research_columns if column in preview_df.columns and column not in visible_columns])
-                render_df = preview_df[visible_columns] if visible_columns else preview_df
-
-                def _highlight_best(row):
-                    return [
-                        "background-color: rgba(0, 230, 118, 0.14); font-weight: 600;"
-                        if row.get("selection") == "BEST CONTRACT"
-                        else ""
-                        for _ in row
-                    ]
-
-                with st.expander("Candidate Contracts", expanded=developer_mode):
+                visible_columns = [column for column in full_chain_columns if column in preview_df.columns]
+                with st.expander("Full Chain View", expanded=False):
                     st.dataframe(
-                        render_df.style.apply(_highlight_best, axis=1),
+                        preview_df[visible_columns] if visible_columns else preview_df,
                         use_container_width=True,
                         hide_index=True,
                     )
-            else:
-                st.info("No live option candidates are available.")
-            if developer_mode and best_contract:
-                st.caption(
-                    "Scores | "
-                    f"delta {best_contract.get('delta_score', 0):.4f} | "
-                    f"gamma {best_contract.get('gamma_score', 0):.4f} | "
-                    f"liquidity {best_contract.get('liquidity_score', 0):.4f} | "
-                    f"spread {best_contract.get('spread_score', 0):.4f} | "
-                    f"distance {best_contract.get('distance_score', 0):.4f} | "
-                    f"penalties {', '.join(best_contract.get('penalty_flags', [])) or 'none'}"
-                )
             if developer_mode:
                 st.markdown("**Prepared Lookup Request**")
                 st.json(request_payload, expanded=False)
+                st.caption(
+                    f"ladder_anchor_strike {format_price(display_state.get('ladder_anchor_strike')) if display_state.get('ladder_anchor_strike') is not None else '-'}"
+                    f" | ladder_locked {display_state.get('ladder_locked', False)}"
+                    f" | recommended_contract_symbol {recommended_symbol or '-'}"
+                    f" | user_selected_contract_symbol {display_state.get('user_selected_contract_symbol') or '-'}"
+                    f" | nearby_contract_count {display_state.get('nearby_contract_count', 0)}"
+                    f" | nearby_within_budget_count {display_state.get('nearby_within_budget_count', 0)}"
+                    f" | budget_cap {format_price(display_state.get('budget_cap')) if display_state.get('budget_cap') is not None else '-'}"
+                    f" | centered_from_locked_plan {display_state.get('centered_from_locked_plan', False)}"
+                )
 
         notes = provider_status.get("notes", [])
         if developer_mode and notes:
@@ -6610,6 +6914,13 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 session_lock_options,
                 index=safe_option_index(session_lock_options, settings.get("session_plan_lock_cutoff", DEFAULT_SETTINGS["session_plan_lock_cutoff"])),
             )
+            max_estimated_entry_cost = st.number_input(
+                "Max Estimated Entry Cost ($)",
+                min_value=0.0,
+                value=float(settings.get("max_estimated_entry_cost", DEFAULT_SETTINGS["max_estimated_entry_cost"])),
+                step=25.0,
+                format="%.2f",
+            )
             if visibility_mode == "Edge Lab":
                 options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
                 options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
@@ -6693,6 +7004,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
         "session_plan_lock_cutoff": session_plan_lock_cutoff,
+        "max_estimated_entry_cost": max_estimated_entry_cost,
         "options_mode_enabled": options_mode_enabled,
         "options_provider": options_provider,
         "pivot_high_time": at_central(prior_session_date, pivot_high_hour, 0),
@@ -9774,6 +10086,7 @@ def render_operator_play_card(
     adaptive_overlay: dict[str, Any] | None = None,
     authority: dict[str, Any] | None = None,
     live_context: dict[str, Any] | None = None,
+    selected_contract_quote: dict[str, Any] | None = None,
 ) -> None:
     """Render a calmer operator-first play card for live mode."""
 
@@ -9856,6 +10169,9 @@ def render_operator_play_card(
     rr_value = selected_contract.get("rr_ratio")
     displayed_strike = selected_contract.get("displayed_strike")
     best_contract_symbol = str(selected_contract.get("displayed_contract_symbol", "") or "")
+    selected_contract_quote = selected_contract_quote or lead_option_quote
+    selected_symbol = str((selected_contract_quote or {}).get("contract_symbol", "") or "")
+    selected_strike = _to_float_or_none((selected_contract_quote or {}).get("strike"))
     top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
 
     st.markdown(
@@ -9931,6 +10247,20 @@ def render_operator_play_card(
                     ]
                 )
             )
+    st.caption(
+        f"System Recommended: {best_contract_symbol or '-'}"
+        + (
+            f" | Selected for Entry: {selected_symbol or best_contract_symbol or '-'}"
+            if selected_symbol or best_contract_symbol
+            else ""
+        )
+    )
+    if selected_symbol and best_contract_symbol and selected_symbol != best_contract_symbol:
+        selected_mark = _to_float_or_none(selected_contract_quote.get("price")) if selected_contract_quote else None
+        st.caption(
+            f"Manual strike override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
+            f" | Mark {format_price(selected_mark) if selected_mark is not None else '-'}"
+        )
     if top_reason_summary:
         st.caption(f"Top reasons: {top_reason_summary}")
     if decision == "NO TRADE":
@@ -9957,7 +10287,7 @@ def render_operator_play_card(
                     play_type=inferred_play_type,
                     play_spx=play,
                     play_es=play_es,
-                    lead_option_quote=lead_option_quote,
+                    lead_option_quote=selected_contract_quote or lead_option_quote,
                     intelligence=intelligence,
                     final_status=final_status or intelligence["status"],
                     final_decision=(status_breakdown or {}).get("final_decision"),
@@ -9986,7 +10316,7 @@ def render_operator_play_card(
                             play_type=inferred_play_type,
                             play_spx=play,
                             play_es=play_es,
-                            lead_option_quote=lead_option_quote,
+                            lead_option_quote=selected_contract_quote or lead_option_quote,
                             intelligence=intelligence,
                             final_status=final_status or intelligence["status"],
                             final_decision=(status_breakdown or {}).get("final_decision"),
@@ -10115,9 +10445,9 @@ def render_live_mode_shell(
         primary_planned_anchor_key = build_planned_anchor_key("primary", signal_package, primary_play_spx, inputs.get("next_trading_date"))
         alternate_planned_anchor_key = build_planned_anchor_key("alternate", signal_package, alternate_play_spx, inputs.get("next_trading_date"))
         option_sections: list[dict[str, Any]] = []
-        for section_title, play_spx, play_es in [
-            ("Primary Contracts", primary_play_spx, primary_play_es),
-            ("Alternate Contracts", alternate_play_spx, alternate_play_es),
+        for section_title, play_role, play_spx, play_es in [
+            ("Primary Contracts", "primary", primary_play_spx, primary_play_es),
+            ("Alternate Contracts", "alternate", alternate_play_spx, alternate_play_es),
         ]:
             option_request = None
             chain_snapshot = {"status": "unavailable", "contracts": []}
@@ -10150,6 +10480,7 @@ def render_live_mode_shell(
                     option_sections.append(
                         {
                             "title": section_title,
+                            "play_role": play_role,
                             "request": option_request,
                             "play_spx": play_spx,
                             "play_es": play_es,
@@ -10236,6 +10567,32 @@ def render_live_mode_shell(
             if signal_package is not None and alternate_play_spx is not None
             else None
         )
+        option_display_map = {
+            section["title"]: build_option_display_state(
+                play_role=section["play_role"],
+                candidates=section["chain_snapshot"].get("contracts"),
+                play_spx=section.get("play_spx"),
+                play_es=section.get("play_es"),
+                next_trading_date=inputs["next_trading_date"],
+                session_plan=primary_session_plan if section["play_role"] == "primary" else alternate_session_plan,
+                signal_package=display_signal_package,
+                trades=normalized_calibration_trades,
+                current_spx_price=live_current_spx,
+                planned_anchor_key=primary_planned_anchor_key if section["play_role"] == "primary" else alternate_planned_anchor_key,
+                budget_cap=_to_float_or_none(inputs.get("max_estimated_entry_cost")),
+                live_context=live_context,
+            )
+            for section in option_sections
+            if display_signal_package is not None
+        }
+        for section in option_sections:
+            section["display_state"] = option_display_map.get(section["title"], {})
+        primary_option_display = option_display_map.get("Primary Contracts", {})
+        alternate_option_display = option_display_map.get("Alternate Contracts", {})
+        primary_display_contract_quote = primary_option_display.get("recommended_quote") or primary_lead_option
+        alternate_display_contract_quote = alternate_option_display.get("recommended_quote") or alternate_lead_option
+        primary_selected_contract_quote = primary_option_display.get("selected_quote") or primary_display_contract_quote
+        alternate_selected_contract_quote = alternate_option_display.get("selected_quote") or alternate_display_contract_quote
         final_status_breakdown = resolve_final_trade_status(
             display_signal_package,
             primary_play_spx,
@@ -10340,7 +10697,7 @@ def render_live_mode_shell(
                         play_type="primary",
                         play_spx=primary_play_spx,
                         play_es=primary_play_es,
-                        lead_option_quote=primary_lead_option,
+                        lead_option_quote=primary_selected_contract_quote,
                         intelligence=final_status_breakdown.get("intelligence", {}),
                         final_status=final_status,
                         final_decision=final_status_breakdown.get("final_decision"),
@@ -10369,13 +10726,14 @@ def render_live_mode_shell(
                     st.error(snapshot_error or "Unable to save daily snapshot.")
         primary_contract_candidates = next((section["chain_snapshot"].get("contracts", []) for section in option_sections if section["title"] == "Primary Contracts"), [])
         st.session_state["tab1_primary_selected_contract"] = {
-            "contract_symbol": primary_lead_option.get("contract_symbol", "") if primary_lead_option else "",
-            "option_mark_at_decision": primary_lead_option.get("price") if primary_lead_option else None,
-            "predicted_entry_price": primary_lead_option.get("predicted_entry_price") if primary_lead_option else None,
-            "expected_gain": primary_lead_option.get("expected_gain") if primary_lead_option else None,
-            "expected_loss": primary_lead_option.get("expected_loss") if primary_lead_option else None,
-            "rr_ratio": primary_lead_option.get("rr_ratio") if primary_lead_option else None,
-            "contract_score": primary_lead_option.get("contract_score") if primary_lead_option else None,
+            "contract_symbol": primary_selected_contract_quote.get("contract_symbol", "") if primary_selected_contract_quote else "",
+            "system_recommended_contract_symbol": primary_display_contract_quote.get("contract_symbol", "") if primary_display_contract_quote else "",
+            "option_mark_at_decision": primary_selected_contract_quote.get("price") if primary_selected_contract_quote else None,
+            "predicted_entry_price": primary_selected_contract_quote.get("predicted_entry_price") if primary_selected_contract_quote else None,
+            "expected_gain": primary_selected_contract_quote.get("expected_gain") if primary_selected_contract_quote else None,
+            "expected_loss": primary_selected_contract_quote.get("expected_loss") if primary_selected_contract_quote else None,
+            "rr_ratio": primary_selected_contract_quote.get("rr_ratio") if primary_selected_contract_quote else None,
+            "contract_score": primary_selected_contract_quote.get("contract_score") if primary_selected_contract_quote else None,
             "stop_value": float(primary_play_spx["stop"]["price"]) if primary_play_spx and primary_play_spx.get("stop") else None,
             "integrity_flags": list((primary_contract_candidates[0].get("integrity_flags", []) if primary_contract_candidates else [])),
             "final_authority_decision": primary_authority.get("decision"),
@@ -10388,9 +10746,9 @@ def render_live_mode_shell(
         decision_col1, decision_col2 = st.columns(2, gap="large")
         if display_signal_package is not None:
             with decision_col1:
-                render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context)
+                render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote)
             with decision_col2:
-                render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_lead_option, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context)
+                render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
@@ -10828,6 +11186,7 @@ def main() -> None:
         "visibility_mode": inputs["visibility_mode"],
         "manual_price_space": inputs["manual_price_space"],
         "session_plan_lock_cutoff": inputs["session_plan_lock_cutoff"],
+        "max_estimated_entry_cost": inputs["max_estimated_entry_cost"],
         "options_provider": inputs["options_provider"],
         "options_mode_enabled": inputs["options_mode_enabled"],
     }

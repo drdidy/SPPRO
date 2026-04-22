@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import unittest
+import app as app_module
 
 from app import (
     align_play_conversion_to_effective_offset,
     build_selected_contract_binding,
+    build_nearby_strike_ladder,
     build_line_rows,
+    build_contract_selection_key,
+    build_option_display_state,
+    classify_budget_status,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
     get_structure_assertion_warnings,
     resolve_effective_offset,
     resolve_live_current_spx,
     resolve_play_display_values,
+    resolve_recommended_contract_row,
+    resolve_selected_contract_row,
     validate_contract_binding,
 )
 
@@ -31,6 +38,17 @@ class AppUnitTests(unittest.TestCase):
             "lw": {"label": "LW", "projected_price": 7117.58, "raw_anchor_price": 7141.50, "anchor_price": 7141.50, "candle_count": 23, "direction": "descending", "line_type": "session_extreme"},
         }
         self.override_decisions = {}
+        self.option_candidates = [
+            {"symbol": "SPXW 260422P07090000", "strike": 7090, "option_type": "PUT", "expiration": "2026-04-22", "mark": 17.0, "bid": 16.9, "ask": 17.1, "delta": -0.52, "predicted_entry_price": 10.5, "rr_ratio": 1.1, "contract_score": 0.61},
+            {"symbol": "SPXW 260422P07095000", "strike": 7095, "option_type": "PUT", "expiration": "2026-04-22", "mark": 18.0, "bid": 17.9, "ask": 18.1, "delta": -0.55, "predicted_entry_price": 11.2, "rr_ratio": 1.2, "contract_score": 0.65},
+            {"symbol": "SPXW 260422P07100000", "strike": 7100, "option_type": "PUT", "expiration": "2026-04-22", "mark": 21.0, "bid": 20.9, "ask": 21.1, "delta": -0.60, "predicted_entry_price": 13.09, "rr_ratio": 1.429, "contract_score": 0.91},
+            {"symbol": "SPXW 260422P07105000", "strike": 7105, "option_type": "PUT", "expiration": "2026-04-22", "mark": 23.0, "bid": 22.9, "ask": 23.1, "delta": -0.63, "predicted_entry_price": 14.4, "rr_ratio": 1.31, "contract_score": 0.88},
+            {"symbol": "SPXW 260422P07110000", "strike": 7110, "option_type": "PUT", "expiration": "2026-04-22", "mark": 25.0, "bid": 24.9, "ask": 25.1, "delta": -0.66, "predicted_entry_price": 16.0, "rr_ratio": 1.15, "contract_score": 0.80},
+            {"symbol": "SPXW 260422C07100000", "strike": 7100, "option_type": "CALL", "expiration": "2026-04-22", "mark": 8.0, "bid": 7.9, "ask": 8.1, "delta": 0.32, "predicted_entry_price": 5.0, "rr_ratio": 0.7, "contract_score": 0.40},
+            {"symbol": "SPXW 260423P07100000", "strike": 7100, "option_type": "PUT", "expiration": "2026-04-23", "mark": 28.0, "bid": 27.9, "ask": 28.1, "delta": -0.58, "predicted_entry_price": 17.0, "rr_ratio": 1.0, "contract_score": 0.50},
+        ]
+        app_module.st.session_state.setdefault("contract_override_store", {})
+        app_module.st.session_state["contract_override_store"].clear()
 
     def test_build_line_rows_uses_es_unit_labels(self) -> None:
         rows = build_line_rows(
@@ -240,6 +258,89 @@ class AppUnitTests(unittest.TestCase):
 
         self.assertEqual(payload["displayed_strike"], 7110)
         self.assertEqual(payload["current_mark"], 18.0)
+
+    def test_nearby_ladder_builds_around_recommended_strike_same_type_and_expiration(self) -> None:
+        recommended = self.option_candidates[2]
+        ladder = build_nearby_strike_ladder(
+            self.option_candidates,
+            recommended,
+            contracts=2,
+            budget_cap=500.0,
+            ladder_anchor_strike=7100,
+        )
+
+        self.assertEqual([row["strike"] for row in ladder], [7090, 7095, 7100, 7105, 7110])
+        self.assertTrue(all(row["option_type"] == "PUT" for row in ladder))
+        self.assertTrue(all(row["expiration"] == "2026-04-22" for row in ladder))
+
+    def test_ladder_stays_centered_on_locked_anchor_after_refresh(self) -> None:
+        recommended = self.option_candidates[2]
+        refreshed = [dict(row) for row in self.option_candidates]
+        refreshed[0]["mark"] = 19.5
+        refreshed[4]["mark"] = 27.0
+
+        ladder = build_nearby_strike_ladder(
+            refreshed,
+            recommended,
+            contracts=1,
+            budget_cap=500.0,
+            ladder_anchor_strike=7100,
+        )
+
+        self.assertEqual([row["strike"] for row in ladder], [7090, 7095, 7100, 7105, 7110])
+
+    def test_estimated_entry_cost_and_budget_labels_are_correct(self) -> None:
+        recommended = self.option_candidates[2]
+        ladder = build_nearby_strike_ladder(
+            self.option_candidates,
+            recommended,
+            contracts=2,
+            budget_cap=2500.0,
+            ladder_anchor_strike=7100,
+        )
+        target_row = next(row for row in ladder if row["contract_symbol"] == "SPXW 260422P07100000")
+
+        self.assertEqual(target_row["estimated_entry_cost"], 2618.0)
+        self.assertEqual(target_row["budget_status"], "Near Budget")
+        self.assertEqual(classify_budget_status(2000.0, 2500.0), "Within Budget")
+        self.assertEqual(classify_budget_status(2600.0, 2500.0), "Near Budget")
+        self.assertEqual(classify_budget_status(3000.0, 2500.0), "Above Budget")
+
+    def test_manual_strike_selection_preserves_original_recommendation(self) -> None:
+        selection_key = build_contract_selection_key(app_module.current_central_time().date(), "primary")
+        app_module.st.session_state["contract_override_store"][selection_key] = "SPXW 260422P07095000"
+        resolved = resolve_selected_contract_row(
+            self.option_candidates,
+            self.option_candidates[2],
+            selection_key=selection_key,
+        )
+
+        self.assertTrue(resolved["manual_override"])
+        self.assertEqual(resolved["user_selected_contract_symbol"], "SPXW 260422P07095000")
+        self.assertEqual(self.option_candidates[2]["symbol"], "SPXW 260422P07100000")
+
+    def test_locked_contract_fallback_recenters_when_locked_symbol_disappears(self) -> None:
+        session_plan = {"session_plan_locked": True, "contract_symbol": "SPXW 260422P07100000", "planned_strike": 7100}
+        candidates_without_locked = [row for row in self.option_candidates if row["symbol"] != "SPXW 260422P07100000" and row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
+
+        resolved = resolve_recommended_contract_row(candidates_without_locked, session_plan=session_plan)
+
+        self.assertTrue(resolved["fallback_used"])
+        self.assertFalse(resolved["centered_from_locked_plan"])
+        self.assertEqual(resolved["recommended_contract"]["symbol"], "SPXW 260422P07090000")
+
+    def test_ladder_handles_fewer_than_five_strikes_on_one_side(self) -> None:
+        recommended = self.option_candidates[0]
+        limited = [row for row in self.option_candidates if row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
+        ladder = build_nearby_strike_ladder(
+            limited,
+            recommended,
+            contracts=1,
+            budget_cap=500.0,
+            ladder_anchor_strike=7090,
+        )
+
+        self.assertEqual([row["strike"] for row in ladder], [7090, 7095, 7100, 7105, 7110])
 
 
 if __name__ == "__main__":
