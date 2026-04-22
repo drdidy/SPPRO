@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import unittest
 
-from app import align_play_conversion_to_effective_offset, build_line_rows, get_structure_assertion_warnings, resolve_effective_offset, resolve_play_display_values
+from app import (
+    align_play_conversion_to_effective_offset,
+    build_line_rows,
+    compute_live_scenario_snapshot,
+    compute_live_structure_state,
+    get_structure_assertion_warnings,
+    resolve_effective_offset,
+    resolve_play_display_values,
+)
 
 
 class AppUnitTests(unittest.TestCase):
@@ -131,6 +139,32 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(aligned["entry"]["price"], 7138.68)
         self.assertTrue(aligned["conversion_invalid"])
         self.assertAlmostEqual(aligned["conversion_debug"]["entry"]["additional_adjustment_applied"], -25.11, places=2)
+
+    def test_live_structure_state_reports_between_channels(self) -> None:
+        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
+
+        snapshot = compute_live_structure_state(7168.00, line_values)
+
+        self.assertEqual(snapshot["live_structure_state"], "BETWEEN_CHANNELS")
+
+    def test_live_scenario_snapshot_remaps_inside_descending(self) -> None:
+        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
+
+        snapshot = compute_live_scenario_snapshot(
+            current_price=7140.00,
+            line_values=line_values,
+            open_price=7145.00,
+            scenario_origin="SCENARIO 1: BETWEEN CHANNELS",
+            previous_live_scenario="SCENARIO 1: BETWEEN CHANNELS",
+            previous_structure_state="BETWEEN_CHANNELS",
+            confirmation_confirmed=False,
+            timestamp="2026-04-22T09:05:00-05:00",
+        )
+
+        self.assertEqual(snapshot["live_structure_state"], "INSIDE_DESC_CHANNEL")
+        self.assertEqual(snapshot["live_scenario"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
+        self.assertEqual(snapshot["scenario_transition"], "SCENARIO 1: BETWEEN CHANNELS -> SCENARIO 3: INSIDE DESCENDING CHANNEL")
+        self.assertEqual(snapshot["structure_transition"], "BETWEEN_CHANNELS -> INSIDE_DESC_CHANNEL")
 
 
 if __name__ == "__main__":
