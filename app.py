@@ -2400,7 +2400,7 @@ def classify_trigger_state(
     if plan_validity == "stale":
         return {
             "trigger_type": "NONE",
-            "trigger_state": "EXPIRED",
+            "trigger_state": "NOT_READY",
             "trigger_reason": "Original entry is stale",
             "trigger_has_been_touched": False,
             "trigger_has_been_reclaimed_or_rejected": False,
@@ -2414,7 +2414,7 @@ def classify_trigger_state(
     if entry_value is None or current_value is None or tolerance is None:
         return {
             "trigger_type": "NONE",
-            "trigger_state": "UNAVAILABLE",
+            "trigger_state": "NOT_READY",
             "trigger_reason": "Locked entry unavailable",
             "trigger_has_been_touched": False,
             "trigger_has_been_reclaimed_or_rejected": False,
@@ -2447,8 +2447,8 @@ def classify_trigger_state(
     if zone_status == "NEAR_ZONE":
         return {
             "trigger_type": "RETEST_AND_GO",
-            "trigger_state": "ARMED",
-            "trigger_reason": "Price is close enough to arm the entry zone",
+            "trigger_state": "READY",
+            "trigger_reason": "Price is approaching the execution zone",
             "trigger_has_been_touched": False,
             "trigger_has_been_reclaimed_or_rejected": False,
             "trigger_invalidated": False,
@@ -2461,7 +2461,7 @@ def classify_trigger_state(
     if zone_status == "MISSED" or (move_completion_pct or 0.0) >= 90:
         return {
             "trigger_type": "NONE",
-            "trigger_state": "EXPIRED",
+            "trigger_state": "NOT_READY",
             "trigger_reason": "Move already spent",
             "trigger_has_been_touched": True,
             "trigger_has_been_reclaimed_or_rejected": False,
@@ -2475,7 +2475,7 @@ def classify_trigger_state(
 
     return {
         "trigger_type": "RETEST_AND_REJECT" if extended_in_direction else "RETEST_AND_GO",
-        "trigger_state": "WAITING",
+        "trigger_state": "ARMED",
         "trigger_reason": "Waiting for price to retest the locked entry zone",
         "trigger_has_been_touched": False,
         "trigger_has_been_reclaimed_or_rejected": False,
@@ -2625,6 +2625,38 @@ def build_execution_checklist(
         "checklist_fail_count": fail_count,
         "checklist_status": status,
     }
+
+
+def build_alert_state(
+    *,
+    setup_state: str,
+    trigger_state: str,
+    checklist_status: str,
+    execution_action: str,
+    plan_validity: str,
+    invalidation_message: str,
+    expiry_reason: str,
+) -> dict[str, str]:
+    """Build a compact operator alert from the current execution state."""
+
+    setup = str(setup_state or "").upper()
+    trigger = str(trigger_state or "").upper()
+    checklist = str(checklist_status or "").upper()
+    action = str(execution_action or "").upper()
+    validity = str(plan_validity or "").lower()
+    if setup == "INVALIDATED":
+        return {"alert_state": "INVALIDATED", "alert_message": invalidation_message or "Structure invalid", "alert_priority": "HIGH"}
+    if setup == "EXPIRED" or validity == "stale":
+        return {"alert_state": "EXPIRED", "alert_message": expiry_reason or "Move already spent", "alert_priority": "HIGH"}
+    if setup in {"ACTIVE", "TRIGGERED"} and action == "ENTER NOW":
+        return {"alert_state": "ACT_NOW", "alert_message": "Entry conditions are live now", "alert_priority": "HIGH"}
+    if trigger == "READY" or checklist == "ALMOST_READY":
+        return {"alert_state": "PREPARE", "alert_message": "Price is nearing the planned execution zone", "alert_priority": "MEDIUM"}
+    if checklist == "READY":
+        return {"alert_state": "READY", "alert_message": "Checklist is aligned for execution", "alert_priority": "HIGH"}
+    if trigger == "ARMED" or action in {"WAIT", "WAIT FOR RETEST"}:
+        return {"alert_state": "WATCH", "alert_message": "Waiting for retest", "alert_priority": "MEDIUM"}
+    return {"alert_state": "QUIET", "alert_message": "No live execution edge", "alert_priority": "LOW"}
 
 
 def build_execution_state(
@@ -2793,27 +2825,48 @@ def build_execution_state(
 
     setup_state = "NO_TRADE"
     setup_state_reason = action["reason"]
-    if trigger["trigger_state"] == "EXPIRED" or expiry_status == "EXPIRED":
+    if expiry_status == "EXPIRED":
         setup_state = "EXPIRED"
         setup_state_reason = trigger["trigger_reason"] or expiry_reason or "Move already spent"
-    elif invalidation["severity"] == "TERMINAL" or trigger["trigger_state"] == "INVALIDATED":
+    elif trigger["trigger_state"] == "INVALIDATED" or invalidation["severity"] == "TERMINAL":
         setup_state = "INVALIDATED"
         setup_state_reason = invalidation["message"] or trigger["trigger_reason"]
     elif not structure_valid:
-        setup_state = "FILTERED_OUT"
+        setup_state = "NO_TRADE"
         setup_state_reason = "Structure invalid"
-    elif trigger["trigger_state"] == "TRIGGERED" and action["action"] == "ENTER NOW":
-        setup_state = "ACTIVE"
+    elif trigger["trigger_state"] == "TRIGGERED" and action["action"] in {"ENTER NOW", "DOWNGRADE STRIKE", "REDUCE SIZE"}:
+        setup_state = "TRIGGERED"
         setup_state_reason = "Ready for execution"
-    elif trigger["trigger_state"] == "TRIGGERED":
+    elif trigger["trigger_state"] == "READY":
         setup_state = "READY"
         setup_state_reason = trigger["trigger_reason"]
-    elif plan_validity["label"] in {"valid", "valid_but_late", "caution"}:
-        setup_state = "ARMED" if trigger["trigger_state"] in {"WAITING", "ARMED"} else "LOCKED"
+    elif trigger["trigger_state"] == "ARMED":
+        setup_state = "ARMED"
         setup_state_reason = trigger["trigger_reason"]
+    elif plan_validity["label"] in {"valid", "valid_but_late", "caution"}:
+        setup_state = "LOCKED"
+        setup_state_reason = "Plan locked and waiting for trigger"
+    elif action["action"] == "SKIP TRADE":
+        setup_state = "NO_TRADE"
+        setup_state_reason = action["reason"]
 
     readiness_score = int(max(0, min(EXECUTION_READINESS_MAX_SCORE, 20 + (checklist["checklist_pass_count"] * 10) - (checklist["checklist_fail_count"] * 5))))
-    setup_priority = 0 if setup_state in {"INVALIDATED", "EXPIRED", "NO_TRADE"} else 3 if setup_state == "ACTIVE" else 2 if setup_state in {"READY", "ARMED"} else 1
+    if setup_state == "TRIGGERED" and action["action"] == "ENTER NOW":
+        setup_state = "ACTIVE"
+        setup_state_reason = "Execution conditions are live now"
+    elif action["action"] == "SKIP TRADE" and setup_state not in {"INVALIDATED", "EXPIRED"}:
+        setup_state = "NO_TRADE"
+        setup_state_reason = action["reason"]
+    setup_priority = 0 if setup_state in {"INVALIDATED", "EXPIRED", "NO_TRADE"} else 3 if setup_state == "ACTIVE" else 2 if setup_state in {"TRIGGERED", "READY", "ARMED"} else 1
+    alert = build_alert_state(
+        setup_state=setup_state,
+        trigger_state=trigger["trigger_state"],
+        checklist_status=checklist["checklist_status"],
+        execution_action=action["action"],
+        plan_validity=plan_validity["label"],
+        invalidation_message=invalidation["message"],
+        expiry_reason=expiry_reason,
+    )
 
     return {
         "transition_type": transition_type,
@@ -2876,6 +2929,9 @@ def build_execution_state(
         "locked_selected_option_type": str((option_display_state or {}).get("locked_selected_option_type", "") or ""),
         "locked_selected_entry_mark": _non_negative_option_price((option_display_state or {}).get("locked_selected_entry_mark")),
         "locked_selected_budget_status": str((option_display_state or {}).get("locked_selected_budget_status", "") or ""),
+        "alert_state": alert["alert_state"],
+        "alert_message": alert["alert_message"],
+        "alert_priority": alert["alert_priority"],
     }
 
 
@@ -4435,6 +4491,9 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "trigger_type": str(raw_trade.get("trigger_type", "")),
         "trigger_state": str(raw_trade.get("trigger_state", "")),
         "trigger_reason": str(raw_trade.get("trigger_reason", "")),
+        "alert_state": str(raw_trade.get("alert_state", "")),
+        "alert_message": str(raw_trade.get("alert_message", "")),
+        "alert_priority": str(raw_trade.get("alert_priority", "")),
         "entry_zone_low_spx": round_price(float(raw_trade.get("entry_zone_low_spx", 0.0))),
         "entry_zone_high_spx": round_price(float(raw_trade.get("entry_zone_high_spx", 0.0))),
         "entry_zone_mid_spx": round_price(float(raw_trade.get("entry_zone_mid_spx", 0.0))),
@@ -4755,6 +4814,9 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "trigger_type": "",
         "trigger_state": "",
         "trigger_reason": "",
+        "alert_state": "",
+        "alert_message": "",
+        "alert_priority": "",
         "entry_zone_low_spx": 0.0,
         "entry_zone_high_spx": 0.0,
         "entry_zone_mid_spx": 0.0,
@@ -5016,6 +5078,9 @@ def build_live_play_trade_prefill(
         "trigger_type": str((authority or {}).get("trigger_type", "")),
         "trigger_state": str((authority or {}).get("trigger_state", "")),
         "trigger_reason": str((authority or {}).get("trigger_reason", "")),
+        "alert_state": str((authority or {}).get("alert_state", "")),
+        "alert_message": str((authority or {}).get("alert_message", "")),
+        "alert_priority": str((authority or {}).get("alert_priority", "")),
         "entry_zone_low_spx": float((authority or {}).get("entry_zone_low_spx", 0.0) or 0.0),
         "entry_zone_high_spx": float((authority or {}).get("entry_zone_high_spx", 0.0) or 0.0),
         "entry_zone_mid_spx": float((authority or {}).get("entry_zone_mid_spx", 0.0) or 0.0),
@@ -6036,6 +6101,9 @@ def build_play_decision_authority(
             "raw_final_decision": raw_final_decision,
             "setup_state": "NO_TRADE",
             "setup_state_reason": "No active setup",
+            "alert_state": "QUIET",
+            "alert_message": "No active setup",
+            "alert_priority": "LOW",
         }
 
     option_display_state = option_display_state or {}
@@ -6205,12 +6273,12 @@ def build_play_decision_authority(
         "stop_valid": stop_valid,
         "use_allowed": bool(
             decision != "NO TRADE"
-            and execution_state["setup_state"] in {"READY", "ACTIVE"}
+            and execution_state["setup_state"] in {"READY", "TRIGGERED", "ACTIVE"}
             and execution_state["execution_action"] in {"ENTER NOW", "DOWNGRADE STRIKE", "REDUCE SIZE"}
         ),
         "override_required": bool(
             decision == "NO TRADE"
-            or execution_state["setup_state"] in {"ARMED", "EXPIRED", "INVALIDATED", "FILTERED_OUT", "NO_TRADE"}
+            or execution_state["setup_state"] in {"LOCKED", "ARMED", "EXPIRED", "INVALIDATED", "NO_TRADE"}
             or execution_state["execution_action"] in {"WAIT FOR RETEST", "SKIP TRADE"}
         ),
         "decision_state": decision,
@@ -6301,6 +6369,9 @@ def build_play_decision_authority(
         "locked_selected_option_type": execution_state["locked_selected_option_type"],
         "locked_selected_entry_mark": execution_state["locked_selected_entry_mark"],
         "locked_selected_budget_status": execution_state["locked_selected_budget_status"],
+        "alert_state": execution_state["alert_state"],
+        "alert_message": execution_state["alert_message"],
+        "alert_priority": execution_state["alert_priority"],
     }
 
 
@@ -10367,6 +10438,27 @@ def render_trade_log_tab(
                     "final_decision_at_lock": str(prefill.get("final_decision_at_lock", prefill.get("final_decision", ""))),
                     "entry_zone_status": str(prefill.get("entry_zone_status", "")),
                     "move_completion_pct": float(prefill.get("move_completion_pct", 0.0)),
+                    "setup_state": str(prefill.get("setup_state", "")),
+                    "setup_state_reason": str(prefill.get("setup_state_reason", "")),
+                    "trigger_type": str(prefill.get("trigger_type", "")),
+                    "trigger_state": str(prefill.get("trigger_state", "")),
+                    "trigger_reason": str(prefill.get("trigger_reason", "")),
+                    "alert_state": str(prefill.get("alert_state", "")),
+                    "alert_message": str(prefill.get("alert_message", "")),
+                    "alert_priority": str(prefill.get("alert_priority", "")),
+                    "invalidation_code": str(prefill.get("invalidation_code", "")),
+                    "invalidation_message": str(prefill.get("invalidation_message", "")),
+                    "expiry_status": str(prefill.get("expiry_status", "")),
+                    "checklist_status": str(prefill.get("checklist_status", "")),
+                    "authoritative_stop_spx": float(prefill.get("authoritative_stop_spx", prefill.get("stop_value", 0.0)) or 0.0),
+                    "target_1_spx": float(prefill.get("target_1_spx", 0.0) or 0.0),
+                    "target_2_spx": float(prefill.get("target_2_spx", 0.0) or 0.0),
+                    "budget_execution_status": str(prefill.get("budget_execution_status", "")),
+                    "locked_selected_contract_symbol": str(prefill.get("locked_selected_contract_symbol", "")),
+                    "locked_selected_strike": prefill.get("locked_selected_strike"),
+                    "locked_selected_option_type": str(prefill.get("locked_selected_option_type", "")),
+                    "locked_selected_entry_mark": prefill.get("locked_selected_entry_mark"),
+                    "locked_selected_budget_status": str(prefill.get("locked_selected_budget_status", "")),
                     "current_spx_at_decision": float(prefill.get("current_spx_at_decision", prefill.get("entry_spx", entry_line_value))),
                     "current_es_at_decision": float(prefill.get("current_es_at_decision", prefill.get("entry_es", 0.0))),
                     "current_mark_at_decision": float(prefill.get("current_mark_at_decision", prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0)))),
@@ -11520,11 +11612,12 @@ def render_live_decision_center(
         with top_left:
             st.caption("Decision Center")
             st.markdown(f"### {top_line}")
+            st.markdown(f"**{setup_state} | {execution_action}**")
             st.caption(subline)
             if str(decision).upper() != "NO TRADE":
                 st.caption(execution_display)
             st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
-            st.caption(f"Bias: {direction_display['bias']} | State: {setup_state} | Trigger: {trigger_state}")
+            st.caption(f"Bias: {direction_display['bias']} | Trigger: {trigger_state}")
             if transition_note:
                 st.caption(transition_note)
         with top_right:
@@ -11548,6 +11641,23 @@ def render_live_decision_center(
             )
         if lock_label != "-":
             st.caption(f"Lock Status: {lock_label}")
+
+
+def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_authority: dict[str, Any] | None) -> None:
+    """Render one compact alert strip for both live plays."""
+
+    entries = [("Primary", primary_authority or {}), ("Alternate", alternate_authority or {})]
+    with st.container(border=True):
+        st.caption("Execution Alerts")
+        col1, col2 = st.columns(2, gap="large")
+        for column, (label, authority) in zip((col1, col2), entries):
+            with column:
+                st.markdown(f"**{label}**")
+                st.caption(
+                    f"{authority.get('alert_state', 'QUIET')} | "
+                    f"{authority.get('alert_priority', 'LOW')}"
+                )
+                st.caption(str(authority.get("alert_message", "No live execution edge")))
 
 
 def render_operator_play_card(
@@ -12308,6 +12418,7 @@ def render_live_mode_shell(
             active_play_label=hero_active_play,
             live_context=live_context,
         )
+        render_alert_panel(primary_authority, alternate_authority)
         if display_signal_package is not None:
             render_trade_decision_summary(
                 display_signal_package,

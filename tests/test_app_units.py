@@ -493,7 +493,7 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(missed["status"], "MISSED")
         self.assertGreater(in_zone["width"], 0.0)
 
-    def test_trigger_state_transitions_cover_waiting_triggered_and_invalidated(self) -> None:
+    def test_trigger_state_transitions_cover_ready_triggered_and_invalidated(self) -> None:
         zone = {"status": "NEAR_ZONE", "width": 3.0}
         waiting = classify_trigger_state(
             direction="PUT",
@@ -523,7 +523,7 @@ class AppUnitTests(unittest.TestCase):
             move_completion_pct=18.0,
         )
 
-        self.assertEqual(waiting["trigger_state"], "ARMED")
+        self.assertEqual(waiting["trigger_state"], "READY")
         self.assertEqual(triggered["trigger_state"], "TRIGGERED")
         self.assertEqual(invalidated["trigger_state"], "INVALIDATED")
 
@@ -578,7 +578,7 @@ class AppUnitTests(unittest.TestCase):
             stop_valid=False,
             rr_ratio=0.3,
             budget_execution_status="OVER_BUDGET",
-            trigger_state="WAITING",
+            trigger_state="ARMED",
             timing_bucket="late",
             evidence_level="None",
         )
@@ -604,7 +604,7 @@ class AppUnitTests(unittest.TestCase):
         authority = {
             "setup_state": "ARMED",
             "trigger_type": "RETEST_AND_REJECT",
-            "trigger_state": "WAITING",
+            "trigger_state": "ARMED",
             "trigger_reason": "Waiting for price to retest the locked entry zone",
             "entry_zone_status": "NEAR_ZONE",
             "invalidation_code": "NONE",
@@ -652,7 +652,8 @@ class AppUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(prefill["setup_state"], "ARMED")
-        self.assertEqual(prefill["trigger_state"], "WAITING")
+        self.assertEqual(prefill["trigger_state"], "ARMED")
+        self.assertEqual(prefill["alert_state"], "")
         self.assertEqual(prefill["target_1_spx"], 7103.72)
         self.assertEqual(prefill["budget_execution_status"], "WITHIN_BUDGET")
         self.assertEqual(prefill["locked_selected_contract_symbol"], "SPXW 260422P07100000")
