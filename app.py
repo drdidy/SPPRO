@@ -276,6 +276,58 @@ def normalize_trade_direction(value: Any) -> str:
     return normalized if normalized in TRADE_DIRECTION_OPTIONS else normalized
 
 
+def resolve_trade_direction_display(direction: Any) -> dict[str, str]:
+    """Map option mechanics into operator-first directional language."""
+
+    normalized = normalize_trade_direction(direction)
+    if normalized in {"CALL", "LONG"}:
+        return {
+            "bias": "BULLISH",
+            "arrow": "↑",
+            "setup": "BULLISH SETUP",
+            "compact": "↑ Bullish",
+            "tone": "good",
+        }
+    if normalized in {"PUT", "SHORT"}:
+        return {
+            "bias": "BEARISH",
+            "arrow": "↓",
+            "setup": "BEARISH SETUP",
+            "compact": "↓ Bearish",
+            "tone": "bad",
+        }
+    return {
+        "bias": "NEUTRAL",
+        "arrow": "→",
+        "setup": "NEUTRAL SETUP",
+        "compact": "→ Neutral",
+        "tone": "neutral",
+    }
+
+
+def resolve_trade_execution_display(direction: Any, decision: Any) -> str:
+    """Render execution separately from directional bias."""
+
+    normalized = normalize_trade_direction(direction)
+    decision_text = str(decision or "").strip().upper()
+
+    if decision_text == "NO TRADE":
+        return "No Trade"
+
+    execution = {
+        "CALL": "Buy Call",
+        "PUT": "Buy Put",
+        "LONG": "Long",
+        "SHORT": "Short",
+    }.get(normalized, "Execution Pending")
+
+    if decision_text == "CONDITIONAL BUY":
+        return f"{execution} (Conditional)"
+    if decision_text == "STRONG BUY":
+        return f"{execution} (Ready)"
+    return execution
+
+
 def normalize_tags(tags: Any) -> list[str]:
     """Normalize tags into a stable list format."""
 
@@ -3457,6 +3509,7 @@ def build_trade_history_dataframe(trades: list[dict[str, Any]]) -> pd.DataFrame:
                 "session",
                 "scenario",
                 "direction",
+                "execution",
                 "entry",
                 "exit",
                 "contracts",
@@ -3474,23 +3527,29 @@ def build_trade_history_dataframe(trades: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "id": trade["id"],
-                "date": trade["trade_date"],
-                "session": trade["session"],
-                "scenario": trade["scenario_name"],
-                "direction": trade["direction"],
-                "entry": trade["entry_value"],
-                "exit": trade["exit_value"],
-                "contracts": trade["contracts"],
-                "confluence": trade["confluence_score"],
-                "confirmation_status": trade.get("confirmation_status", "Not Recorded"),
-                "result": trade["result"],
-                "tags": ", ".join(trade["tags"]),
-                "snapshot_date": trade.get("linked_snapshot_date", ""),
-                "pnl": trade.get("effective_pnl", trade["pnl_preview"]),
-                "pnl_source": trade.get("pnl_source", "preview-only"),
-                "record_status": trade.get("record_status", "complete"),
-                "pnl_preview": trade["pnl_preview"],
+                **{
+                    "id": trade["id"],
+                    "date": trade["trade_date"],
+                    "session": trade["session"],
+                    "scenario": trade["scenario_name"],
+                    "direction": resolve_trade_direction_display(trade["direction"])["compact"],
+                    "execution": resolve_trade_execution_display(
+                        trade["direction"],
+                        trade.get("final_authority_decision") or trade.get("final_decision") or trade.get("decision_state_at_action"),
+                    ),
+                    "entry": trade["entry_value"],
+                    "exit": trade["exit_value"],
+                    "contracts": trade["contracts"],
+                    "confluence": trade["confluence_score"],
+                    "confirmation_status": trade.get("confirmation_status", "Not Recorded"),
+                    "result": trade["result"],
+                    "tags": ", ".join(trade["tags"]),
+                    "snapshot_date": trade.get("linked_snapshot_date", ""),
+                    "pnl": trade.get("effective_pnl", trade["pnl_preview"]),
+                    "pnl_source": trade.get("pnl_source", "preview-only"),
+                    "record_status": trade.get("record_status", "complete"),
+                    "pnl_preview": trade["pnl_preview"],
+                }
             }
             for trade in trades
         ]
@@ -6782,6 +6841,8 @@ def render_trade_decision_summary(
     primary_play = resolve_play_display_values(scenario.get("primary_play"), projected_lines)
     action_label = (authority or {}).get("decision") or final_decision or final_status_to_action(final_status, signal_package)
     primary_direction = primary_play["direction"] if primary_play else "-"
+    direction_display = resolve_trade_direction_display(primary_direction)
+    execution_display = resolve_trade_execution_display(primary_direction, action_label)
     summary_entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
     if summary_entry_value is None and primary_play:
         summary_entry_value = primary_play["entry"]["price"]
@@ -6797,7 +6858,7 @@ def render_trade_decision_summary(
         <div class="spx-summary">
             <div class="spx-summary-title">Trade Summary</div>
             <div class="spx-summary-body">
-                {action_label} | {live_scenario} | {live_structure} | {active_play_label} | {primary_direction} | Entry {entry_value} SPX | Strike {strike} | Confidence {confidence_display} | EV {ev_display}
+                {direction_display['compact']} | {execution_display} | {live_scenario} | {live_structure} | {active_play_label} | Entry {entry_value} SPX | Strike {strike} | Confidence {confidence_display} | EV {ev_display}
             </div>
         </div>
         """,
@@ -9509,6 +9570,13 @@ def render_live_decision_center(
     """Render the production-first live decision center using native Streamlit components."""
 
     authority = hero_authority or {}
+    chosen_play = None
+    if signal_package is not None:
+        scenario_payload = signal_package["scenario"]
+        if str(active_play_label).lower() == "alternate":
+            chosen_play = scenario_payload.get("alternate_play") or scenario_payload.get("primary_play")
+        else:
+            chosen_play = scenario_payload.get("primary_play") or scenario_payload.get("alternate_play")
     live_scenario = str((live_context or {}).get("live_scenario") or "Awaiting Valid SPX Input")
     live_structure_state = format_live_state_label((live_context or {}).get("live_structure_state"))
     transition_note = build_scenario_transition_note(live_context)
@@ -9519,6 +9587,9 @@ def render_live_decision_center(
     risk_class = str(authority.get("risk_class", "HIGH"))
     reason_line = str(authority.get("reason_line", "Waiting for valid live setup."))
     evidence_label = str(authority.get("evidence_level", (adaptive_overlay or {}).get("adaptive_evidence_level", "None")))
+    direction_value = chosen_play.get("direction") if isinstance(chosen_play, dict) else ""
+    direction_display = resolve_trade_direction_display(direction_value)
+    execution_display = resolve_trade_execution_display(direction_value, decision)
     entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
     if entry_value is None and signal_package is not None:
         primary_play = signal_package["scenario"].get("primary_play")
@@ -9535,7 +9606,9 @@ def render_live_decision_center(
         top_left, top_right = st.columns([3, 1.2], gap="large")
         with top_left:
             st.caption("Decision Center")
-            st.markdown(f"### {decision}")
+            st.markdown(f"### {direction_display['setup']}")
+            st.caption(execution_display)
+            st.markdown(f"**{decision}**")
             st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
             st.write(reason_line)
             if transition_note:
@@ -9628,6 +9701,8 @@ def render_operator_play_card(
     use_allowed = bool(authority.get("use_allowed", False))
     is_primary = "alternate" not in title.lower()
     trade_state = "FILTERED" if decision == "NO TRADE" else ("INVALID" if play.get("stop_unavailable") else "ACTIVE")
+    direction_display = resolve_trade_direction_display(play.get("direction"))
+    execution_display = resolve_trade_execution_display(play.get("direction"), decision)
     locked_entry_value = intelligence.get("locked_entry_spx") if intelligence.get("locked_entry_spx") is not None else play["entry"]["price"]
     current_mark = _to_float_or_none(lead_option_quote.get("price")) if lead_option_quote else None
     rr_value = intelligence.get("rr_ratio")
@@ -9650,15 +9725,15 @@ def render_operator_play_card(
         <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
-                <div class="spx-play-topline-note">{escape(play['direction'])} | Strike {escape(str(play['strike']))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(trade_state)}</span></div>
+                <div class="spx-play-topline-note">Strike {escape(str(play['strike']))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(trade_state)}</span></div>
             </div>
             <div class="spx-decision-banner {_decision_class(decision)}">
                 <div>
-                    <div class="spx-decision-main">{escape(decision)}</div>
-                    <div class="spx-decision-sub">{escape(reason_line)}</div>
+                    <div class="spx-decision-main">{escape(direction_display['setup'])}</div>
+                    <div class="spx-decision-sub">{escape(execution_display)}</div>
                 </div>
                 <div class="spx-play-context">
-                    <div class="spx-play-context-label">Confidence</div>
+                    <div class="spx-play-context-label">{escape(decision)}</div>
                     <div class="spx-play-context-value">{confidence}%</div>
                 </div>
             </div>
