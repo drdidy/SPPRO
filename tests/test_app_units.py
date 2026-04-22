@@ -6,6 +6,7 @@ import unittest
 import app as app_module
 
 from app import (
+    _non_negative_option_price,
     align_play_conversion_to_effective_offset,
     build_live_play_trade_prefill,
     build_selected_contract_binding,
@@ -439,6 +440,33 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(prefill["estimated_entry_cost"], 2240.0)
         self.assertEqual(prefill["budget_status"], "Within Budget")
         self.assertEqual(prefill["ladder_anchor_strike"], 7100)
+
+    def test_non_negative_option_price_clamps_invalid_negative_premiums(self) -> None:
+        self.assertEqual(_non_negative_option_price(-19.53), 0.0)
+        self.assertEqual(_non_negative_option_price(-2.37), 0.0)
+        self.assertEqual(_non_negative_option_price(4.25), 4.25)
+
+    def test_nearby_ladder_clamps_negative_predicted_values_and_costs(self) -> None:
+        candidates = [dict(row) for row in self.option_candidates if row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
+        candidates[1]["predicted_entry_price"] = -19.53
+        calibration_overlays = {
+            "SPXW 260422P07095000": {"expected_fill_mark": -3.91},
+        }
+
+        ladder = build_nearby_strike_ladder(
+            candidates,
+            candidates[2],
+            contracts=2,
+            budget_cap=500.0,
+            ladder_anchor_strike=7100,
+            calibration_overlays=calibration_overlays,
+        )
+        target_row = next(row for row in ladder if row["contract_symbol"] == "SPXW 260422P07095000")
+
+        self.assertEqual(target_row["predicted_entry_price"], 0.0)
+        self.assertEqual(target_row["expected_fill_mark"], 0.0)
+        self.assertEqual(target_row["estimated_entry_cost"], 0.0)
+        self.assertEqual(target_row["estimated_fill_cost"], 0.0)
 
 
 if __name__ == "__main__":

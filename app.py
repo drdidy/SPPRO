@@ -4099,6 +4099,15 @@ def _positive_price_or_none(value: Any) -> float | None:
     return float(parsed)
 
 
+def _non_negative_option_price(value: Any) -> float | None:
+    """Return an option premium that can never go below zero."""
+
+    parsed = _to_float_or_none(value)
+    if parsed is None:
+        return None
+    return round_price(max(0.0, float(parsed)))
+
+
 def derive_outcome_tracking_fields(trade: dict[str, Any]) -> dict[str, Any]:
     """Derive outcome-tracking and learning-loop fields from a stored trade snapshot."""
 
@@ -5324,7 +5333,7 @@ def rank_option_candidates(
             else None
         )
         predicted_entry_price = (
-            mark_value + (distance_to_entry_signed * delta_value)
+            _non_negative_option_price(mark_value + (distance_to_entry_signed * delta_value))
             if mark_value is not None and delta_value is not None and entry_price is not None
             else None
         )
@@ -5411,13 +5420,13 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
     return {
         "contract_symbol": lead.get("contract_symbol", ""),
         "option_type": lead.get("option_type", ""),
-        "price": float(price) if price not in {"", None} else None,
+        "price": _non_negative_option_price(price),
         "bid": float(lead["bid"]) if lead.get("bid") not in {"", None} else None,
         "ask": float(lead["ask"]) if lead.get("ask") not in {"", None} else None,
         "expiration": lead.get("expiration", ""),
         "strike": lead.get("strike", ""),
         "last": float(lead["last"]) if lead.get("last") not in {"", None} else None,
-        "mark": float(lead["mark"]) if lead.get("mark") not in {"", None} else None,
+        "mark": _non_negative_option_price(lead.get("mark")),
         "volume": _to_float_or_none(lead.get("volume")),
         "open_interest": _to_float_or_none(lead.get("open_interest")),
         "delta": _to_float_or_none(lead.get("delta")),
@@ -5425,7 +5434,7 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         "theta": _to_float_or_none(lead.get("theta")),
         "vega": _to_float_or_none(lead.get("vega")),
         "implied_volatility": _to_float_or_none(lead.get("implied_volatility")),
-        "predicted_entry_price": float(lead["predicted_entry_price"]) if lead.get("predicted_entry_price") not in {"", None} else None,
+        "predicted_entry_price": _non_negative_option_price(lead.get("predicted_entry_price")),
         "expected_gain": float(lead["expected_gain"]) if lead.get("expected_gain") not in {"", None} else None,
         "expected_loss": float(lead["expected_loss"]) if lead.get("expected_loss") not in {"", None} else None,
         "rr_ratio": float(lead["rr_ratio"]) if lead.get("rr_ratio") not in {"", None} else None,
@@ -5454,23 +5463,23 @@ def build_selected_contract_binding(
         "displayed_contract_symbol": contract_symbol,
         "option_type": str(selected_contract.get("option_type", "") or ""),
         "expiration": str(selected_contract.get("expiration", "") or ""),
-        "current_mark": _to_float_or_none(selected_contract.get("price"))
-        or _to_float_or_none(selected_contract.get("mark"))
-        or _to_float_or_none(selected_contract.get("last"))
-        or _to_float_or_none(selected_contract.get("ask"))
-        or _to_float_or_none(selected_contract.get("bid")),
+        "current_mark": _non_negative_option_price(selected_contract.get("price"))
+        or _non_negative_option_price(selected_contract.get("mark"))
+        or _non_negative_option_price(selected_contract.get("last"))
+        or _non_negative_option_price(selected_contract.get("ask"))
+        or _non_negative_option_price(selected_contract.get("bid")),
         "bid": _to_float_or_none(selected_contract.get("bid")),
         "ask": _to_float_or_none(selected_contract.get("ask")),
         "last": _to_float_or_none(selected_contract.get("last")),
-        "mark": _to_float_or_none(selected_contract.get("mark")) or _to_float_or_none(selected_contract.get("price")),
+        "mark": _non_negative_option_price(selected_contract.get("mark")) or _non_negative_option_price(selected_contract.get("price")),
         "delta": _to_float_or_none(selected_contract.get("delta")),
         "gamma": _to_float_or_none(selected_contract.get("gamma")),
         "theta": _to_float_or_none(selected_contract.get("theta")),
         "vega": _to_float_or_none(selected_contract.get("vega")),
         "implied_volatility": _to_float_or_none(selected_contract.get("implied_volatility")),
-        "predicted_entry_price": _to_float_or_none(selected_contract.get("predicted_entry_price")),
-        "calibrated_entry_mark": _to_float_or_none(calibrated_entry_mark),
-        "expected_fill_mark": _to_float_or_none(expected_fill_mark),
+        "predicted_entry_price": _non_negative_option_price(selected_contract.get("predicted_entry_price")),
+        "calibrated_entry_mark": _non_negative_option_price(calibrated_entry_mark),
+        "expected_fill_mark": _non_negative_option_price(expected_fill_mark),
         "expected_gain": _to_float_or_none(selected_contract.get("expected_gain")),
         "expected_loss": _to_float_or_none(selected_contract.get("expected_loss")),
         "rr_ratio": _to_float_or_none(selected_contract.get("rr_ratio")),
@@ -5700,12 +5709,12 @@ def build_nearby_strike_ladder(
     ladder_rows: list[dict[str, Any]] = []
     for row in window_rows:
         symbol = str(row.get("symbol", "") or "")
-        predicted_entry = _to_float_or_none(row.get("predicted_entry_price"))
+        predicted_entry = _non_negative_option_price(row.get("predicted_entry_price"))
         calibration = calibration_overlays.get(symbol, {})
-        calibrated_entry = _to_float_or_none(calibration.get("calibrated_entry_mark"))
-        expected_fill = _to_float_or_none(calibration.get("expected_fill_mark"))
-        estimated_entry_cost = round_price(predicted_entry * 100 * int(contracts)) if predicted_entry is not None else None
-        estimated_fill_cost = round_price(expected_fill * 100 * int(contracts)) if expected_fill is not None else None
+        calibrated_entry = _non_negative_option_price(calibration.get("calibrated_entry_mark"))
+        expected_fill = _non_negative_option_price(calibration.get("expected_fill_mark"))
+        estimated_entry_cost = round_price(max(0.0, predicted_entry) * 100 * int(contracts)) if predicted_entry is not None else None
+        estimated_fill_cost = round_price(max(0.0, expected_fill) * 100 * int(contracts)) if expected_fill is not None else None
         budget_reference = estimated_fill_cost if estimated_fill_cost is not None else estimated_entry_cost
         labels: list[str] = []
         if symbol == recommended_symbol:
@@ -5779,6 +5788,39 @@ def build_option_display_state(
                     merged[key] = source.get(key)
         return merged
 
+    def _assign_selection_reasons(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not rows:
+            return rows
+        within_budget = [row for row in rows if row.get("budget_status") == "Within Budget"]
+        cheapest_row = min(
+            within_budget,
+            key=lambda row: row.get("estimated_entry_cost") if row.get("estimated_entry_cost") is not None else float("inf"),
+        ) if within_budget else None
+        best_rr_row = max(
+            [row for row in rows if row.get("rr_ratio") is not None],
+            key=lambda row: row.get("rr_ratio") or float("-inf"),
+            default=None,
+        )
+        best_score_row = max(
+            [row for row in rows if row.get("contract_score") is not None],
+            key=lambda row: row.get("contract_score") or float("-inf"),
+            default=None,
+        )
+        for row in rows:
+            reason = ""
+            if row.get("is_selected") and not row.get("is_recommended"):
+                reason = "Operator Choice"
+            elif row.get("is_recommended") and row.get("budget_status") == "Within Budget":
+                reason = "Balanced"
+            elif cheapest_row is not None and row.get("contract_symbol") == cheapest_row.get("contract_symbol"):
+                reason = "Cheapest"
+            elif best_rr_row is not None and row.get("contract_symbol") == best_rr_row.get("contract_symbol"):
+                reason = "Best RR"
+            elif best_score_row is not None and row.get("contract_symbol") == best_score_row.get("contract_symbol"):
+                reason = "System Pick"
+            row["selection_reason"] = reason
+        return rows
+
     recommended_resolution = resolve_recommended_contract_row(candidates, session_plan=session_plan)
     recommended_contract = recommended_resolution.get("recommended_contract")
     selection_key = build_contract_selection_key(next_trading_date, play_role)
@@ -5826,6 +5868,7 @@ def build_option_display_state(
         locked_expiration=str((session_plan or {}).get("expiration", "") or ""),
         recommended_contract_symbol=str((session_plan or {}).get("contract_symbol", "") or recommended_symbol),
     )
+    ladder_rows = _assign_selection_reasons(ladder_rows)
     recommended_row = next((row for row in ladder_rows if row.get("contract_symbol") == recommended_symbol), None)
     selected_row = next((row for row in ladder_rows if row.get("contract_symbol") == selected_symbol), None)
     selected_display_quote = _merge_quote_display_fields(
@@ -6033,6 +6076,7 @@ def render_options_provider_preview(
                     [
                         {
                             "labels": " | ".join(row.get("labels", [])),
+                            "selection_reason": row.get("selection_reason", ""),
                             "strike": int(row["strike"]) if row.get("strike") is not None else "",
                             "contract_symbol": row.get("contract_symbol", ""),
                             "option_type": row.get("option_type", ""),
@@ -10253,7 +10297,10 @@ def render_live_decision_center(
             if str(decision).upper() != "NO TRADE":
                 st.caption(execution_display)
             st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
-            st.write(reason_line)
+            if str(decision).upper() == "NO TRADE":
+                st.caption(f"Why no trade: {reason_line}")
+            else:
+                st.write(reason_line)
             if transition_note:
                 st.caption(transition_note)
         with top_right:
@@ -10493,7 +10540,7 @@ def render_operator_play_card(
     if top_reason_summary:
         st.caption(f"Top reasons: {top_reason_summary}")
     if decision == "NO TRADE":
-        st.info("Manual override active")
+        st.info(f"Why no trade: {reason_line}")
     if display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
