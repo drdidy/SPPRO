@@ -9642,16 +9642,8 @@ def render_operator_play_card(
     predicted_value = intelligence.get("live_predicted_entry_mark")
     calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
     expected_fill = calibration_preview.get("expected_fill_mark") if calibration_preview else None
-    top_reason_html = "".join(f'<span class="spx-chip scenario-neutral">{escape(reason)}</span>' for reason in top_reasons[:3])
-    best_contract_html = ""
-    if lead_option_quote and lead_option_quote.get("contract_symbol"):
-        best_contract_html = f"""
-        <div class="spx-best-contract">
-            <div class="spx-best-contract-title">Best Contract</div>
-            <div class="spx-best-contract-symbol">{escape(str(lead_option_quote['contract_symbol']))}</div>
-            <div class="spx-best-contract-meta">Mark {format_price(current_mark)} | Pred {format_price(predicted_value)} | Cal {format_price(calibrated_value) if calibrated_value is not None else '-'} | Fill {format_price(expected_fill) if expected_fill is not None else '-'} | RR {rr_value if rr_value is not None else '-'}</div>
-        </div>
-        """
+    top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
+    best_contract_symbol = str(lead_option_quote.get("contract_symbol", "")) if lead_option_quote else ""
 
     st.markdown(
         f"""
@@ -9704,13 +9696,29 @@ def render_operator_play_card(
             <div class="spx-play-note">{escape(decision_sentence)}</div>
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note else ''}
             {f'<div class="spx-risk-note"><span class="spx-risk-note-icon">!</span><span>You are overriding your system.</span></div>' if decision == 'NO TRADE' else ''}
-            {f'<div class="spx-play-note">{escape(condition_required)}</div>' if decision == 'CONDITIONAL BUY' and condition_required else ''}
-            {best_contract_html}
-            {f'<div class="spx-badge-row">{top_reason_html}</div>' if top_reason_html else ''}
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if decision == "CONDITIONAL BUY" and condition_required:
+        st.caption(condition_required)
+    if best_contract_symbol:
+        with st.container(border=True):
+            st.markdown("**Best Contract**")
+            st.markdown(f"`{best_contract_symbol}`")
+            st.caption(
+                " | ".join(
+                    [
+                        f"Mark {format_price(current_mark) if current_mark is not None else '-'}",
+                        f"Pred {format_price(predicted_value) if predicted_value is not None else '-'}",
+                        f"Cal {format_price(calibrated_value) if calibrated_value is not None else '-'}",
+                        f"Fill {format_price(expected_fill) if expected_fill is not None else '-'}",
+                        f"RR {rr_value if rr_value is not None else '-'}",
+                    ]
+                )
+            )
+    if top_reason_summary:
+        st.caption(f"Top reasons: {top_reason_summary}")
     if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
@@ -9722,7 +9730,7 @@ def render_operator_play_card(
     override_intent_key = f"{button_key}_override_intent"
     override_reason_key = f"{button_key}_override_reason"
     if use_allowed and st.button("Use This Play", key=button_key, use_container_width=True):
-        signal_package = st.session_state.get("current_signal_package")
+        signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
         if signal_package is None:
             st.warning("No live signal snapshot is available for this play yet.")
         else:
@@ -9751,7 +9759,7 @@ def render_operator_play_card(
         else:
             override_reason_input = st.text_input("Override reason", key=override_reason_key)
             if st.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
-                signal_package = st.session_state.get("current_signal_package")
+                signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
                 if signal_package is None:
                     st.warning("No live signal snapshot is available for this play yet.")
                 else:
