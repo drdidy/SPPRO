@@ -10156,22 +10156,29 @@ def render_operator_play_card(
     drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
     calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
     expected_fill = calibration_preview.get("expected_fill_mark") if calibration_preview else None
+    recommended_contract_quote = lead_option_quote
+    display_contract_quote = selected_contract_quote or recommended_contract_quote
     selected_contract = build_selected_contract_binding(
         play,
-        lead_option_quote,
+        display_contract_quote,
         calibrated_entry_mark=calibrated_value,
         expected_fill_mark=expected_fill,
     )
-    binding_validation = validate_contract_binding(lead_option_quote, selected_contract)
+    binding_validation = validate_contract_binding(display_contract_quote, selected_contract)
     binding_error = binding_validation["binding_status"] != "OK"
     predicted_value = selected_contract.get("predicted_entry_price")
     current_mark = selected_contract.get("current_mark")
     rr_value = selected_contract.get("rr_ratio")
     displayed_strike = selected_contract.get("displayed_strike")
-    best_contract_symbol = str(selected_contract.get("displayed_contract_symbol", "") or "")
-    selected_contract_quote = selected_contract_quote or lead_option_quote
-    selected_symbol = str((selected_contract_quote or {}).get("contract_symbol", "") or "")
-    selected_strike = _to_float_or_none((selected_contract_quote or {}).get("strike"))
+    displayed_contract_symbol = str(selected_contract.get("displayed_contract_symbol", "") or "")
+    recommended_contract_symbol = str((recommended_contract_quote or {}).get("contract_symbol", "") or "")
+    selected_symbol = str((display_contract_quote or {}).get("contract_symbol", "") or "")
+    selected_strike = _to_float_or_none((display_contract_quote or {}).get("strike"))
+    manual_override_active = bool(
+        selected_symbol
+        and recommended_contract_symbol
+        and selected_symbol != recommended_contract_symbol
+    )
     top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
 
     st.markdown(
@@ -10232,10 +10239,10 @@ def render_operator_play_card(
         st.error("Contract binding error")
     if decision == "CONDITIONAL BUY" and condition_required:
         st.caption(condition_required)
-    if best_contract_symbol:
+    if displayed_contract_symbol:
         with st.container(border=True):
-            st.markdown("**Best Contract**")
-            st.markdown(f"`{best_contract_symbol}`")
+            st.markdown("**Selected Contract**" if manual_override_active else "**Best Contract**")
+            st.markdown(f"`{displayed_contract_symbol}`")
             st.caption(
                 " | ".join(
                     [
@@ -10248,15 +10255,15 @@ def render_operator_play_card(
                 )
             )
     st.caption(
-        f"System Recommended: {best_contract_symbol or '-'}"
+        f"System Recommended: {recommended_contract_symbol or displayed_contract_symbol or '-'}"
         + (
-            f" | Selected for Entry: {selected_symbol or best_contract_symbol or '-'}"
-            if selected_symbol or best_contract_symbol
+            f" | Selected for Entry: {selected_symbol or displayed_contract_symbol or '-'}"
+            if selected_symbol or displayed_contract_symbol
             else ""
         )
     )
-    if selected_symbol and best_contract_symbol and selected_symbol != best_contract_symbol:
-        selected_mark = _to_float_or_none(selected_contract_quote.get("price")) if selected_contract_quote else None
+    if manual_override_active:
+        selected_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
         st.caption(
             f"Manual strike override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
             f" | Mark {format_price(selected_mark) if selected_mark is not None else '-'}"
@@ -10265,7 +10272,7 @@ def render_operator_play_card(
         st.caption(f"Top reasons: {top_reason_summary}")
     if decision == "NO TRADE":
         st.info("Manual override active")
-    if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
+    if display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
             f"{format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'} / "

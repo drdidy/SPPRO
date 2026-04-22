@@ -319,6 +319,36 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(resolved["user_selected_contract_symbol"], "SPXW 260422P07095000")
         self.assertEqual(self.option_candidates[2]["symbol"], "SPXW 260422P07100000")
 
+    def test_manual_selected_contract_drives_display_binding_instead_of_recommended(self) -> None:
+        play = {"strike": 7100, "direction": "PUT"}
+        recommended_contract = {
+            "contract_symbol": "SPXW 260422P07100000",
+            "strike": 7100,
+            "option_type": "PUT",
+            "price": 21.0,
+            "predicted_entry_price": 13.09,
+            "rr_ratio": 1.429,
+        }
+        user_selected_contract = {
+            "contract_symbol": "SPXW 260422P07095000",
+            "strike": 7095,
+            "option_type": "PUT",
+            "price": 18.5,
+            "predicted_entry_price": 11.4,
+            "rr_ratio": 1.11,
+        }
+
+        payload = build_selected_contract_binding(play, user_selected_contract)
+        validation = validate_contract_binding(user_selected_contract, payload)
+
+        self.assertEqual(payload["displayed_contract_symbol"], "SPXW 260422P07095000")
+        self.assertEqual(payload["displayed_strike"], 7095)
+        self.assertEqual(payload["current_mark"], 18.5)
+        self.assertEqual(payload["predicted_entry_price"], 11.4)
+        self.assertNotEqual(payload["displayed_contract_symbol"], recommended_contract["contract_symbol"])
+        self.assertNotEqual(payload["current_mark"], recommended_contract["price"])
+        self.assertEqual(validation["binding_status"], "OK")
+
     def test_locked_contract_fallback_recenters_when_locked_symbol_disappears(self) -> None:
         session_plan = {"session_plan_locked": True, "contract_symbol": "SPXW 260422P07100000", "planned_strike": 7100}
         candidates_without_locked = [row for row in self.option_candidates if row["symbol"] != "SPXW 260422P07100000" and row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
