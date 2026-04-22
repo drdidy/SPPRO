@@ -8,12 +8,17 @@ import app as app_module
 from app import (
     _non_negative_option_price,
     align_play_conversion_to_effective_offset,
+    build_entry_zone_model,
+    build_execution_checklist,
+    build_execution_state,
     build_live_play_trade_prefill,
     build_selected_contract_binding,
+    build_stop_target_authority,
     build_nearby_strike_ladder,
     build_line_rows,
     build_contract_selection_key,
     build_option_display_state,
+    classify_trigger_state,
     classify_budget_status,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
@@ -467,6 +472,190 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(target_row["expected_fill_mark"], 0.0)
         self.assertEqual(target_row["estimated_entry_cost"], 0.0)
         self.assertEqual(target_row["estimated_fill_cost"], 0.0)
+
+    def test_entry_zone_status_behaves_deterministically_around_locked_entry(self) -> None:
+        in_zone = build_entry_zone_model(
+            locked_entry_spx=7120.0,
+            current_spx_price=7121.0,
+            direction="PUT",
+            stop_spx=7158.0,
+            move_completion_pct=10.0,
+        )
+        missed = build_entry_zone_model(
+            locked_entry_spx=7120.0,
+            current_spx_price=7100.0,
+            direction="PUT",
+            stop_spx=7158.0,
+            move_completion_pct=65.0,
+        )
+
+        self.assertEqual(in_zone["status"], "IN_ZONE")
+        self.assertEqual(missed["status"], "MISSED")
+        self.assertGreater(in_zone["width"], 0.0)
+
+    def test_trigger_state_transitions_cover_waiting_triggered_and_invalidated(self) -> None:
+        zone = {"status": "NEAR_ZONE", "width": 3.0}
+        waiting = classify_trigger_state(
+            direction="PUT",
+            entry_zone=zone,
+            plan_validity="valid",
+            current_spx_price=7126.0,
+            locked_entry_spx=7120.0,
+            structure_valid=True,
+            move_completion_pct=12.0,
+        )
+        triggered = classify_trigger_state(
+            direction="PUT",
+            entry_zone={"status": "IN_ZONE", "width": 3.0},
+            plan_validity="valid",
+            current_spx_price=7120.5,
+            locked_entry_spx=7120.0,
+            structure_valid=True,
+            move_completion_pct=18.0,
+        )
+        invalidated = classify_trigger_state(
+            direction="PUT",
+            entry_zone=zone,
+            plan_validity="invalid",
+            current_spx_price=7132.0,
+            locked_entry_spx=7120.0,
+            structure_valid=False,
+            move_completion_pct=18.0,
+        )
+
+        self.assertEqual(waiting["trigger_state"], "ARMED")
+        self.assertEqual(triggered["trigger_state"], "TRIGGERED")
+        self.assertEqual(invalidated["trigger_state"], "INVALIDATED")
+
+    def test_build_execution_state_marks_expired_when_move_is_spent(self) -> None:
+        state = build_execution_state(
+            play={"direction": "PUT", "contracts": 2, "entry": {"price": 7120.0}, "stop": {"price": 7158.0}, "tp1": {"price": 7103.72}, "tp2": {"price": 7066.28}},
+            play_es={"entry": {"price": 7159.5}, "stop": {"price": 7197.5}},
+            intelligence={
+                "locked_entry_spx": 7120.0,
+                "planned_entry_mark": 13.0,
+                "entry_zone_status": "MISSED",
+                "move_completion_pct": 95.0,
+                "rr_ratio": 1.2,
+                "prediction_confidence": "MEDIUM",
+            },
+            live_context={"scenario_origin": "SCENARIO 3: INSIDE DESCENDING CHANNEL", "live_scenario": "SCENARIO 3: INSIDE DESCENDING CHANNEL"},
+            risk_class="MEDIUM",
+            selected_contract_quote={"contract_symbol": "SPXW 260422P07100000", "price": 21.0, "delta": -0.6, "estimated_entry_cost": 2600.0, "budget_status": "Near Budget"},
+            option_display_state={"ladder_rows": [], "recommended_contract_symbol": "SPXW 260422P07100000", "budget_cap": 2500.0},
+            current_spx_price=7095.0,
+            structure_valid=True,
+        )
+
+        self.assertEqual(state["expiry_status"], "EXPIRED")
+        self.assertEqual(state["setup_state"], "EXPIRED")
+        self.assertEqual(state["move_completion_bucket"], "SPENT")
+
+    def test_stop_target_authority_is_null_safe(self) -> None:
+        authority = build_stop_target_authority(
+            play_spx={"entry": {"price": 7120.0}, "stop": {"price": 7158.0}},
+            play_es={"entry": {"price": 7159.5}},
+        )
+
+        self.assertEqual(authority["authoritative_stop_spx"], 7158.0)
+        self.assertIsNone(authority["target_1_spx"])
+        self.assertIsNone(authority["rr_to_target_1"])
+
+    def test_checklist_status_maps_from_pass_fail_conditions(self) -> None:
+        ready = build_execution_checklist(
+            structure_valid=True,
+            entry_zone_status="IN_ZONE",
+            stop_valid=True,
+            rr_ratio=1.3,
+            budget_execution_status="WITHIN_BUDGET",
+            trigger_state="TRIGGERED",
+            timing_bucket="ideal",
+            evidence_level="Moderate",
+        )
+        blocked = build_execution_checklist(
+            structure_valid=False,
+            entry_zone_status="MISSED",
+            stop_valid=False,
+            rr_ratio=0.3,
+            budget_execution_status="OVER_BUDGET",
+            trigger_state="WAITING",
+            timing_bucket="late",
+            evidence_level="None",
+        )
+
+        self.assertEqual(ready["checklist_status"], "READY")
+        self.assertEqual(blocked["checklist_status"], "BLOCKED")
+
+    def test_trade_prefill_captures_execution_hardening_fields(self) -> None:
+        signal_package = {"scenario": {"scenario_name": "SCENARIO 3: INSIDE DESCENDING CHANNEL", "confidence_level": "High"}}
+        play_spx = {"direction": "PUT", "strike": 7100, "contracts": 2, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}}
+        play_es = {"entry": {"price": 7159.5}, "stop": {"price": 7197.5}}
+        selected_quote = {
+            "contract_symbol": "SPXW 260422P07095000",
+            "strike": 7095,
+            "option_type": "PUT",
+            "expiration": "2026-04-22",
+            "price": 18.0,
+            "predicted_entry_price": 11.2,
+            "estimated_entry_cost": 2240.0,
+            "estimated_fill_cost": 2300.0,
+            "budget_status": "Within Budget",
+        }
+        authority = {
+            "setup_state": "ARMED",
+            "trigger_type": "RETEST_AND_REJECT",
+            "trigger_state": "WAITING",
+            "trigger_reason": "Waiting for price to retest the locked entry zone",
+            "entry_zone_status": "NEAR_ZONE",
+            "invalidation_code": "NONE",
+            "invalidation_message": "",
+            "expiry_status": "OPEN",
+            "checklist_status": "WAIT",
+            "authoritative_stop_spx": 7158.0,
+            "target_1_spx": 7103.72,
+            "target_2_spx": 7066.28,
+            "budget_execution_status": "WITHIN_BUDGET",
+            "locked_selected_contract_symbol": "SPXW 260422P07100000",
+            "locked_selected_strike": 7100,
+            "locked_selected_option_type": "PUT",
+            "locked_selected_entry_mark": 13.0,
+            "locked_selected_budget_status": "Near Budget",
+        }
+        intelligence = {
+            "planned_entry_mark": 13.0,
+            "live_predicted_entry_mark": 13.0,
+            "locked_entry_spx": 7120.0,
+            "lock_cutoff_label": "8:25 AM CT",
+            "session_plan_locked": True,
+            "locked_timestamp": "2026-04-22T08:25:00-05:00",
+            "entry_zone_status": "NEAR_ZONE",
+            "move_completion_pct": 22.0,
+            "regime": "PULLBACK",
+            "plan_status": "HOLDING",
+            "chase_status": "WAIT",
+            "prediction_confidence": "MEDIUM",
+            "stop_quality": "Balanced",
+            "quality": "Acceptable",
+        }
+
+        prefill = build_live_play_trade_prefill(
+            signal_package=signal_package,
+            play_type="primary",
+            play_spx=play_spx,
+            play_es=play_es,
+            lead_option_quote=selected_quote,
+            recommended_contract_quote=selected_quote,
+            intelligence=intelligence,
+            final_status="ELIGIBLE",
+            authority=authority,
+            selection_context={"manual_override": False, "ladder_anchor_strike": 7100},
+        )
+
+        self.assertEqual(prefill["setup_state"], "ARMED")
+        self.assertEqual(prefill["trigger_state"], "WAITING")
+        self.assertEqual(prefill["target_1_spx"], 7103.72)
+        self.assertEqual(prefill["budget_execution_status"], "WITHIN_BUDGET")
+        self.assertEqual(prefill["locked_selected_contract_symbol"], "SPXW 260422P07100000")
 
 
 if __name__ == "__main__":
