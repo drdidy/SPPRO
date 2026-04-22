@@ -328,6 +328,31 @@ def resolve_trade_execution_display(direction: Any, decision: Any) -> str:
     return execution
 
 
+def resolve_presentation_state(decision: Any, bias_label: str) -> dict[str, str]:
+    """Return display-first state/bias wording without changing logic."""
+
+    decision_text = str(decision or "").strip().upper()
+    if decision_text == "NO TRADE":
+        return {
+            "headline": "NO TRADE",
+            "secondary": f"Market bias: {bias_label.title()}",
+        }
+    if decision_text == "STRONG BUY":
+        return {
+            "headline": f"{bias_label} SETUP",
+            "secondary": "Actionable now",
+        }
+    if decision_text == "CONDITIONAL BUY":
+        return {
+            "headline": f"{bias_label} SETUP",
+            "secondary": "Conditional entry",
+        }
+    return {
+        "headline": f"{bias_label} SETUP",
+        "secondary": "Monitoring",
+    }
+
+
 def normalize_tags(tags: Any) -> list[str]:
     """Normalize tags into a stable list format."""
 
@@ -2002,11 +2027,14 @@ def build_scenario_transition_note(live_context: dict[str, Any] | None) -> str:
         return ""
     transition = str(live_context.get("scenario_transition") or "")
     if transition:
-        return f"Transition: {transition}"
+        live_label = str(live_context.get("live_scenario") or "")
+        if live_label:
+            return f"Structure changed: now {live_label.lower()}"
+        return "Market structure has shifted"
     origin = str(live_context.get("scenario_origin") or "")
     live = str(live_context.get("live_scenario") or "")
     if origin and live and origin != live:
-        return f"Original: {origin} | Live: {live}"
+        return f"Structure changed: now {live.lower()}"
     return ""
 
 
@@ -2025,7 +2053,7 @@ def build_live_decision_sentence(
 
     if decision == "NO TRADE":
         if scenario_transition:
-            return f"Live scenario shifted to {live_scenario}. Entry no longer valid."
+            return "Market structure has shifted. Entry no longer valid."
         if not authority.get("stop_valid", False):
             return "Structure invalid. No structural stop. Trade suppressed."
         return str(authority.get("reason_line", "No valid live trade."))
@@ -6843,6 +6871,14 @@ def render_trade_decision_summary(
     primary_direction = primary_play["direction"] if primary_play else "-"
     direction_display = resolve_trade_direction_display(primary_direction)
     execution_display = resolve_trade_execution_display(primary_direction, action_label)
+    presentation_state = resolve_presentation_state(action_label, direction_display["bias"])
+    condition_label = (
+        "No valid setup"
+        if str(action_label).upper() == "NO TRADE"
+        else "Conditional entry"
+        if str(action_label).upper() == "CONDITIONAL BUY"
+        else "Ready now"
+    )
     summary_entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
     if summary_entry_value is None and primary_play:
         summary_entry_value = primary_play["entry"]["price"]
@@ -6858,7 +6894,7 @@ def render_trade_decision_summary(
         <div class="spx-summary">
             <div class="spx-summary-title">Trade Summary</div>
             <div class="spx-summary-body">
-                {direction_display['compact']} | {execution_display} | {live_scenario} | {live_structure} | {active_play_label} | Entry {entry_value} SPX | Strike {strike} | Confidence {confidence_display} | EV {ev_display}
+                {presentation_state['secondary'].replace('Market bias: ', '')} | {execution_display} | {condition_label}
             </div>
         </div>
         """,
@@ -7508,7 +7544,7 @@ def render_play_card(
                     <div class="spx-metric-value">{escape(contract_score)}</div>
                 </div>
             </div>
-            <div class="spx-play-note">{escape(authority_condition if authority_decision == 'CONDITIONAL BUY' and authority_condition else ('You are overriding your system' if authority_decision == 'NO TRADE' else 'Ready to execute if price behavior holds'))}</div>
+        <div class="spx-play-note">{escape(authority_condition if authority_decision == 'CONDITIONAL BUY' and authority_condition else ('Manual override active' if authority_decision == 'NO TRADE' else 'Ready to execute if price behavior holds'))}</div>
             {override_note_html}
             {best_contract_html}
         </div>
@@ -7541,7 +7577,7 @@ def render_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning("You are overriding your system.")
+        st.warning("Manual override active")
         if not st.session_state.get(override_intent_key, False):
             if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
@@ -9590,6 +9626,7 @@ def render_live_decision_center(
     direction_value = chosen_play.get("direction") if isinstance(chosen_play, dict) else ""
     direction_display = resolve_trade_direction_display(direction_value)
     execution_display = resolve_trade_execution_display(direction_value, decision)
+    presentation_state = resolve_presentation_state(decision, direction_display["bias"])
     entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
     if entry_value is None and signal_package is not None:
         primary_play = signal_package["scenario"].get("primary_play")
@@ -9606,9 +9643,10 @@ def render_live_decision_center(
         top_left, top_right = st.columns([3, 1.2], gap="large")
         with top_left:
             st.caption("Decision Center")
-            st.markdown(f"### {direction_display['setup']}")
-            st.caption(execution_display)
-            st.markdown(f"**{decision}**")
+            st.markdown(f"### {presentation_state['headline']}")
+            st.caption(presentation_state["secondary"])
+            if str(decision).upper() != "NO TRADE":
+                st.caption(execution_display)
             st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
             st.write(reason_line)
             if transition_note:
@@ -9622,7 +9660,7 @@ def render_live_decision_center(
         stat2.metric("Strike", str(strike_value))
         stat3.metric("Confidence", f"{confidence}%")
         stat4.metric("Risk", risk_class)
-        stat5.metric("Expected Value", format_price(expected_value) if expected_value is not None else "Insufficient")
+        stat5.metric("Expected Value", format_price(expected_value) if expected_value is not None else "-")
         stat6.metric("Evidence", evidence_label if evidence_label else "None")
         if lock_label != "-":
             st.caption(f"Lock Status: {lock_label}")
@@ -9703,6 +9741,7 @@ def render_operator_play_card(
     trade_state = "FILTERED" if decision == "NO TRADE" else ("INVALID" if play.get("stop_unavailable") else "ACTIVE")
     direction_display = resolve_trade_direction_display(play.get("direction"))
     execution_display = resolve_trade_execution_display(play.get("direction"), decision)
+    presentation_state = resolve_presentation_state(decision, direction_display["bias"])
     locked_entry_value = intelligence.get("locked_entry_spx") if intelligence.get("locked_entry_spx") is not None else play["entry"]["price"]
     current_mark = _to_float_or_none(lead_option_quote.get("price")) if lead_option_quote else None
     rr_value = intelligence.get("rr_ratio")
@@ -9729,8 +9768,8 @@ def render_operator_play_card(
             </div>
             <div class="spx-decision-banner {_decision_class(decision)}">
                 <div>
-                    <div class="spx-decision-main">{escape(direction_display['setup'])}</div>
-                    <div class="spx-decision-sub">{escape(execution_display)}</div>
+                    <div class="spx-decision-main">{escape(presentation_state['headline'])}</div>
+                    <div class="spx-decision-sub">{escape(presentation_state['secondary'] if decision == 'NO TRADE' else execution_display)}</div>
                 </div>
                 <div class="spx-play-context">
                     <div class="spx-play-context-label">{escape(decision)}</div>
@@ -9764,13 +9803,12 @@ def render_operator_play_card(
             </div>
             <div class="spx-metric-grid secondary">
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Value</div><div class="spx-metric-value">{format_price(expected_value) if expected_value is not None else 'Insufficient'}</div></div>
+                <div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Value</div><div class="spx-metric-value">{format_price(expected_value) if expected_value is not None else '-'}</div></div>
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get('entry_zone_status', '-')))}</div></div>
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else '-'}</div></div>
             </div>
             <div class="spx-play-note">{escape(decision_sentence)}</div>
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note else ''}
-            {f'<div class="spx-risk-note"><span class="spx-risk-note-icon">!</span><span>You are overriding your system.</span></div>' if decision == 'NO TRADE' else ''}
         </div>
         """,
         unsafe_allow_html=True,
@@ -9794,6 +9832,8 @@ def render_operator_play_card(
             )
     if top_reason_summary:
         st.caption(f"Top reasons: {top_reason_summary}")
+    if decision == "NO TRADE":
+        st.info("Manual override active")
     if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
@@ -9826,7 +9866,7 @@ def render_operator_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning("You are overriding your system.")
+        st.warning("Manual override active")
         if not st.session_state.get(override_intent_key, False):
             if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
