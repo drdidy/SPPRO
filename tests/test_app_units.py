@@ -6,6 +6,7 @@ import unittest
 
 from app import (
     align_play_conversion_to_effective_offset,
+    build_selected_contract_binding,
     build_line_rows,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
@@ -13,6 +14,7 @@ from app import (
     resolve_effective_offset,
     resolve_live_current_spx,
     resolve_play_display_values,
+    validate_contract_binding,
 )
 
 
@@ -171,6 +173,73 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(snapshot["live_scenario"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
         self.assertEqual(snapshot["scenario_transition"], "SCENARIO 1: BETWEEN CHANNELS -> SCENARIO 3: INSIDE DESCENDING CHANNEL")
         self.assertEqual(snapshot["structure_transition"], "BETWEEN_CHANNELS -> INSIDE_DESC_CHANNEL")
+
+    def test_selected_contract_binding_uses_selected_symbol_metrics_for_same_strike(self) -> None:
+        play = {"strike": 7100, "direction": "PUT"}
+        selected_contract = {
+            "contract_symbol": "SPXW 260422P07100000",
+            "strike": 7100,
+            "option_type": "PUT",
+            "price": 21.0,
+            "bid": 20.9,
+            "ask": 21.1,
+            "predicted_entry_price": 13.09,
+            "rr_ratio": 1.429,
+        }
+
+        payload = build_selected_contract_binding(play, selected_contract)
+
+        self.assertEqual(payload["displayed_contract_symbol"], "SPXW 260422P07100000")
+        self.assertEqual(payload["displayed_strike"], 7100)
+        self.assertEqual(payload["current_mark"], 21.0)
+        self.assertEqual(payload["predicted_entry_price"], 13.09)
+
+    def test_selected_contract_binding_updates_visible_strike_when_selected_contract_changes(self) -> None:
+        play = {"strike": 7100, "direction": "PUT"}
+        selected_contract = {
+            "contract_symbol": "SPXW 260422P07110000",
+            "strike": 7110,
+            "option_type": "PUT",
+            "price": 16.5,
+            "predicted_entry_price": 10.2,
+        }
+
+        payload = build_selected_contract_binding(play, selected_contract)
+        validation = validate_contract_binding(selected_contract, payload)
+
+        self.assertEqual(payload["displayed_strike"], 7110)
+        self.assertEqual(payload["displayed_contract_symbol"], "SPXW 260422P07110000")
+        self.assertEqual(validation["binding_status"], "OK")
+
+    def test_binding_validator_catches_strike_and_symbol_mismatch(self) -> None:
+        selected_contract = {
+            "contract_symbol": "SPXW 260422P07100000",
+            "strike": 7100,
+        }
+        displayed_payload = {
+            "displayed_contract_symbol": "SPXW 260422P07110000",
+            "displayed_strike": 7110,
+            "source_contract_symbol": "SPXW 260422P07110000",
+        }
+
+        validation = validate_contract_binding(selected_contract, displayed_payload)
+
+        self.assertEqual(validation["binding_status"], "MISMATCH")
+        self.assertIn("symbol_mismatch", validation["errors"])
+        self.assertIn("strike_mismatch", validation["errors"])
+
+    def test_stale_play_strike_cannot_override_new_selected_contract(self) -> None:
+        stale_play = {"strike": 7100, "direction": "PUT"}
+        new_selected_contract = {
+            "contract_symbol": "SPXW 260422P07110000",
+            "strike": 7110,
+            "price": 18.0,
+        }
+
+        payload = build_selected_contract_binding(stale_play, new_selected_contract)
+
+        self.assertEqual(payload["displayed_strike"], 7110)
+        self.assertEqual(payload["current_mark"], 18.0)
 
 
 if __name__ == "__main__":

@@ -5348,11 +5348,21 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         price = lead.get("bid")
     return {
         "contract_symbol": lead.get("contract_symbol", ""),
+        "option_type": lead.get("option_type", ""),
         "price": float(price) if price not in {"", None} else None,
         "bid": float(lead["bid"]) if lead.get("bid") not in {"", None} else None,
         "ask": float(lead["ask"]) if lead.get("ask") not in {"", None} else None,
         "expiration": lead.get("expiration", ""),
         "strike": lead.get("strike", ""),
+        "last": float(lead["last"]) if lead.get("last") not in {"", None} else None,
+        "mark": float(lead["mark"]) if lead.get("mark") not in {"", None} else None,
+        "volume": _to_float_or_none(lead.get("volume")),
+        "open_interest": _to_float_or_none(lead.get("open_interest")),
+        "delta": _to_float_or_none(lead.get("delta")),
+        "gamma": _to_float_or_none(lead.get("gamma")),
+        "theta": _to_float_or_none(lead.get("theta")),
+        "vega": _to_float_or_none(lead.get("vega")),
+        "implied_volatility": _to_float_or_none(lead.get("implied_volatility")),
         "predicted_entry_price": float(lead["predicted_entry_price"]) if lead.get("predicted_entry_price") not in {"", None} else None,
         "expected_gain": float(lead["expected_gain"]) if lead.get("expected_gain") not in {"", None} else None,
         "expected_loss": float(lead["expected_loss"]) if lead.get("expected_loss") not in {"", None} else None,
@@ -5361,6 +5371,84 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         "spx_price_at_lookup": _to_float_or_none(candidates[0].get("spx_price_at_lookup")) if candidates else None,
         "es_price_at_lookup": _to_float_or_none(candidates[0].get("es_price_at_lookup")) if candidates else None,
     }
+
+
+def build_selected_contract_binding(
+    play: dict[str, Any] | None,
+    selected_contract: dict[str, Any] | None,
+    *,
+    calibrated_entry_mark: float | None = None,
+    expected_fill_mark: float | None = None,
+) -> dict[str, Any]:
+    """Build one canonical contract payload so card text and premium data cannot drift apart."""
+
+    selected_contract = dict(selected_contract or {})
+    play = play or {}
+    selected_strike = _to_float_or_none(selected_contract.get("strike"))
+    displayed_strike = int(selected_strike) if selected_strike is not None else play.get("strike")
+    contract_symbol = str(selected_contract.get("contract_symbol", "") or "")
+    payload = {
+        "displayed_strike": displayed_strike,
+        "displayed_contract_symbol": contract_symbol,
+        "option_type": str(selected_contract.get("option_type", "") or ""),
+        "expiration": str(selected_contract.get("expiration", "") or ""),
+        "current_mark": _to_float_or_none(selected_contract.get("price"))
+        or _to_float_or_none(selected_contract.get("mark"))
+        or _to_float_or_none(selected_contract.get("last"))
+        or _to_float_or_none(selected_contract.get("ask"))
+        or _to_float_or_none(selected_contract.get("bid")),
+        "bid": _to_float_or_none(selected_contract.get("bid")),
+        "ask": _to_float_or_none(selected_contract.get("ask")),
+        "last": _to_float_or_none(selected_contract.get("last")),
+        "mark": _to_float_or_none(selected_contract.get("mark")) or _to_float_or_none(selected_contract.get("price")),
+        "delta": _to_float_or_none(selected_contract.get("delta")),
+        "gamma": _to_float_or_none(selected_contract.get("gamma")),
+        "theta": _to_float_or_none(selected_contract.get("theta")),
+        "vega": _to_float_or_none(selected_contract.get("vega")),
+        "implied_volatility": _to_float_or_none(selected_contract.get("implied_volatility")),
+        "predicted_entry_price": _to_float_or_none(selected_contract.get("predicted_entry_price")),
+        "calibrated_entry_mark": _to_float_or_none(calibrated_entry_mark),
+        "expected_fill_mark": _to_float_or_none(expected_fill_mark),
+        "expected_gain": _to_float_or_none(selected_contract.get("expected_gain")),
+        "expected_loss": _to_float_or_none(selected_contract.get("expected_loss")),
+        "rr_ratio": _to_float_or_none(selected_contract.get("rr_ratio")),
+        "contract_score": _to_float_or_none(selected_contract.get("contract_score")),
+        "source_contract_symbol": contract_symbol,
+        "selected_contract_strike": displayed_strike,
+    }
+    payload["binding_status"] = "OK"
+    payload["binding_errors"] = []
+    return payload
+
+
+def validate_contract_binding(selected_contract: dict[str, Any] | None, displayed_payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate that all displayed contract-facing fields come from one selected contract identity."""
+
+    selected_contract = dict(selected_contract or {})
+    displayed_payload = dict(displayed_payload or {})
+    errors: list[str] = []
+
+    selected_symbol = str(selected_contract.get("contract_symbol", "") or "")
+    displayed_symbol = str(displayed_payload.get("displayed_contract_symbol", "") or "")
+    selected_strike = _to_float_or_none(selected_contract.get("strike"))
+    displayed_strike = _to_float_or_none(displayed_payload.get("displayed_strike"))
+
+    if selected_symbol and displayed_symbol and selected_symbol != displayed_symbol:
+        errors.append("symbol_mismatch")
+    if selected_strike is not None and displayed_strike is not None and abs(selected_strike - displayed_strike) >= 1e-9:
+        errors.append("strike_mismatch")
+
+    result = {
+        "binding_status": "OK" if not errors else "MISMATCH",
+        "errors": errors,
+        "selected_contract_symbol": selected_symbol,
+        "selected_strike": selected_strike,
+        "displayed_contract_symbol": displayed_symbol,
+        "displayed_strike": displayed_strike,
+        "mark_source_symbol": str(displayed_payload.get("source_contract_symbol", "") or ""),
+        "predicted_entry_source_symbol": str(displayed_payload.get("source_contract_symbol", "") or ""),
+    }
+    return result
 
 
 def attach_option_lookup_context(
@@ -9753,18 +9841,29 @@ def render_operator_play_card(
     evidence_note = build_calibration_bias_note(calibration_preview)
     drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
     drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
-    predicted_value = intelligence.get("live_predicted_entry_mark")
     calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
     expected_fill = calibration_preview.get("expected_fill_mark") if calibration_preview else None
+    selected_contract = build_selected_contract_binding(
+        play,
+        lead_option_quote,
+        calibrated_entry_mark=calibrated_value,
+        expected_fill_mark=expected_fill,
+    )
+    binding_validation = validate_contract_binding(lead_option_quote, selected_contract)
+    binding_error = binding_validation["binding_status"] != "OK"
+    predicted_value = selected_contract.get("predicted_entry_price")
+    current_mark = selected_contract.get("current_mark")
+    rr_value = selected_contract.get("rr_ratio")
+    displayed_strike = selected_contract.get("displayed_strike")
+    best_contract_symbol = str(selected_contract.get("displayed_contract_symbol", "") or "")
     top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
-    best_contract_symbol = str(lead_option_quote.get("contract_symbol", "")) if lead_option_quote else ""
 
     st.markdown(
         f"""
         <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
-                <div class="spx-play-topline-note">Strike {escape(str(play['strike']))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(trade_state)}</span></div>
+                <div class="spx-play-topline-note">Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(trade_state)}</span></div>
             </div>
             <div class="spx-decision-banner {_decision_class(decision)}">
                 <div>
@@ -9813,6 +9912,8 @@ def render_operator_play_card(
         """,
         unsafe_allow_html=True,
     )
+    if binding_error:
+        st.error("Contract binding error")
     if decision == "CONDITIONAL BUY" and condition_required:
         st.caption(condition_required)
     if best_contract_symbol:
@@ -9824,9 +9925,9 @@ def render_operator_play_card(
                     [
                         f"Mark {format_price(current_mark) if current_mark is not None else '-'}",
                         f"Pred {format_price(predicted_value) if predicted_value is not None else '-'}",
-                        f"Cal {format_price(calibrated_value) if calibrated_value is not None else '-'}",
-                        f"Fill {format_price(expected_fill) if expected_fill is not None else '-'}",
-                        f"RR {rr_value if rr_value is not None else '-'}",
+                        f"Cal {format_price(selected_contract.get('calibrated_entry_mark')) if selected_contract.get('calibrated_entry_mark') is not None else '-'}",
+                        f"Fill {format_price(selected_contract.get('expected_fill_mark')) if selected_contract.get('expected_fill_mark') is not None else '-'}",
+                        f"RR {selected_contract.get('rr_ratio') if selected_contract.get('rr_ratio') is not None else '-'}",
                     ]
                 )
             )
@@ -9837,8 +9938,8 @@ def render_operator_play_card(
     if lead_option_quote and (lead_option_quote.get("bid") is not None or lead_option_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
-            f"{format_price(lead_option_quote.get('bid')) if lead_option_quote.get('bid') is not None else '-'} / "
-            f"{format_price(lead_option_quote.get('ask')) if lead_option_quote.get('ask') is not None else '-'}"
+            f"{format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'} / "
+            f"{format_price(selected_contract.get('ask')) if selected_contract.get('ask') is not None else '-'}"
         )
 
     button_key = f"use_play_{title.lower().replace(' ', '_')}"
@@ -9913,6 +10014,9 @@ def render_operator_play_card(
         )
         if evidence_note:
             st.caption(evidence_note)
+        st.caption(
+            f"Binding status {binding_validation['binding_status']}"
+        )
         if developer_mode and effective_offset is not None:
             entry_debug = (play.get('conversion_debug') or {}).get('entry', {})
             if offset_diagnostics is not None:
@@ -9932,6 +10036,16 @@ def render_operator_play_card(
                 f"Adaptive {str((adaptive_overlay or {}).get('adaptive_recommendation', 'NO_ADAPTATION'))}"
                 f" | Evidence {str((adaptive_overlay or {}).get('adaptive_evidence_level', 'None'))}"
                 f" | Effective confidence {str((adaptive_overlay or {}).get('effective_prediction_confidence', intelligence.get('prediction_confidence', '-')))}"
+            )
+            st.caption(
+                f"Selected symbol {binding_validation['selected_contract_symbol'] or '-'}"
+                f" | Selected strike {format_price(binding_validation['selected_strike']) if binding_validation['selected_strike'] is not None else '-'}"
+                f" | Displayed strike {format_price(binding_validation['displayed_strike']) if binding_validation['displayed_strike'] is not None else '-'}"
+            )
+            st.caption(
+                f"Mark source {binding_validation['mark_source_symbol'] or '-'}"
+                f" | Pred source {binding_validation['predicted_entry_source_symbol'] or '-'}"
+                f" | Errors {', '.join(binding_validation['errors']) or 'none'}"
             )
 
 
