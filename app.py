@@ -11953,6 +11953,53 @@ def render_debug_section(
             st.info("No overnight pivot candidates were provided.")
 
 
+def build_premarket_checkpoint_views(
+    anchor_bundle: dict[str, Any],
+    next_trading_date: date,
+    es_spx_offset: float,
+    overnight_high: dict[str, dict[str, Any]] | None,
+    overnight_low: dict[str, dict[str, Any]] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Build Evening, Asian, London, and Pre-Open checkpoint views."""
+
+    evening_date = next_trading_date - timedelta(days=1)
+    phase_specs: dict[str, list[tuple[str, Any]]] = {
+        "evening": [
+            ("6:00 PM CT", at_central(evening_date, 18, 0)),
+            ("7:00 PM CT", at_central(evening_date, 19, 0)),
+            ("8:00 PM CT", at_central(evening_date, 20, 0)),
+        ],
+        "asian": [
+            ("11:00 PM CT", at_central(evening_date, 23, 0)),
+            ("1:00 AM CT",  at_central(next_trading_date, 1, 0)),
+        ],
+        "london": [
+            ("3:00 AM CT",  at_central(next_trading_date, 3, 0)),
+            ("6:00 AM CT",  at_central(next_trading_date, 6, 0)),
+            ("8:00 AM CT",  at_central(next_trading_date, 8, 0)),
+        ],
+        "preopen": [
+            ("8:30 AM CT",  at_central(next_trading_date, 8, 30)),
+            ("9:00 AM CT",  at_central(next_trading_date, 9, 0)),
+            ("9:20 AM CT",  at_central(next_trading_date, 9, 20)),
+        ],
+    }
+
+    def _build(label: str, checkpoint_time: Any) -> dict[str, Any]:
+        projected_es = project_six_lines(anchor_bundle["anchors"], checkpoint_time)
+        projected_spx = convert_projected_lines(projected_es, es_spx_offset, "spx")
+        override_result = apply_overnight_pivot_overrides(
+            projected_spx, overnight_high=overnight_high, overnight_low=overnight_low,
+        )
+        final_spx = override_result["projected_lines"]
+        final_es = convert_projected_lines(final_spx, es_spx_offset, "es")
+        return {"label": label, "checkpoint_time": checkpoint_time,
+                "spx_lines": final_spx, "es_lines": final_es,
+                "override_decisions": override_result["decisions"]}
+
+    return {phase: [_build(lbl, t) for lbl, t in specs] for phase, specs in phase_specs.items()}
+
+
 def build_evening_checkpoint_views(
     anchor_bundle: dict[str, Any],
     next_trading_date: date,
@@ -11960,38 +12007,9 @@ def build_evening_checkpoint_views(
     overnight_high: dict[str, dict[str, Any]] | None,
     overnight_low: dict[str, dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Build 6 PM, 7 PM, and 8 PM checkpoint views for the evening session."""
-
-    evening_session_date = next_trading_date - timedelta(days=1)
-    checkpoints = [
-        ("6:00 PM CT", at_central(evening_session_date, 18, 0)),
-        ("7:00 PM CT", at_central(evening_session_date, 19, 0)),
-        ("8:00 PM CT", at_central(evening_session_date, 20, 0)),
-    ]
-
-    views: list[dict[str, Any]] = []
-
-    for label, checkpoint_time in checkpoints:
-        projected_es = project_six_lines(anchor_bundle["anchors"], checkpoint_time)
-        projected_spx = convert_projected_lines(projected_es, es_spx_offset, "spx")
-        override_result = apply_overnight_pivot_overrides(
-            projected_spx,
-            overnight_high=overnight_high,
-            overnight_low=overnight_low,
-        )
-        final_spx = override_result["projected_lines"]
-        final_es = convert_projected_lines(final_spx, es_spx_offset, "es")
-        views.append(
-            {
-                "label": label,
-                "checkpoint_time": checkpoint_time,
-                "spx_lines": final_spx,
-                "es_lines": final_es,
-                "override_decisions": override_result["decisions"],
-            }
-        )
-
-    return views
+    """Backward-compat alias — returns only the evening phase."""
+    views = build_premarket_checkpoint_views(anchor_bundle, next_trading_date, es_spx_offset, overnight_high, overnight_low)
+    return views.get("evening", [])
 
 
 def render_checkpoint_views(checkpoint_views: list[dict[str, Any]]) -> None:
@@ -14134,7 +14152,7 @@ def render_live_mode_shell(
     anchor_bundle: dict[str, Any],
     effective_offset: float,
     offset_diagnostics: dict[str, Any],
-    checkpoint_views: list[dict[str, Any]],
+    checkpoint_views: dict[str, list[dict[str, Any]]],
     persisted_settings: dict[str, Any],
     settings: dict[str, Any],
     options_provider: Any,
@@ -14144,7 +14162,7 @@ def render_live_mode_shell(
     """Render the live operator workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
+    live_signal_tab, live_asian_tab = st.tabs(["⚡  SIGNAL & LEVELS", "📋  PRE-MARKET PREP"])
 
     with live_signal_tab:
         if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
@@ -14655,56 +14673,164 @@ def render_live_mode_shell(
         st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
 
     with live_asian_tab:
+        # ── Determine active phase from CT clock ────────────────────────────
+        try:
+            _now_ct = current_central_time() if current_central_time else None
+            _ct_h = (_now_ct.hour + _now_ct.minute / 60.0) if _now_ct else -1
+        except Exception:
+            _ct_h = -1
+
+        def _phase_status(start: float, end: float) -> tuple[str, str, str]:
+            if end < start:
+                active = _ct_h >= start or _ct_h < end
+            else:
+                active = start <= _ct_h < end
+            if active:
+                return "▶  ACTIVE", "rgba(0,212,255,0.10)", "#6ae6ff"
+            completed = (_ct_h >= end if end >= start else not (_ct_h >= start or _ct_h < end)) and _ct_h >= 0
+            if completed:
+                return "✓  DONE", "rgba(0,180,80,0.09)", "#60d090"
+            return "UPCOMING", "rgba(255,255,255,0.03)", "rgba(180,210,240,0.38)"
+
+        _ev_s, _ev_bg, _ev_c  = _phase_status(17.0, 23.0)
+        _as_s, _as_bg, _as_c  = _phase_status(23.0,  3.0)
+        _lo_s, _lo_bg, _lo_c  = _phase_status( 3.0,  8.0)
+        _po_s, _po_bg, _po_c  = _phase_status( 8.0,  9.5)
+
+        _active_name = (
+            "EVENING" if "ACTIVE" in _ev_s else
+            "ASIAN"   if "ACTIVE" in _as_s else
+            "LONDON"  if "ACTIVE" in _lo_s else
+            "PRE-OPEN" if "ACTIVE" in _po_s else
+            "NY SESSION"
+        )
+
+        # ── Hero banner ─────────────────────────────────────────────────────
         st.markdown(
-            """
-            <div class="spx-hero">
-                <div class="spx-hero-top">
-                    <div>
-                        <div class="spx-hero-kicker">Asian Session Console</div>
-                        <div class="spx-hero-title">Evening ES Monitoring</div>
-                        <div class="spx-hero-subtitle">
-                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
-                        </div>
-                    </div>
-                    <div class="spx-hero-status">
-                        <div class="spx-hero-status-label">Framework</div>
-                        <div class="spx-status-chip good"><span>◉</span><span>Observation First</span></div>
-                    </div>
-                </div>
-            </div>
-            """,
+            '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 18px 24px;margin-bottom:20px;'
+            'background:linear-gradient(135deg,rgba(4,8,22,0.99) 0%,rgba(6,12,30,0.98) 50%,rgba(2,6,18,0.99) 100%);'
+            'border:1px solid rgba(100,140,255,0.14);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
+            '<div style="pointer-events:none;position:absolute;top:-20px;right:40px;width:240px;height:130px;'
+            'background:radial-gradient(ellipse,rgba(80,120,255,0.09) 0%,transparent 70%);"></div>'
+            '<div style="pointer-events:none;position:absolute;bottom:-10px;left:60px;width:180px;height:80px;'
+            'background:radial-gradient(ellipse,rgba(0,212,255,0.06) 0%,transparent 70%);"></div>'
+            '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">'
+            '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+            'font-size:1.3rem;background:linear-gradient(135deg,rgba(80,120,255,0.28),rgba(0,80,180,0.18));'
+            'box-shadow:0 0 18px rgba(80,140,255,0.22);border:1px solid rgba(80,140,255,0.22);">📋</div>'
+            '<div style="flex:1;min-width:0;">'
+            '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+            f'text-transform:uppercase;color:rgba(106,160,255,0.65);margin-bottom:4px;">NOW: {_active_name}</div>'
+            '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
+            'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Pre-Market Prep</div>'
+            '<div style="font-family:\'Inter\',sans-serif;font-size:0.8rem;color:rgba(180,205,240,0.55);line-height:1.5;">'
+            'Multi-session ES structure monitor — Evening · Asian · London · Pre-Open'
+            '</div></div>'
+            '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
+            f'<div style="padding:4px 10px;border-radius:6px;background:{_ev_bg};border:1px solid rgba(255,255,255,0.06);'
+            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_ev_c};">🌆 EVENING &nbsp;{_ev_s}</div>'
+            f'<div style="padding:4px 10px;border-radius:6px;background:{_as_bg};border:1px solid rgba(255,255,255,0.06);'
+            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_as_c};">🌏 ASIAN &nbsp;{_as_s}</div>'
+            f'<div style="padding:4px 10px;border-radius:6px;background:{_lo_bg};border:1px solid rgba(255,255,255,0.06);'
+            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_lo_c};">🌍 LONDON &nbsp;{_lo_s}</div>'
+            f'<div style="padding:4px 10px;border-radius:6px;background:{_po_bg};border:1px solid rgba(255,255,255,0.06);'
+            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_po_c};">⚡ PRE-OPEN &nbsp;{_po_s}</div>'
+            '</div></div></div>',
             unsafe_allow_html=True,
         )
-        if not checkpoint_views:
-            st.warning("Checkpoint views are unavailable for the current inputs.")
-        else:
-            checkpoint_labels = [checkpoint["label"] for checkpoint in checkpoint_views]
-            selected_label = st.selectbox(
-                "Reference checkpoint for current ES location",
-                checkpoint_labels,
-                index=safe_option_index(checkpoint_labels, settings.get("preferred_checkpoint", DEFAULT_SETTINGS["preferred_checkpoint"])),
-                key="live_checkpoint_selector",
-            )
-            if persisted_settings["preferred_checkpoint"] != selected_label:
-                persisted_settings["preferred_checkpoint"] = selected_label
-                checkpoint_settings_saved, checkpoint_settings_error = save_settings(persisted_settings)
-                if not checkpoint_settings_saved and checkpoint_settings_error:
-                    st.warning(checkpoint_settings_error)
-            selected_checkpoint = next(checkpoint for checkpoint in checkpoint_views if checkpoint["label"] == selected_label)
 
-            if is_valid_price_input(inputs["current_es_price"]):
-                reference_scenario = render_evening_location_panel(inputs["current_es_price"], selected_checkpoint)
-                if reference_scenario.get("primary_play") is None:
-                    st.warning("No live reference play is available to hand off into the Trade Log.")
-                elif st.button("Prefill Trade Log from Evening Framework", use_container_width=True, key="live_evening_prefill"):
-                    set_trade_form_prefill(build_tab2_trade_prefill(selected_checkpoint, inputs["current_es_price"]))
-                    st.success("Trade Log prefilled from Live Mode.")
+        if not checkpoint_views:
+            st.warning("Pre-market checkpoint views are unavailable for the current inputs.")
+        else:
+            _has_es = is_valid_price_input(inputs["current_es_price"])
+            _current_es = float(inputs["current_es_price"]) if _has_es else None
+
+            _all_phases = [
+                ("evening", "🌆", "EVENING",  "5 PM – 11 PM CT",  "rgba(179,136,255,0.9)", _ev_s, _ev_bg, _ev_c),
+                ("asian",   "🌏", "ASIAN",    "11 PM – 3 AM CT",  "rgba(80,160,255,0.9)",  _as_s, _as_bg, _as_c),
+                ("london",  "🌍", "LONDON",   "3 AM – 8 AM CT",   "rgba(255,190,50,0.9)",  _lo_s, _lo_bg, _lo_c),
+                ("preopen", "⚡", "PRE-OPEN", "8 AM – 9:30 AM CT","rgba(0,212,255,0.9)",   _po_s, _po_bg, _po_c),
+            ]
+
+            for _pk, _icon, _pname, _trange, _accent, _slbl, _sbg, _scol in _all_phases:
+                _cps = checkpoint_views.get(_pk, [])
+                if not _cps:
+                    continue
+
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px 0;">'
+                    f'<div style="width:3px;height:30px;border-radius:2px;background:{_accent};flex-shrink:0;"></div>'
+                    f'<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;">'
+                    f'{_icon} {_pname}</div>'
+                    f'<div style="font-size:0.67rem;color:rgba(180,210,240,0.42);font-weight:500;">{_trange}</div>'
+                    f'<div style="margin-left:auto;padding:3px 10px;border-radius:6px;background:{_sbg};'
+                    f'border:1px solid rgba(255,255,255,0.06);font-size:0.58rem;font-weight:700;'
+                    f'letter-spacing:0.1em;color:{_scol};">{_slbl}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                _cols = st.columns(len(_cps), gap="small")
+                for _col, _cp in zip(_cols, _cps):
+                    with _col:
+                        _es_vals = {n: d["projected_price"] for n, d in _cp["es_lines"].items()}
+                        _res, _sup = find_nearest_lines(_es_vals, _current_es) if _current_es else (None, None)
+                        _rows = ""
+                        for _ln in LINE_DISPLAY_ORDER:
+                            if _ln not in _cp["es_lines"]:
+                                continue
+                            _lp = _cp["es_lines"][_ln]["projected_price"]
+                            _ll = _cp["es_lines"][_ln].get("label", _ln)
+                            _hi = (_res and _res[0] == _ln) or (_sup and _sup[0] == _ln)
+                            _mk = " ▲" if (_res and _res[0] == _ln) else (" ▼" if (_sup and _sup[0] == _ln) else "")
+                            _rstyle = f"color:{_accent};font-weight:700;" if _hi else "color:rgba(200,220,245,0.72);"
+                            _rows += (
+                                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                f'padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);{_rstyle}">'
+                                f'<span style="font-size:0.62rem;color:rgba(155,185,220,0.48);font-weight:500;">{escape(_ll[:8])}</span>'
+                                f'<span style="font-size:0.71rem;font-weight:600;">{format_price(_lp)}{_mk}</span>'
+                                f'</div>'
+                            )
+                        st.markdown(
+                            f'<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);'
+                            f'border-top:2px solid {_accent};border-radius:10px;padding:10px 12px;">'
+                            f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;'
+                            f'color:{_accent};margin-bottom:8px;opacity:0.85;">{escape(_cp["label"])}</div>'
+                            f'{_rows}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+            # ── NY Open Intelligence ────────────────────────────────────────
+            st.markdown(
+                '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.15),transparent);'
+                'margin:24px 0 18px 0;"></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
+                '<div style="width:3px;height:30px;border-radius:2px;background:rgba(0,212,255,0.85);flex-shrink:0;"></div>'
+                '<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;">'
+                '⚡ NY OPEN INTELLIGENCE</div>'
+                '<div style="font-size:0.67rem;color:rgba(180,210,240,0.42);font-weight:500;">'
+                'Scenario and bias based on pre-open structure</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            _ref_cps = checkpoint_views.get("preopen") or checkpoint_views.get("london") or []
+            _ref_cp = _ref_cps[-1] if _ref_cps else None
+            if _ref_cp and _has_es and _current_es:
+                _ref_scenario = render_evening_location_panel(_current_es, _ref_cp)
+                if _ref_scenario.get("primary_play") is not None:
+                    _ev_cps = checkpoint_views.get("evening", [])
+                    _pref_cp = next(
+                        (c for c in _ev_cps if c["label"] == settings.get("preferred_checkpoint", "6:00 PM CT")),
+                        _ev_cps[0] if _ev_cps else _ref_cp,
+                    )
+                    if st.button("Prefill Trade Log from Pre-Market Framework", use_container_width=True, key="live_premarket_prefill"):
+                        set_trade_form_prefill(build_tab2_trade_prefill(_pref_cp, _current_es))
+                        st.success("Trade Log prefilled from Pre-Market Prep.")
             else:
-                st.info("Enter a valid current ES price to enable the evening reference framework and handoff.")
-            render_evening_decision_framework()
-            render_evening_line_ladder(selected_checkpoint)
-            with st.expander("Checkpoint Levels", expanded=False):
-                render_checkpoint_views(checkpoint_views)
+                st.info("Enter a valid current ES price in the sidebar to generate your NY Open Intelligence summary.")
 
 
 def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: float) -> None:
@@ -15169,7 +15295,7 @@ def main() -> None:
     st.session_state["current_signal_package"] = signal_package
 
     try:
-        checkpoint_views = build_evening_checkpoint_views(
+        checkpoint_views = build_premarket_checkpoint_views(
             anchor_bundle=anchor_bundle,
             next_trading_date=inputs["next_trading_date"],
             es_spx_offset=effective_offset,
@@ -15177,8 +15303,8 @@ def main() -> None:
             overnight_low=overnight_low,
         )
     except Exception as exc:
-        st.error(f"Unable to build Asian session checkpoints: {exc}")
-        checkpoint_views = []
+        st.error(f"Unable to build pre-market checkpoints: {exc}")
+        checkpoint_views = {}
 
     top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["LIVE MODE", "HISTORICAL MODE", "TRADE LOG"])
 
