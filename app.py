@@ -10138,7 +10138,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             """,
             unsafe_allow_html=True,
         )
-        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
+        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=safe_option_index(["Live Mode", "Historical Mode"], st.session_state.get("sidebar_operating_mode", "Live Mode")), key="sidebar_operating_mode")
         visibility_options = ["Production Mode", "Edge Lab"]
         visibility_mode = st.radio(
             "Visibility",
@@ -10174,7 +10174,18 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             else:
                 st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
         elif not live_defaults["es_available"] or not live_defaults["spx_available"]:
-            st.warning("Live quote unavailable. Enter current prices manually.")
+            _fail_cls = classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"])
+            _missing = []
+            if not live_defaults["spx_available"]:
+                _missing.append("SPX")
+            if not live_defaults["es_available"]:
+                _missing.append("ES")
+            _fail_label = {"provider failure": "Data provider returned no quote", "deployment environment issue": "Network/environment issue (timeout or rate limit)", "live quotes available": "Quote available"}.get(_fail_cls, "Quote unavailable — reason unknown")
+            st.warning(f"Live {' and '.join(_missing)} quote unavailable: {_fail_label}. Enter prices manually or click Refresh.")
+            if st.button("Retry Live Quotes Now", key="sidebar_retry_live_quotes", use_container_width=True):
+                fetch_live_es_price.clear()
+                fetch_live_spx_price.clear()
+                st.rerun()
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         live_effective_offset = (
             float(live_defaults["derived_live_offset"])
@@ -11299,9 +11310,14 @@ def render_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning("Manual override active")
+        st.warning(f"Operator override enabled | State: {setup_state}")
+        _clr_col, _ovr_col = st.columns(2)
+        if _clr_col.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
+            st.session_state.pop(override_intent_key, None)
+            st.session_state.pop(override_reason_key, None)
+            st.rerun()
         if not st.session_state.get(override_intent_key, False):
-            if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if _ovr_col.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
@@ -11934,7 +11950,9 @@ def render_evening_location_panel(current_es_price: float, selected_checkpoint: 
     top_left, top_mid, top_right = st.columns(3)
     top_left.metric("Checkpoint", selected_checkpoint["label"])
     top_mid.metric("Current ES", format_price(current_es_price))
-    top_right.metric("Structure", reference_scenario["scenario_name"])
+    _scen_full = reference_scenario["scenario_name"]
+    _scen_display = (_scen_full[:22] + "…") if len(_scen_full) > 22 else _scen_full
+    top_right.metric("Structure", _scen_display, help=_scen_full)
 
     lower_left, lower_right = st.columns(2)
     lower_left.metric(
@@ -12144,11 +12162,13 @@ def render_trade_log_tab(
             summary_cols[2].metric("Risk", str(prefill.get("final_authority_risk_class") or "Unrated"))
             summary_cols[3].metric("Expected Value", format_price(_to_float_or_none(prefill.get("final_authority_expected_value"))) if _to_float_or_none(prefill.get("final_authority_expected_value")) is not None else "Insufficient")
             summary_cols[4].metric("Override", "Yes" if prefill.get("override_flag") else "No")
+        _notice_col, _clear_col = st.columns([3, 1])
         if st.session_state.get("trade_form_notice"):
-            st.info(st.session_state["trade_form_notice"])
-            if st.button("Clear Prefill", type="secondary", use_container_width=False):
-                clear_trade_form_prefill()
-                st.rerun()
+            _notice_col.info(st.session_state["trade_form_notice"])
+        if _clear_col.button("Clear Form", use_container_width=True, key="clear_trade_form_btn"):
+            clear_trade_form_prefill()
+            st.session_state.pop("trade_form_notice", None)
+            st.rerun()
         with st.form("trade_entry_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
             with col1:
@@ -14084,8 +14104,13 @@ def render_operator_play_card(
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
         st.warning(f"Operator override enabled | State: {setup_state}")
+        _clr_col2, _ovr_col2 = st.columns(2)
+        if _clr_col2.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
+            st.session_state.pop(override_intent_key, None)
+            st.session_state.pop(override_reason_key, None)
+            st.rerun()
         if not st.session_state.get(override_intent_key, False):
-            if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if _ovr_col2.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
@@ -14532,7 +14557,8 @@ def render_live_mode_shell(
                 active_play_label=hero_active_play,
                 live_context=live_context,
             )
-        else:
+        # Only warn when SPX is actually invalid — not based on developer_mode
+        if not is_valid_price_input(live_current_spx) and not is_valid_price_input(inputs.get("current_spx_price")):
             st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
@@ -15284,7 +15310,10 @@ def main() -> None:
                 options_provider_status=options_provider_status,
             )
         else:
-            st.info("Historical Mode is active in the sidebar. Switch back to Live Mode to use the current-session operator workflow.")
+            st.info("Switch back to Live Mode to use the current-session operator workflow.")
+            if st.button("Switch to Live Mode", use_container_width=True, key="switch_to_live_tab"):
+                st.session_state["sidebar_operating_mode"] = "Live Mode"
+                st.rerun()
 
     with top_historical_tab:
         if inputs["operating_mode"] == "Historical Mode":
@@ -15302,7 +15331,10 @@ def main() -> None:
                 es_candles=es_candles,
             )
         else:
-            st.info("Live Mode is active in the sidebar. Switch to Historical Mode to inspect prior sessions, review historical outcomes, and run backtests.")
+            st.info("Switch to Historical Mode to inspect prior sessions, review historical outcomes, and run backtests.")
+            if st.button("Switch to Historical Mode", use_container_width=True, key="switch_to_historical_tab"):
+                st.session_state["sidebar_operating_mode"] = "Historical Mode"
+                st.rerun()
 
     with top_trade_log_tab:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
