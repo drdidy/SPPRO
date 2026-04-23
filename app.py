@@ -1747,19 +1747,164 @@ def inject_app_styles() -> None:
             letter-spacing: 0.04em;
             border-radius: 12px 12px 0 0;
         }
+        /* ── SIDEBAR PREMIUM SHELL ───────────────────────────────────── */
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, rgba(10,15,25,0.98), rgba(6,10,18,0.98));
-            border-right: 1px solid rgba(255,255,255,0.06);
+            background:
+                radial-gradient(circle at 50% 0%, rgba(0,212,255,0.06), transparent 55%),
+                linear-gradient(180deg, rgba(4,8,18,0.99) 0%, rgba(2,5,14,1) 100%);
+            border-right: 1px solid rgba(0,212,255,0.08) !important;
+        }
+        [data-testid="stSidebar"] > div:first-child {
+            background: transparent !important;
         }
         [data-testid="stSidebar"] .block-container {
-            padding-top: 1rem;
-            padding-bottom: 1.1rem;
+            padding-top: 0.6rem !important;
+            padding-bottom: 1.5rem !important;
         }
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] {
-            font-size: 0.86rem !important;
+            font-size: 0.84rem !important;
             line-height: 1.4;
+        }
+        /* ── SIDEBAR INPUTS ──────────────────────────────────────────── */
+        [data-testid="stSidebar"] input[type="number"],
+        [data-testid="stSidebar"] input[type="text"],
+        [data-testid="stSidebar"] textarea {
+            background: rgba(6,12,26,0.9) !important;
+            border: 1px solid rgba(0,212,255,0.12) !important;
+            border-radius: 10px !important;
+            color: #e8f4ff !important;
+            font-family: "JetBrains Mono", monospace !important;
+            font-size: 0.85rem !important;
+            transition: border-color 0.15s ease !important;
+        }
+        [data-testid="stSidebar"] input[type="number"]:focus,
+        [data-testid="stSidebar"] input[type="text"]:focus {
+            border-color: rgba(0,212,255,0.4) !important;
+            box-shadow: 0 0 0 2px rgba(0,212,255,0.08) !important;
+        }
+        [data-testid="stSidebar"] div[data-baseweb="input"] > div,
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            background: rgba(6,12,26,0.9) !important;
+            border: 1px solid rgba(0,212,255,0.12) !important;
+            border-radius: 10px !important;
+        }
+        [data-testid="stSidebar"] div[data-baseweb="input"]:focus-within > div,
+        [data-testid="stSidebar"] div[data-baseweb="select"]:focus-within > div {
+            border-color: rgba(0,212,255,0.38) !important;
+            box-shadow: 0 0 0 2px rgba(0,212,255,0.08) !important;
+        }
+        /* ── SIDEBAR SELECT DROPDOWN TEXT ────────────────────────────── */
+        [data-testid="stSidebar"] div[data-baseweb="select"] span {
+            color: #d8eeff !important;
+        }
+        /* ── SIDEBAR LABELS ──────────────────────────────────────────── */
+        [data-testid="stSidebar"] label[data-testid="stWidgetLabel"] p,
+        [data-testid="stSidebar"] label p {
+            color: rgba(180,205,235,0.7) !important;
+            font-size: 0.72rem !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.04em !important;
+            text-transform: uppercase !important;
+        }
+        /* ── SIDEBAR RADIO ───────────────────────────────────────────── */
+        [data-testid="stSidebar"] div[role="radiogroup"] {
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 6px !important;
+            flex-wrap: wrap;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label {
+            flex: 1 !important;
+            min-width: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 6px 8px !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba(0,212,255,0.12) !important;
+            background: rgba(255,255,255,0.02) !important;
+            cursor: pointer !important;
+            transition: all 0.14s ease !important;
+            text-transform: none !important;
+            letter-spacing: 0 !important;
+            font-size: 0.75rem !important;
+            font-weight: 600 !important;
+            color: rgba(180,210,240,0.65) !important;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+            background: rgba(0,212,255,0.12) !important;
+            border-color: rgba(0,212,255,0.38) !important;
+            color: #6ae6ff !important;
+            box-shadow: 0 0 10px rgba(0,212,255,0.12) !important;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+            background: rgba(0,212,255,0.06) !important;
+            border-color: rgba(0,212,255,0.22) !important;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] input[type="radio"] {
+            display: none !important;
+        }
+        /* ── SIDEBAR BUTTONS ─────────────────────────────────────────── */
+        [data-testid="stSidebar"] div.stButton > button {
+            background: rgba(0,212,255,0.08) !important;
+            border: 1px solid rgba(0,212,255,0.22) !important;
+            border-radius: 10px !important;
+            color: #6ae6ff !important;
+            font-weight: 700 !important;
+            font-size: 0.78rem !important;
+            letter-spacing: 0.04em !important;
+            transition: all 0.15s ease !important;
+            width: 100% !important;
+        }
+        [data-testid="stSidebar"] div.stButton > button:hover {
+            background: rgba(0,212,255,0.15) !important;
+            border-color: rgba(0,212,255,0.45) !important;
+            box-shadow: 0 0 16px rgba(0,212,255,0.2) !important;
+        }
+        /* ── SIDEBAR EXPANDERS ───────────────────────────────────────── */
+        [data-testid="stSidebar"] div[data-testid="stExpander"] {
+            border: 1px solid rgba(0,212,255,0.08) !important;
+            border-radius: 12px !important;
+            background: rgba(4,8,20,0.6) !important;
+            margin-bottom: 6px !important;
+        }
+        [data-testid="stSidebar"] div[data-testid="stExpander"] > details > summary {
+            padding: 0.55rem 0.85rem !important;
+            font-size: 0.76rem !important;
+            font-weight: 700 !important;
+            color: rgba(180,210,240,0.75) !important;
+            letter-spacing: 0.05em !important;
+        }
+        [data-testid="stSidebar"] div[data-testid="stExpander"] > details > summary:hover {
+            background: rgba(0,212,255,0.04) !important;
+            border-radius: 12px !important;
+        }
+        /* ── SIDEBAR CHECKBOX ────────────────────────────────────────── */
+        [data-testid="stSidebar"] span[data-testid="stCheckbox"] {
+            border-color: rgba(0,212,255,0.25) !important;
+            border-radius: 5px !important;
+        }
+        /* ── SIDEBAR DATE INPUT ──────────────────────────────────────── */
+        [data-testid="stSidebar"] div[data-testid="stDateInput"] input {
+            background: rgba(6,12,26,0.9) !important;
+            border: 1px solid rgba(0,212,255,0.12) !important;
+            border-radius: 10px !important;
+            color: #e8f4ff !important;
+            font-family: "JetBrains Mono", monospace !important;
+        }
+        /* ── SIDEBAR INFO/WARNING ALERTS ─────────────────────────────── */
+        [data-testid="stSidebar"] div[data-testid="stAlert"] {
+            border-radius: 10px !important;
+            font-size: 0.76rem !important;
+            padding: 8px 12px !important;
+        }
+        /* ── SIDEBAR CAPTION ─────────────────────────────────────────── */
+        [data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
+            font-size: 0.69rem !important;
+            color: rgba(142,161,188,0.65) !important;
+            line-height: 1.4 !important;
         }
         @keyframes spxFadeUp {
             from { opacity: 0; transform: translateY(10px); }
@@ -9949,26 +10094,62 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     default_open_reference = float(live_defaults["default_open_reference"])
 
     with st.sidebar:
+        # ── Premium app header ────────────────────────────────────────────────
+        _mode_now = st.session_state.get("sidebar_operating_mode", "Live Mode")
+        _mode_color = "#00e676" if _mode_now == "Live Mode" else "#ffd740"
+        _mode_dot_shadow = "0 0 8px #00e676,0 0 16px rgba(0,230,118,0.4)" if _mode_now == "Live Mode" else "0 0 8px #ffd740"
+        _mode_label = "LIVE" if _mode_now == "Live Mode" else "HIST"
         st.markdown(
-            f"""
-            <div style="padding:0.7rem 0 0.5rem 0; margin-bottom:0.3rem; border-bottom:1px solid rgba(0,212,255,0.1);">
-                <div style="font-family:'Outfit',sans-serif;font-size:1.22rem;font-weight:800;color:#f8fbff;letter-spacing:-0.01em;line-height:1.1;">{APP_TITLE}</div>
-                <div style="font-family:'Inter',sans-serif;font-size:0.68rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.6);margin-top:0.2rem;">ES Structure · Options Intelligence</div>
-            </div>
-            """,
+            f'<div style="padding:14px 4px 10px 4px;margin-bottom:4px;border-bottom:1px solid rgba(0,212,255,0.1);">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+            f'<div>'
+            f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.18rem;font-weight:800;color:#f4f8ff;letter-spacing:-0.01em;line-height:1.1;">{APP_TITLE}</div>'
+            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-top:0.2rem;">ES Structure · Options Intelligence</div>'
+            f'</div>'
+            f'<div style="display:flex;align-items:center;gap:5px;padding:4px 8px;border-radius:8px;'
+            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">'
+            f'<div style="width:6px;height:6px;border-radius:50%;background:{_mode_color};box-shadow:{_mode_dot_shadow};flex-shrink:0;"></div>'
+            f'<span style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:800;letter-spacing:0.12em;color:{_mode_color};">{_mode_label}</span>'
+            f'</div>'
+            f'</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
-        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=safe_option_index(["Live Mode", "Historical Mode"], st.session_state.get("sidebar_operating_mode", "Live Mode")), key="sidebar_operating_mode")
+
+        # ── Mode & Visibility ─────────────────────────────────────────────────
+        st.markdown(
+            '<div style="display:flex;align-items:center;gap:8px;margin:10px 0 6px 0;">'
+            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,212,255,0.3),rgba(0,100,200,0.2));'
+            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,212,255,0.2);">⚙</div>'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            'text-transform:uppercase;color:rgba(0,212,255,0.7);">MODE</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=safe_option_index(["Live Mode", "Historical Mode"], st.session_state.get("sidebar_operating_mode", "Live Mode")), key="sidebar_operating_mode", label_visibility="collapsed")
         visibility_options = ["Production Mode", "Edge Lab"]
         visibility_mode = st.radio(
             "Visibility",
             visibility_options,
             index=safe_option_index(visibility_options, settings.get("visibility_mode", DEFAULT_SETTINGS["visibility_mode"])),
+            label_visibility="collapsed",
         )
         historical_mode = operating_mode == "Historical Mode"
-        if not historical_mode and st.button("Refresh Live Quotes", use_container_width=True):
+        if not historical_mode and st.button("↺  Refresh Live Quotes", use_container_width=True):
             st.session_state["refresh_live_quotes"] = True
             st.rerun()
+
+        # ── Session / Date ────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(179,136,255,0.3),rgba(100,60,200,0.15));'
+            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(179,136,255,0.15);">📅</div>'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            'text-transform:uppercase;color:rgba(179,136,255,0.7);">SESSION</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         if historical_mode:
             prior_session_date = st.date_input("Prior NY session date", value=default_prior)
             next_trading_date = st.date_input("Next trading date", value=default_next)
@@ -9980,19 +10161,28 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         historical_defaults = fetch_historical_input_defaults(prior_session_date, next_trading_date, configured_offset) if historical_mode else None
         sync_projection_price_inputs(next_trading_date, historical_mode, live_defaults, historical_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
-        data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
+        data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])), label_visibility="collapsed")
 
-        st.markdown('<hr style="border:none;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.15),transparent);margin:0.4rem 0;">', unsafe_allow_html=True)
-        st.markdown('<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:rgba(142,161,188,0.8);margin-bottom:0.3rem;">SESSION INPUTS</div>', unsafe_allow_html=True)
+        # ── Price Inputs ──────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,230,118,0.3),rgba(0,150,80,0.15));'
+            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,230,118,0.15);">$</div>'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            'text-transform:uppercase;color:rgba(0,230,118,0.7);">PRICES</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         active_defaults = historical_defaults if historical_mode and historical_defaults is not None else live_defaults
         current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", active_defaults["default_spx_price"])), step=0.25, format="%.2f", key="current_spx_price_input")
         current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", active_defaults["default_es_price"])), step=0.25, format="%.2f", key="current_es_price_input")
         open_reference = st.number_input("9:00 AM open reference", value=float(st.session_state.get("open_reference_input", active_defaults["default_open_reference"])), step=0.25, format="%.2f", key="open_reference_input")
         if historical_mode:
             if historical_defaults and historical_defaults["spx_available"] and historical_defaults["es_available"]:
-                st.info("Historical projection mode active. Recent historical 9:00 AM ES/SPX values were loaded automatically and remain editable.")
+                st.info("Historical mode — ES/SPX values auto-loaded, editable.")
             else:
-                st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
+                st.info("Historical mode — enter 9:00 AM prices manually.")
         elif not live_defaults["es_available"] or not live_defaults["spx_available"]:
             _fail_cls = classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"])
             _missing = []
@@ -10000,9 +10190,9 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 _missing.append("SPX")
             if not live_defaults["es_available"]:
                 _missing.append("ES")
-            _fail_label = {"provider failure": "Data provider returned no quote", "deployment environment issue": "Network/environment issue (timeout or rate limit)", "live quotes available": "Quote available"}.get(_fail_cls, "Quote unavailable — reason unknown")
-            st.warning(f"Live {' and '.join(_missing)} quote unavailable: {_fail_label}. Enter prices manually or click Refresh.")
-            if st.button("Retry Live Quotes Now", key="sidebar_retry_live_quotes", use_container_width=True):
+            _fail_label = {"provider failure": "Provider returned no quote", "deployment environment issue": "Network/environment issue"}.get(_fail_cls, "Quote unavailable")
+            st.warning(f"Live {' & '.join(_missing)} unavailable: {_fail_label}. Enter manually or retry.")
+            if st.button("↺  Retry Live Quotes", key="sidebar_retry_live_quotes", use_container_width=True):
                 fetch_live_es_price.clear()
                 fetch_live_spx_price.clear()
                 st.rerun()
@@ -10013,6 +10203,18 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             else None
         )
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
+
+        # ── Controls section header ───────────────────────────────────────────
+        st.markdown(
+            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(255,212,64,0.3),rgba(200,140,0,0.15));'
+            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(255,212,64,0.15);">⚡</div>'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            'text-transform:uppercase;color:rgba(255,212,64,0.7);">CONTROLS</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         if historical_mode:
             current_spx_source_label = historical_defaults["spx_source"] if historical_defaults and historical_defaults["spx_available"] and abs(float(current_spx_price) - float(historical_defaults["default_spx_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_spx_price) else "unavailable")
             current_es_source_label = historical_defaults["es_source"] if historical_defaults and historical_defaults["es_available"] and abs(float(current_es_price) - float(historical_defaults["default_es_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_es_price) else "unavailable")
@@ -11898,43 +12100,46 @@ def render_trade_log_tab(
     developer_mode = settings.get("visibility_mode") == "Edge Lab"
 
     st.markdown(
-        """
-        <div class="spx-hero">
-            <div class="spx-hero-top">
-                <div>
-                    <div class="spx-hero-kicker">Trade Journal + Intelligence</div>
-                    <div class="spx-hero-title">Review The Edge</div>
-                    <div class="spx-hero-subtitle">Capture execution quality, review snapshots, and track which scenarios actually pay you over time.</div>
-                </div>
-                <div class="spx-hero-status">
-                    <div class="spx-hero-status-label">Mode</div>
-                    <div class="spx-status-chip good"><span>◉</span><span>Journal Ready</span></div>
-                </div>
-            </div>
-            <div class="spx-hero-grid">
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Entry</div>
-                    <div class="spx-hero-stat-value">Log Trades</div>
-                    <div class="spx-hero-stat-note">Capture scenario, confirmation, and notes.</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Review</div>
-                    <div class="spx-hero-stat-value">Snapshots</div>
-                    <div class="spx-hero-stat-note">Connect structure to outcome quality.</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Analytics</div>
-                    <div class="spx-hero-stat-value">Expectancy</div>
-                    <div class="spx-hero-stat-note">Find the setups that truly hold edge.</div>
-                </div>
-                <div class="spx-hero-stat">
-                    <div class="spx-hero-stat-label">Storage</div>
-                    <div class="spx-hero-stat-value">Local JSON</div>
-                    <div class="spx-hero-stat-note">Backed up and exportable.</div>
-                </div>
-            </div>
-        </div>
-        """,
+        '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 20px 24px;margin-bottom:18px;'
+        'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(8,16,40,0.97) 50%,rgba(2,6,20,0.99) 100%);'
+        'border:1px solid rgba(0,212,255,0.12);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
+        '<div style="pointer-events:none;position:absolute;top:-20px;left:60px;width:200px;height:120px;'
+        'background:radial-gradient(ellipse,rgba(0,212,255,0.08) 0%,transparent 70%);"></div>'
+        '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px;">'
+        '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+        'font-size:1.4rem;background:linear-gradient(135deg,rgba(0,212,255,0.25),rgba(0,80,160,0.2));'
+        'box-shadow:0 0 20px rgba(0,212,255,0.2);border:1px solid rgba(0,212,255,0.18);">◈</div>'
+        '<div style="flex:1;min-width:0;">'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        'text-transform:uppercase;color:rgba(0,212,255,0.55);margin-bottom:4px;">Trade Journal + Intelligence</div>'
+        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
+        'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Review The Edge</div>'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
+        'Capture execution quality, review snapshots, and track which scenarios actually pay you over time.'
+        '</div>'
+        '</div>'
+        '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
+        'background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);flex-shrink:0;">'
+        '<div style="width:6px;height:6px;border-radius:50%;background:#00e676;box-shadow:0 0 8px #00e676;"></div>'
+        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#00e676;">JOURNAL READY</span>'
+        '</div>'
+        '</div>'
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;">'
+        + "".join([
+            f'<div style="background:rgba(4,8,22,0.9);padding:14px 16px;">'
+            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-bottom:6px;">{lbl}</div>'
+            f'<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:700;color:#ddeeff;margin-bottom:4px;">{val}</div>'
+            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.7rem;color:rgba(180,205,240,0.45);line-height:1.4;">{note}</div>'
+            f'</div>'
+            for lbl, val, note in [
+                ("Entry", "Log Trades", "Capture scenario, confirmation, and notes."),
+                ("Review", "Snapshots", "Connect structure to outcome quality."),
+                ("Analytics", "Expectancy", "Find the setups that truly hold edge."),
+                ("Storage", "Local JSON", "Backed up and exportable."),
+            ]
+        ])
+        + '</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -13187,15 +13392,59 @@ def render_review_card(title: str, review: dict[str, Any]) -> None:
 
 
 def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anchor_bundle: dict[str, Any]) -> None:
-    """Render a compact historical context banner."""
+    """Render the historical mode premium header with session metadata."""
 
-    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual input"
+    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual"
     anchor_source = anchor_bundle.get("source", "Session anchors")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Prior Session", inputs["prior_session_date"].strftime("%Y-%m-%d"))
-    col2.metric("Next Trading Day", inputs["next_trading_date"].strftime("%Y-%m-%d"))
-    col3.metric("Projection Target", format_timestamp(nine_am_target))
-    col4.metric("Anchor Source", f"{anchor_source} | {source_mode}")
+    prior_str = inputs["prior_session_date"].strftime("%b %d, %Y")
+    next_str = inputs["next_trading_date"].strftime("%b %d, %Y")
+    target_str = format_timestamp(nine_am_target)
+
+    stats = [
+        ("Prior Session", prior_str),
+        ("Next Trading Day", next_str),
+        ("Projection Target", target_str),
+        ("Anchor Source", f"{anchor_source} · {source_mode}"),
+    ]
+    stats_html = "".join([
+        f'<div style="flex:1;min-width:120px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.05);">'
+        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.58rem;font-weight:700;letter-spacing:0.12em;'
+        f'text-transform:uppercase;color:rgba(255,212,64,0.55);margin-bottom:5px;">{lbl}</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.86rem;font-weight:600;color:#e8f4ff;">{val}</div>'
+        f'</div>'
+        for lbl, val in stats
+    ])
+    st.markdown(
+        '<div style="position:relative;overflow:hidden;border-radius:20px;padding:20px 24px 18px 24px;margin-bottom:18px;'
+        'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(10,20,44,0.97) 50%,rgba(2,6,20,0.99) 100%);'
+        'border:1px solid rgba(255,212,64,0.12);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
+        '<div style="pointer-events:none;position:absolute;top:-20px;right:60px;width:200px;height:120px;'
+        'background:radial-gradient(ellipse,rgba(255,212,64,0.07) 0%,transparent 70%);"></div>'
+        '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
+        '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+        'font-size:1.4rem;background:linear-gradient(135deg,rgba(255,212,64,0.25),rgba(200,140,0,0.15));'
+        'box-shadow:0 0 20px rgba(255,212,64,0.18);border:1px solid rgba(255,212,64,0.2);">◷</div>'
+        '<div style="flex:1;min-width:0;">'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        'text-transform:uppercase;color:rgba(255,212,64,0.6);margin-bottom:4px;">Historical Analysis</div>'
+        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
+        'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Session Projection Review</div>'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
+        'Replay any prior session — project the structure, validate anchors, and review scenario outputs.'
+        '</div>'
+        '</div>'
+        '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
+        'background:rgba(255,212,64,0.08);border:1px solid rgba(255,212,64,0.2);flex-shrink:0;">'
+        '<div style="width:6px;height:6px;border-radius:50%;background:#ffd740;box-shadow:0 0 8px #ffd740;"></div>'
+        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#ffd740;">HISTORICAL</span>'
+        '</div>'
+        '</div>'
+        f'<div style="display:flex;flex-wrap:wrap;background:rgba(255,255,255,0.03);border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.05);">'
+        f'{stats_html}'
+        f'</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_live_decision_center(
@@ -14684,23 +14933,35 @@ def render_live_mode_shell(
 
     with live_asian_tab:
         st.markdown(
-            """
-            <div class="spx-hero">
-                <div class="spx-hero-top">
-                    <div>
-                        <div class="spx-hero-kicker">Asian Session Console</div>
-                        <div class="spx-hero-title">Evening ES Monitoring</div>
-                        <div class="spx-hero-subtitle">
-                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
-                        </div>
-                    </div>
-                    <div class="spx-hero-status">
-                        <div class="spx-hero-status-label">Framework</div>
-                        <div class="spx-status-chip good"><span>◉</span><span>Observation First</span></div>
-                    </div>
-                </div>
-            </div>
-            """,
+            '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 18px 24px;margin-bottom:18px;'
+            'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(8,16,40,0.97) 50%,rgba(2,6,20,0.99) 100%);'
+            'border:1px solid rgba(179,136,255,0.14);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
+            # Glow blob
+            '<div style="pointer-events:none;position:absolute;top:-20px;right:40px;width:200px;height:120px;'
+            'background:radial-gradient(ellipse,rgba(179,136,255,0.1) 0%,transparent 70%);"></div>'
+            '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">'
+            # Icon bubble
+            '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+            'font-size:1.4rem;background:linear-gradient(135deg,rgba(179,136,255,0.3),rgba(100,60,200,0.2));'
+            'box-shadow:0 0 20px rgba(179,136,255,0.25);border:1px solid rgba(179,136,255,0.2);">🌙</div>'
+            '<div style="flex:1;min-width:0;">'
+            '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+            'text-transform:uppercase;color:rgba(179,136,255,0.6);margin-bottom:4px;">Asian Session Console</div>'
+            '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
+            'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Evening ES Monitoring</div>'
+            '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
+            'Compare checkpoints, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.'
+            '</div>'
+            '</div>'
+            '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
+            'background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);flex-shrink:0;">'
+            '<div style="width:6px;height:6px;border-radius:50%;background:#00e676;'
+            'box-shadow:0 0 8px #00e676,0 0 16px rgba(0,230,118,0.4);"></div>'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;'
+            'letter-spacing:0.1em;color:#00e676;">OBSERVE</span>'
+            '</div>'
+            '</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
         if not checkpoint_views:
