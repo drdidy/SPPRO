@@ -15415,11 +15415,15 @@ def main() -> None:
 
     if data_error:
         if fetch_diagnostics and fetch_diagnostics.get("anchor_build_error"):
-            st.warning("Auto-fetch returned ES candles, but the app could not build anchors for the selected session. No projected structure is being shown.")
+            _fetch_reason = "ES candles fetched but anchor structure could not be built for the selected session."
         else:
-            st.warning(
-                "Auto-fetch failed because Yahoo returned no usable intraday ES=F data for the selected session. No projected structure is being shown."
-            )
+            _fetch_reason = "Yahoo Finance returned no usable intraday ES=F data for the selected session. The market may have been closed, or the date may be too recent or too old."
+        st.warning(f"Auto-fetch failed — {_fetch_reason}")
+        _retry_col, _manual_col = st.columns(2)
+        if _retry_col.button("↺  Retry Fetch", use_container_width=True, key="retry_auto_fetch"):
+            st.cache_data.clear()
+            st.rerun()
+        _manual_col.info("Or switch to **Manual Entry** in the sidebar to input anchor prices directly.")
         if inputs["data_mode"] == "Auto-fetch" and anchor_bundle is None:
             st.stop()
 
@@ -15497,6 +15501,38 @@ def main() -> None:
         )
     except Exception:
         pass
+
+    # Auto-switch tab when operating mode changes
+    _prev_mode = st.session_state.get("_tab_sync_mode", "Live Mode")
+    _cur_mode = inputs["operating_mode"]
+    if _cur_mode != _prev_mode:
+        st.session_state["_tab_sync_mode"] = _cur_mode
+        if _cur_mode == "Historical Mode":
+            st.session_state["_auto_click_tab"] = 1
+        elif _cur_mode == "Live Mode":
+            st.session_state["_auto_click_tab"] = 0
+
+    _auto_tab = st.session_state.pop("_auto_click_tab", None)
+    if _auto_tab is not None:
+        components.html(
+            f"""<script>
+            (function() {{
+                var attempts = 0;
+                function clickTab() {{
+                    var tabs = window.parent.document.querySelectorAll('button[role="tab"]');
+                    if (tabs.length > {_auto_tab}) {{
+                        tabs[{_auto_tab}].click();
+                    }} else if (attempts < 10) {{
+                        attempts++;
+                        setTimeout(clickTab, 120);
+                    }}
+                }}
+                setTimeout(clickTab, 80);
+            }})();
+            </script>""",
+            height=0,
+            scrolling=False,
+        )
 
     top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
 
