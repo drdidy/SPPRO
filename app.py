@@ -2308,27 +2308,6 @@ def inject_app_styles() -> None:
                 linear-gradient(180deg, rgba(18,14,24,0.94), rgba(11,10,18,0.98));
             border-color: rgba(255,109,139,0.16);
         }
-        .spx-play-shell.bullish {
-            border-color: rgba(0,230,118,0.28);
-            background:
-                radial-gradient(circle at top right, rgba(0,230,118,0.07), transparent 30%),
-                linear-gradient(180deg, rgba(8,18,14,0.97), rgba(6,14,10,0.98));
-            box-shadow: 0 0 0 1px rgba(0,230,118,0.08) inset, 0 24px 56px rgba(0,0,0,0.22);
-        }
-        .spx-play-shell.bearish {
-            border-color: rgba(255,90,118,0.28);
-            background:
-                radial-gradient(circle at top right, rgba(255,90,118,0.07), transparent 30%),
-                linear-gradient(180deg, rgba(18,8,10,0.97), rgba(14,6,8,0.98));
-            box-shadow: 0 0 0 1px rgba(255,90,118,0.08) inset, 0 24px 56px rgba(0,0,0,0.22);
-        }
-        .spx-play-shell.bullish.filtered,
-        .spx-play-shell.bearish.filtered {
-            border-color: rgba(255,109,139,0.16);
-            background:
-                radial-gradient(circle at top right, rgba(255,109,139,0.08), transparent 26%),
-                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(11,10,18,0.98));
-        }
         .spx-decision-banner {
             border-radius: 20px;
             padding: 0.92rem 1rem;
@@ -11230,7 +11209,7 @@ def render_play_card(
 
     st.markdown(
         f"""
-        <div class="spx-play-shell {'primary' if is_primary else 'alternate'} {'bullish' if str(play.get('direction','')).upper()=='CALL' else 'bearish' if str(play.get('direction','')).upper()=='PUT' else ''}{' filtered' if authority_decision == 'NO TRADE' else ''}">
+        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if authority_decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{title_class}">{escape(title)}</div>
                 <div class="spx-play-topline-note">{escape(trade_state)} | {escape(play['direction'])} | Strike {escape(str(play['strike']))}</div>
@@ -14196,7 +14175,7 @@ def render_operator_play_card(
     ]
     st.markdown(
         f"""
-        <div class="spx-play-shell {'primary' if is_primary else 'alternate'} {'bullish' if str(play.get('direction','')).upper()=='CALL' else 'bearish' if str(play.get('direction','')).upper()=='PUT' else ''}{' filtered' if decision == 'NO TRADE' else ''}">
+        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
                 <div class="spx-play-topline-note">Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(setup_state)}</span></div>
