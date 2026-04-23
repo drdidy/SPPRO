@@ -2237,6 +2237,180 @@ def inject_app_styles() -> None:
             0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
             50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
         }
+        /* ══ Decision Cockpit ══ */
+        .spx-cockpit {
+            border-radius: 20px; overflow: hidden; margin-bottom: 18px;
+            border: 1px solid rgba(0,212,255,0.14);
+            background: linear-gradient(180deg, rgba(3,10,26,0.99) 0%, rgba(1,6,18,1) 100%);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset;
+        }
+        .cockpit-kicker {
+            font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase;
+            color: rgba(106,230,255,0.55); padding: 16px 24px 0;
+        }
+        .cockpit-header-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 16px; flex-wrap: wrap; padding: 10px 24px 10px;
+        }
+        .cockpit-headline {
+            font-family: var(--spx-font-sans); font-size: 1.45rem; font-weight: 800;
+            color: #f4f7ff; line-height: 1.2;
+        }
+        .cockpit-action-badge {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 18px; border-radius: 30px;
+            font-size: 0.78rem; font-weight: 700; letter-spacing: 0.07em;
+            text-transform: uppercase; white-space: nowrap;
+        }
+        .action-enter {
+            background: linear-gradient(135deg,rgba(0,230,118,0.22),rgba(0,180,90,0.1));
+            border: 1px solid rgba(0,230,118,0.42); color: #00e676;
+            box-shadow: 0 0 28px rgba(0,230,118,0.22), 0 2px 12px rgba(0,0,0,0.3);
+        }
+        .action-wait {
+            background: linear-gradient(135deg,rgba(255,212,64,0.18),rgba(220,160,0,0.08));
+            border: 1px solid rgba(255,212,64,0.38); color: #ffd740;
+            box-shadow: 0 0 20px rgba(255,212,64,0.14);
+        }
+        .action-caution {
+            background: linear-gradient(135deg,rgba(255,112,67,0.2),rgba(220,80,0,0.08));
+            border: 1px solid rgba(255,112,67,0.38); color: #ff7043;
+            box-shadow: 0 0 20px rgba(255,112,67,0.14);
+        }
+        .action-skip {
+            background: linear-gradient(135deg,rgba(239,83,80,0.18),rgba(180,40,40,0.08));
+            border: 1px solid rgba(239,83,80,0.32); color: #ef5350;
+        }
+        .cockpit-subline {
+            font-size: 0.82rem; color: rgba(244,247,255,0.48); line-height: 1.55;
+            padding: 0 24px 10px;
+        }
+        .cockpit-scenario-row {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 0 24px 12px;
+        }
+        .cockpit-scenario-code {
+            font-family: var(--spx-font-mono); font-size: 0.7rem;
+            background: rgba(0,212,255,0.07); border: 1px solid rgba(0,212,255,0.14);
+            color: rgba(106,230,255,0.75); padding: 2px 9px; border-radius: 6px;
+        }
+        .cockpit-structure-tag {
+            font-size: 0.7rem; color: rgba(244,247,255,0.38);
+        }
+        .cockpit-transition {
+            font-size: 0.74rem; color: rgba(255,212,64,0.65);
+            padding: 0 24px 10px;
+        }
+        /* Stats grid */
+        .cockpit-stats-row {
+            display: grid; grid-template-columns: repeat(5,1fr);
+            border-top: 1px solid rgba(255,255,255,0.05);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        @media(max-width:720px) { .cockpit-stats-row { grid-template-columns: repeat(3,1fr); } }
+        .cockpit-stat {
+            padding: 14px 20px; border-right: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.013);
+        }
+        .cockpit-stat:last-child { border-right: none; }
+        .cockpit-stat-label {
+            font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
+            color: rgba(244,247,255,0.3); margin-bottom: 5px;
+        }
+        .cockpit-stat-value {
+            font-family: var(--spx-font-mono); font-size: 1.04rem;
+            font-weight: 500; color: #e0eeff;
+        }
+        .cockpit-stat-value.positive { color: #00e676; }
+        .cockpit-stat-value.warning  { color: #ffd740; }
+        .cockpit-stat-value.negative { color: #ef5350; }
+        /* Chips row */
+        .cockpit-chips-row {
+            display: grid; grid-template-columns: repeat(4,1fr);
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        @media(max-width:720px) { .cockpit-chips-row { grid-template-columns: repeat(2,1fr); } }
+        .cockpit-chip {
+            padding: 10px 20px; border-right: 1px solid rgba(255,255,255,0.04);
+            display: flex; flex-direction: column; gap: 3px;
+        }
+        .cockpit-chip:last-child { border-right: none; }
+        .cockpit-chip-label {
+            font-size: 0.57rem; letter-spacing: 0.09em; text-transform: uppercase;
+            color: rgba(244,247,255,0.28);
+        }
+        .cockpit-chip-value {
+            font-size: 0.79rem; font-weight: 600; color: rgba(244,247,255,0.78);
+        }
+        /* Cockpit footer */
+        .cockpit-footer {
+            padding: 9px 24px; font-size: 0.68rem;
+            color: rgba(244,247,255,0.3); background: rgba(0,0,0,0.25);
+            letter-spacing: 0.02em;
+        }
+        /* ══ Key Levels Ladder ══ */
+        .spx-levels-wrap {
+            border-radius: 16px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(3,7,18,0.96); margin-bottom: 14px;
+        }
+        .spx-levels-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 20px; background: rgba(255,255,255,0.018);
+            border-bottom: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; gap: 8px;
+        }
+        .spx-levels-title {
+            font-family: var(--spx-font-sans); font-size: 0.78rem; font-weight: 700;
+            color: rgba(244,247,255,0.6); letter-spacing: 0.05em; text-transform: uppercase;
+        }
+        .spx-levels-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+        .spx-badge {
+            font-size: 0.67rem; padding: 3px 10px; border-radius: 20px;
+            color: rgba(244,247,255,0.5);
+        }
+        .spx-badge-price { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.16); color: #6ae6ff; }
+        .spx-badge-offset { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+        .spx-levels-body {}
+        .spx-level-row {
+            display: grid; grid-template-columns: 22px 100px 78px 1fr 58px;
+            align-items: center; gap: 10px; padding: 9px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.035);
+            border-left: 3px solid transparent;
+            transition: background 0.14s;
+        }
+        .spx-level-row:last-child { border-bottom: none; }
+        .spx-level-row:hover { background: rgba(255,255,255,0.02); }
+        .spx-level-row.level-top { border-left-color: rgba(239,83,80,0.35); }
+        .spx-level-row.level-current {
+            background: rgba(0,212,255,0.05); border-left-color: rgba(0,212,255,0.55);
+        }
+        .spx-level-row.level-bottom { border-left-color: rgba(0,230,118,0.35); }
+        .spx-level-dir { font-size: 0.75rem; text-align: center; }
+        .level-top .spx-level-dir { color: rgba(239,83,80,0.75); }
+        .level-current .spx-level-dir { color: #6ae6ff; }
+        .level-bottom .spx-level-dir { color: rgba(0,230,118,0.75); }
+        .spx-level-name { font-size: 0.74rem; color: rgba(244,247,255,0.5); font-weight: 500; }
+        .level-current .spx-level-name { color: #6ae6ff; font-weight: 600; }
+        .spx-level-price {
+            font-family: var(--spx-font-mono); font-size: 0.82rem;
+            color: #ddeeff; text-align: right;
+        }
+        .level-current .spx-level-price { color: #6ae6ff; }
+        .spx-level-bar-wrap {
+            height: 5px; background: rgba(255,255,255,0.05);
+            border-radius: 3px; overflow: hidden;
+        }
+        .spx-level-bar { height: 100%; border-radius: 3px; }
+        .bar-above   { background: linear-gradient(90deg, rgba(239,83,80,0.6), rgba(239,83,80,0.3)); }
+        .bar-below   { background: linear-gradient(90deg, rgba(0,230,118,0.6), rgba(0,230,118,0.3)); }
+        .bar-current { background: linear-gradient(90deg, rgba(0,212,255,0.7), rgba(0,212,255,0.3)); }
+        .bar-neutral { background: rgba(255,255,255,0.15); }
+        .spx-level-dist {
+            font-family: var(--spx-font-mono); font-size: 0.7rem; text-align: right;
+            color: rgba(244,247,255,0.3);
+        }
+        .dist-above { color: rgba(239,83,80,0.8); }
+        .dist-below { color: rgba(0,230,118,0.8); }
         /* ── Alert panel ── */
         .spx-alert-slot { flex: 1; min-width: 0; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
         .spx-alert-label { font-size: 0.67rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px; }
@@ -4081,33 +4255,96 @@ def render_key_levels_card(
     *,
     compact: bool = False,
 ) -> None:
-    """Render a compact key-levels summary card."""
+    """Render a premium visual key-levels ladder."""
 
-    current_label = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
-    subtitle = "Projected ES stack." if compact else "Fast scan of the full projected stack in ES source terms."
-    groups = [
-        ("Top", ["hw", "asc_ceiling"]),
-        ("Mid", ["asc_floor"]),
-        ("Lower", ["desc_ceiling", "desc_floor"]),
-        ("Extreme", ["lw"]),
-    ]
+    current_price = current_es_price if is_valid_price_input(current_es_price) else None
 
-    with st.container(border=True):
-        st.markdown("**Key Levels Summary**")
-        st.caption(subtitle)
+    levels = []
+    for key, data in final_lines.items():
+        price = data.get("projected_price")
+        label = data.get("label", key)
+        if is_valid_price_input(price):
+            levels.append({"key": key, "label": label, "price": float(price)})
+    levels.sort(key=lambda x: x["price"], reverse=True)
 
-        header_bits = [f"Current ES {current_label}"]
-        if not compact:
-            header_bits.append(f"Offset {format_price(effective_offset)}")
-        st.markdown(" | ".join(header_bits))
+    all_prices = [lv["price"] for lv in levels]
+    if current_price is not None:
+        all_prices.append(current_price)
+    price_min = min(all_prices) if all_prices else 0.0
+    price_max = max(all_prices) if all_prices else 1.0
+    price_range = price_max - price_min if price_max != price_min else 1.0
 
-        for group_name, line_names in groups:
-            items = []
-            for name in line_names:
-                details = final_lines[name]
-                items.append(f"{details['label']} `{format_price(details['projected_price'])}`")
-            st.caption(group_name)
-            st.markdown(" | ".join(items))
+    def _bar_pct(price: float) -> float:
+        return max(4.0, min(100.0, (price - price_min) / price_range * 100.0))
+
+    def _dist(price: float) -> tuple[str, str]:
+        if current_price is None:
+            return "—", ""
+        delta = price - current_price
+        sign = "+" if delta >= 0 else ""
+        return f"{sign}{delta:.1f}", ("dist-above" if delta >= 0 else "dist-below")
+
+    rows: list[dict] = []
+    current_inserted = False
+    for lv in levels:
+        if current_price is not None and not current_inserted and lv["price"] <= current_price:
+            rows.append({"type": "current", "price": current_price})
+            current_inserted = True
+        rows.append({"type": "level", **lv})
+    if current_price is not None and not current_inserted:
+        rows.append({"type": "current", "price": current_price})
+
+    price_badge = ""
+    if current_price is not None:
+        price_badge += f'<span class="spx-badge spx-badge-price">ES&nbsp;<strong>{format_price(current_price)}</strong></span>'
+    if not compact:
+        price_badge += f'<span class="spx-badge spx-badge-offset">Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
+
+    rows_html = ""
+    for row in rows:
+        if row["type"] == "current":
+            cp = row["price"]
+            pct = _bar_pct(cp)
+            rows_html += (
+                f'<div class="spx-level-row level-current">'
+                f'<span class="spx-level-dir">&#9654;</span>'
+                f'<span class="spx-level-name">Current ES</span>'
+                f'<span class="spx-level-price">{escape(format_price(cp))}</span>'
+                f'<span class="spx-level-bar-wrap"><span class="spx-level-bar bar-current" style="width:{pct:.1f}%"></span></span>'
+                f'<span class="spx-level-dist">—</span>'
+                f'</div>'
+            )
+        else:
+            price = row["price"]
+            lbl = escape(row["label"])
+            pct = _bar_pct(price)
+            d_str, d_cls = _dist(price)
+            if current_price is None:
+                pos_cls, arrow, bar_cls = "level-bottom", "&#9660;", "bar-neutral"
+            elif price > current_price:
+                pos_cls, arrow, bar_cls = "level-top", "&#9650;", "bar-above"
+            else:
+                pos_cls, arrow, bar_cls = "level-bottom", "&#9660;", "bar-below"
+            rows_html += (
+                f'<div class="spx-level-row {pos_cls}">'
+                f'<span class="spx-level-dir">{arrow}</span>'
+                f'<span class="spx-level-name">{lbl}</span>'
+                f'<span class="spx-level-price">{escape(format_price(price))}</span>'
+                f'<span class="spx-level-bar-wrap"><span class="spx-level-bar {bar_cls}" style="width:{pct:.1f}%"></span></span>'
+                f'<span class="spx-level-dist {d_cls}">{escape(d_str)}</span>'
+                f'</div>'
+            )
+
+    st.markdown(
+        f'<div class="spx-levels-wrap">'
+        f'<div class="spx-levels-header">'
+        f'<span class="spx-levels-title">&#128208; Key Levels &mdash; ES Structure</span>'
+        f'<span class="spx-levels-badges">{price_badge}</span>'
+        f'</div>'
+        f'<div class="spx-levels-body">{rows_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -12926,46 +13163,121 @@ def render_live_decision_center(
     top_line = presentation_state["headline"] if str(decision).upper() == "NO TRADE" else f"{direction_display['arrow']} {direction_display['headline']}"
     subline = str(authority.get("setup_state_reason") or authority.get("execution_action_reason") or reason_line)
 
-    with st.container(border=True):
-        top_left, top_right = st.columns([3, 1.2], gap="large")
-        with top_left:
-            st.caption("Decision Center")
-            st.markdown(f"### {top_line}")
-            st.markdown(f"**{setup_state} | {hero_action_label}**")
-            st.caption(subline)
-            if str(decision).upper() != "NO TRADE":
-                st.caption(execution_display)
-            st.markdown(f"`{live_scenario}`")
-            st.caption(f"Bias: {direction_display['bias']} | Trigger: {trigger_state}")
-            if transition_note:
-                st.caption(transition_note)
-        with top_right:
-            st.metric("Current Price (ES)", current_es_display)
-            st.caption(f"Active Play: {active_play_label}")
+    # ── action badge resolution ──────────────────────────────────────────────
+    _action_upper = hero_action_label.upper()
+    if _action_upper == "ENTER NOW":
+        _badge_cls = "action-enter"
+        _badge_icon = "✅"
+    elif _action_upper in {"PREPARE WITH CAUTION", "WAIT FOR EVENT PASS", "CAUTION EVENT RISK"}:
+        _badge_cls = "action-caution"
+        _badge_icon = "⚠️"
+    elif _action_upper in {"PREPARE TO ENTER", "WAIT FOR ENTRY"}:
+        _badge_cls = "action-wait"
+        _badge_icon = "⏳"
+    elif _action_upper in {"SKIP TRADE", "UNTRADEABLE"}:
+        _badge_cls = "action-skip"
+        _badge_icon = "🚫"
+    else:
+        _badge_cls = "action-wait"
+        _badge_icon = "⏳"
 
-        stat1, stat2, stat3, stat4, stat5 = st.columns(5)
-        stat1.metric("Planned Entry", f"{format_price(entry_value) if entry_value is not None else '-'} SPX")
-        stat2.metric("Selected Strike", str(strike_value))
-        stat3.metric("Plan Validity", plan_validity)
-        stat4.metric("Expected Fill", format_price(expected_fill) if expected_fill is not None else "Unavailable")
-        stat5.metric("Action", hero_action_label)
-        stat6, stat7, stat8, stat9 = st.columns(4)
-        stat6.metric("Scenario", live_structure_state)
-        stat7.metric("Confidence", f"{confidence}%")
-        stat8.metric("Risk", risk_class)
-        stat9.metric("Event Risk", str((event_risk_context or {}).get("event_risk_status", "Unknown")))
-        operator_bits = [
-            f"Plan locked: {'Yes' if lock_label != '-' else 'No'}",
-            f"Scenario changed: {'Yes' if scenario_changed else 'No'}",
-            f"Best contract fit: {budget_status}",
-            f"Estimate quality: {estimate_quality}",
-        ]
-        st.caption(" | ".join(operator_bits))
-        if expected_value is not None or evidence_label:
-            st.caption(
-                f"Expected Value: {format_price(expected_value) if expected_value is not None else '-'}"
-                f" | Evidence: {evidence_label if evidence_label else 'None'}"
-            )
+    # ── confidence colour ────────────────────────────────────────────────────
+    if confidence >= 80:
+        _conf_cls = "positive"
+    elif confidence >= 60:
+        _conf_cls = "warning"
+    else:
+        _conf_cls = "negative"
+
+    # ── derived display values ───────────────────────────────────────────────
+    _entry_display = format_price(entry_value) if entry_value is not None else "-"
+    _fill_display = format_price(expected_fill) if expected_fill is not None else "—"
+    _ev_display = format_price(expected_value) if expected_value is not None else "-"
+    _event_risk_status = escape(str((event_risk_context or {}).get("event_risk_status", "Unknown")))
+    _transition_html = (
+        f'<div class="cockpit-transition">{escape(transition_note)}</div>'
+        if transition_note else ""
+    )
+    _scenario_changed_flag = " · ⚡ SCENARIO SHIFTED" if scenario_changed else ""
+    _lock_display = f"Plan: {escape(lock_label)}{_scenario_changed_flag}"
+
+    st.markdown(
+        f"""
+<div class="spx-cockpit">
+
+  <!-- HEADER -->
+  <div class="cockpit-kicker">⚡ DECISION COCKPIT · {escape(str(active_play_label).upper())} PLAY</div>
+
+  <div class="cockpit-header-row">
+    <div class="cockpit-headline">{escape(top_line)}</div>
+    <span class="cockpit-action-badge {_badge_cls}">{_badge_icon} {escape(hero_action_label)}</span>
+  </div>
+
+  <div class="cockpit-subline">{escape(subline)}</div>
+
+  <div class="cockpit-scenario-row">
+    <code class="cockpit-scenario-code">{escape(live_scenario)}</code>
+    <span class="cockpit-structure-tag">{escape(live_structure_state)}</span>
+  </div>
+
+  {_transition_html}
+
+  <!-- STATS ROW -->
+  <div class="cockpit-stats-row">
+    <div class="cockpit-stat">
+      <div class="cockpit-stat-label">Entry SPX</div>
+      <div class="cockpit-stat-value">{escape(_entry_display)}</div>
+    </div>
+    <div class="cockpit-stat">
+      <div class="cockpit-stat-label">Strike</div>
+      <div class="cockpit-stat-value">{escape(str(strike_value))}</div>
+    </div>
+    <div class="cockpit-stat">
+      <div class="cockpit-stat-label">ES Live</div>
+      <div class="cockpit-stat-value">{escape(current_es_display)}</div>
+    </div>
+    <div class="cockpit-stat">
+      <div class="cockpit-stat-label">Confidence</div>
+      <div class="cockpit-stat-value {_conf_cls}">{confidence}%</div>
+    </div>
+    <div class="cockpit-stat">
+      <div class="cockpit-stat-label">Expected Fill</div>
+      <div class="cockpit-stat-value">{escape(_fill_display)}</div>
+    </div>
+  </div>
+
+  <!-- CHIPS ROW -->
+  <div class="cockpit-chips-row">
+    <div class="cockpit-chip">
+      <span class="cockpit-chip-label">Setup</span>
+      <span class="cockpit-chip-value">{escape(setup_state)}</span>
+    </div>
+    <div class="cockpit-chip">
+      <span class="cockpit-chip-label">Risk Class</span>
+      <span class="cockpit-chip-value">{escape(risk_class)}</span>
+    </div>
+    <div class="cockpit-chip">
+      <span class="cockpit-chip-label">Timing</span>
+      <span class="cockpit-chip-value">{escape(timing_bucket)}</span>
+    </div>
+    <div class="cockpit-chip">
+      <span class="cockpit-chip-label">Event Risk</span>
+      <span class="cockpit-chip-value">{_event_risk_status}</span>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="cockpit-footer">
+    {escape(_lock_display)}
+    &nbsp;·&nbsp; Contract: {escape(budget_status)}
+    &nbsp;·&nbsp; EV: {escape(_ev_display)}
+    &nbsp;·&nbsp; Evidence: {escape(evidence_label if evidence_label else "None")}
+  </div>
+
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_authority: dict[str, Any] | None) -> None:
