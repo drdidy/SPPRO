@@ -2689,10 +2689,10 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
         f'display:flex;align-items:center;justify-content:center;font-size:1.3rem;'
         f'box-shadow:0 0 20px rgba(0,212,255,0.35);">📊</div>'
         f'<div>'
-        f'<div style="font-family:Outfit,sans-serif;font-size:1.05rem;font-weight:800;color:#f4f7ff;line-height:1.15;">'
+        f'<div style="font-family:Outfit,sans-serif;font-size:1.5rem;font-weight:800;color:#f4f7ff;line-height:1.1;letter-spacing:-0.02em;">'
         f'{escape(APP_TITLE)}&nbsp;'
-        f'<span style="font-size:0.6rem;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.2);'
-        f'color:#6ae6ff;padding:2px 7px;border-radius:6px;font-weight:700;">{escape(APP_VERSION)}</span>'
+        f'<span style="font-size:0.58rem;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.24);'
+        f'color:#6ae6ff;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.04em;vertical-align:middle;">{escape(APP_VERSION)}</span>'
         f'</div>'
         f'<div style="font-size:0.62rem;letter-spacing:0.12em;text-transform:uppercase;'
         f'color:rgba(142,161,188,0.6);margin-top:2px;">ES Structure &middot; Options Intelligence &middot; 0DTE</div>'
@@ -13476,82 +13476,108 @@ def render_live_decision_center(
         _display_headline = top_line
         _display_badge = hero_action_label
 
+    # ── Badge inline style (no CSS class dependency) ────────────────────────
+    _badge_styles = {
+        "action-enter":  "background:linear-gradient(135deg,rgba(0,230,118,0.22),rgba(0,180,90,0.1));border:1px solid rgba(0,230,118,0.42);color:#00e676;box-shadow:0 0 20px rgba(0,230,118,0.2);",
+        "action-wait":   "background:linear-gradient(135deg,rgba(255,212,64,0.18),rgba(220,160,0,0.08));border:1px solid rgba(255,212,64,0.38);color:#ffd740;",
+        "action-caution":"background:linear-gradient(135deg,rgba(255,112,67,0.2),rgba(220,80,0,0.08));border:1px solid rgba(255,112,67,0.38);color:#ff7043;",
+        "action-skip":   "background:linear-gradient(135deg,rgba(239,83,80,0.18),rgba(180,40,40,0.08));border:1px solid rgba(239,83,80,0.32);color:#ef5350;",
+    }
+    _badge_style = _badge_styles.get(_badge_cls, _badge_styles["action-wait"])
+    _conf_colors = {"positive": "#00e676", "warning": "#ffd740", "negative": "#ef5350"}
+    _conf_color  = _conf_colors.get(_conf_cls, "#e0eeff")
+    _play_kicker = f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""
+    _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:14px 18px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
+    _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:10px 18px;border-right:1px solid rgba(255,255,255,0.04);"
+    _lbl_s       = "display:block;font-size:0.58rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.3);margin-bottom:5px;"
+    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.02rem;font-weight:500;color:#e0eeff;"
+    _chip_lbl    = "display:block;font-size:0.57rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.28);margin-bottom:3px;"
+    _chip_val    = "display:block;font-size:0.79rem;font-weight:600;color:rgba(244,247,255,0.78);"
+    _gauge_w     = max(0, min(100, confidence))
+
     st.markdown(
-        f"""
-<div class="spx-cockpit">
+        f'<div style="border-radius:20px;overflow:hidden;margin-bottom:18px;'
+        f'border:1px solid rgba(0,212,255,0.14);'
+        f'background:linear-gradient(180deg,rgba(3,10,26,0.99),rgba(1,6,18,1));'
+        f'box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
 
-  <!-- HEADER -->
-  <div class="cockpit-kicker">⚡ DECISION COCKPIT{f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""}</div>
+        f'<div style="font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;'
+        f'color:rgba(106,230,255,0.55);padding:16px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
 
-  <div class="cockpit-header-row">
-    <div class="cockpit-headline">{escape(_display_headline)}</div>
-    <span class="cockpit-action-badge {_badge_cls}">{_badge_icon} {escape(_display_badge)}</span>
-  </div>
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'gap:16px;flex-wrap:wrap;padding:10px 24px 8px;">'
+        f'<div style="font-family:Outfit,sans-serif;font-size:1.45rem;font-weight:800;'
+        f'color:#f4f7ff;line-height:1.2;">{escape(_display_headline)}</div>'
+        f'<div style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;'
+        f'border-radius:30px;font-size:0.78rem;font-weight:700;letter-spacing:0.07em;'
+        f'text-transform:uppercase;white-space:nowrap;{_badge_style}">'
+        f'{_badge_icon}&nbsp;{escape(_display_badge)}</div>'
+        f'</div>'
 
-  <div class="cockpit-subline">{escape(subline)}</div>
+        f'<div style="font-size:0.82rem;color:rgba(244,247,255,0.48);line-height:1.55;padding:0 24px 8px;">{escape(subline)}</div>'
 
-  <div class="cockpit-scenario-row">
-    <code class="cockpit-scenario-code">{escape(live_scenario)}</code>
-    <span class="cockpit-structure-tag">{escape(live_structure_state)}</span>
-  </div>
+        f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 24px 12px;">'
+        f'<code style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
+        f'background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.14);'
+        f'color:rgba(106,230,255,0.75);padding:2px 9px;border-radius:6px;">{escape(live_scenario)}</code>'
+        f'<span style="font-size:0.7rem;color:rgba(244,247,255,0.38);">{escape(live_structure_state)}</span>'
+        f'</div>'
 
-  {_transition_html}
+        + (f'<div style="font-size:0.74rem;color:rgba(255,212,64,0.65);padding:0 24px 10px;">{escape(transition_note)}</div>' if transition_note else '')
 
-  <!-- STATS ROW -->
-  <div class="cockpit-stats-row">
-    <div class="cockpit-stat">
-      <div class="cockpit-stat-label">Entry SPX</div>
-      <div class="cockpit-stat-value">{escape(_entry_display)}</div>
-    </div>
-    <div class="cockpit-stat">
-      <div class="cockpit-stat-label">Strike</div>
-      <div class="cockpit-stat-value">{escape(str(strike_value))}</div>
-    </div>
-    <div class="cockpit-stat">
-      <div class="cockpit-stat-label">ES Live</div>
-      <div class="cockpit-stat-value">{escape(current_es_display)}</div>
-    </div>
-    <div class="cockpit-stat">
-      <div class="cockpit-stat-label">Confidence</div>
-      <div class="cockpit-stat-value {_conf_cls}">{confidence}%</div>
-      <div class="spx-gauge"><div class="spx-gauge-fill" style="width:{max(0, min(100, confidence))}%"></div></div>
-    </div>
-    <div class="cockpit-stat">
-      <div class="cockpit-stat-label">Expected Fill</div>
-      <div class="cockpit-stat-value">{escape(_fill_display)}</div>
-    </div>
-  </div>
+        + f'<div style="display:flex;border-top:1px solid rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.05);">'
+        f'<div style="{_stat_cell}">'
+        f'<div style="{_lbl_s}">Entry SPX</div>'
+        f'<div style="{_val_s}">{escape(_entry_display)}</div>'
+        f'</div>'
+        f'<div style="{_stat_cell}">'
+        f'<div style="{_lbl_s}">Strike</div>'
+        f'<div style="{_val_s}">{escape(str(strike_value))}</div>'
+        f'</div>'
+        f'<div style="{_stat_cell}">'
+        f'<div style="{_lbl_s}">ES Live</div>'
+        f'<div style="{_val_s}">{escape(current_es_display)}</div>'
+        f'</div>'
+        f'<div style="{_stat_cell}">'
+        f'<div style="{_lbl_s}">Confidence</div>'
+        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.02rem;font-weight:500;color:{_conf_color};">{confidence}%</div>'
+        f'<div style="height:4px;margin-top:6px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
+        f'<div style="height:100%;width:{_gauge_w}%;background:linear-gradient(90deg,#ef5350,#ffd740 50%,#00e676);border-radius:2px;"></div>'
+        f'</div>'
+        f'</div>'
+        f'<div style="display:inline-block;flex:1;min-width:0;padding:14px 18px;background:rgba(255,255,255,0.013);">'
+        f'<div style="{_lbl_s}">Expected Fill</div>'
+        f'<div style="{_val_s}">{escape(_fill_display)}</div>'
+        f'</div>'
+        f'</div>'
 
-  <!-- CHIPS ROW -->
-  <div class="cockpit-chips-row">
-    <div class="cockpit-chip">
-      <div class="cockpit-chip-label">Setup</div>
-      <div class="cockpit-chip-value">{escape(setup_state)}</div>
-    </div>
-    <div class="cockpit-chip">
-      <div class="cockpit-chip-label">Risk Class</div>
-      <div class="cockpit-chip-value">{escape(risk_class)}</div>
-    </div>
-    <div class="cockpit-chip">
-      <div class="cockpit-chip-label">Timing</div>
-      <div class="cockpit-chip-value">{escape(timing_bucket)}</div>
-    </div>
-    <div class="cockpit-chip">
-      <div class="cockpit-chip-label">Event Risk</div>
-      <div class="cockpit-chip-value">{_event_risk_status}</div>
-    </div>
-  </div>
+        f'<div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.04);">'
+        f'<div style="{_chip_cell}">'
+        f'<div style="{_chip_lbl}">Setup</div>'
+        f'<div style="{_chip_val}">{escape(setup_state)}</div>'
+        f'</div>'
+        f'<div style="{_chip_cell}">'
+        f'<div style="{_chip_lbl}">Risk Class</div>'
+        f'<div style="{_chip_val}">{escape(risk_class)}</div>'
+        f'</div>'
+        f'<div style="{_chip_cell}">'
+        f'<div style="{_chip_lbl}">Timing</div>'
+        f'<div style="{_chip_val}">{escape(timing_bucket)}</div>'
+        f'</div>'
+        f'<div style="display:inline-block;flex:1;min-width:0;padding:10px 18px;">'
+        f'<div style="{_chip_lbl}">Event Risk</div>'
+        f'<div style="{_chip_val}">{_event_risk_status}</div>'
+        f'</div>'
+        f'</div>'
 
-  <!-- FOOTER -->
-  <div class="cockpit-footer">
-    {escape(_lock_display)}
-    &nbsp;·&nbsp; Contract: {escape(budget_status)}
-    &nbsp;·&nbsp; EV: {escape(_ev_display)}
-    &nbsp;·&nbsp; Evidence: {escape(evidence_label if evidence_label else "None")}
-  </div>
-
-</div>
-""",
+        f'<div style="padding:9px 24px;font-size:0.68rem;color:rgba(244,247,255,0.3);'
+        f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
+        f'{escape(_lock_display)}'
+        f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
+        f'&nbsp;&middot;&nbsp;EV:&nbsp;{escape(_ev_display)}'
+        f'&nbsp;&middot;&nbsp;Evidence:&nbsp;{escape(evidence_label if evidence_label else "None")}'
+        f'</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
