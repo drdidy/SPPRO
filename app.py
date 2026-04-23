@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, datetime, time, timedelta
 from html import escape
 from pathlib import Path
@@ -204,20 +205,25 @@ FORWARD_PRICING_MAX_LIQUIDITY_PENALTY = 0.35
 FORWARD_PRICING_MAX_SPREAD_PENALTY = 0.45
 EVENT_BUFFER_MINUTES = 45
 POST_EVENT_STABILIZATION_MINUTES = 30
-NEWS_FEED_TIMEOUT_SECONDS = 4.0
-NEWS_FEED_MAX_ITEMS = 8
+NEWS_FEED_TIMEOUT_SECONDS = 3.0
+NEWS_FEED_MAX_ITEMS = 6
 PREMIUM_CONFIDENCE_LEVELS = ("high", "medium", "low", "speculative")
 MARKET_HEADLINE_FEEDS = [
-    # Reuters — fastest macro breaking news
-    {"name": "reuters_markets", "url": "https://feeds.reuters.com/reuters/businessNews", "category": "markets"},
-    # MarketWatch — intraday equity / options flow
-    {"name": "marketwatch", "url": "https://feeds.marketwatch.com/marketwatch/topstories/", "category": "markets"},
-    # CNBC Top News — breaking alerts
-    {"name": "cnbc_top", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "category": "markets"},
-    # Google News — Fed / rate / macro terms
-    {"name": "macro_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve FOMC CPI PPI NFP GDP inflation OR interest rates 0dte options"), "category": "macro"},
-    # Google News — political / tariff shock
-    {"name": "politics_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Trump tariffs OR truth social OR S&P 500 futures OR stock market selloff"), "category": "politics"},
+    {
+        "name": "macro",
+        "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve OR CPI OR PPI OR NFP OR GDP OR jobs OR rates OR S&P 500"),
+        "category": "macro",
+    },
+    {
+        "name": "markets",
+        "url": "https://news.google.com/rss/search?q=" + quote_plus("S&P 500 futures OR stock market breaking OR equity futures"),
+        "category": "markets",
+    },
+    {
+        "name": "politics",
+        "url": "https://news.google.com/rss/search?q=" + quote_plus("Trump Truth Social markets OR tariffs OR stock futures"),
+        "category": "politics",
+    },
 ]
 
 SCENARIO_TRANSITIONS = {
@@ -420,6 +426,148 @@ def resolve_presentation_state(decision: Any, bias_label: str) -> dict[str, str]
     return {
         "headline": f"{bias_label} SETUP",
         "secondary": "Monitoring",
+    }
+
+
+_UI_LEAK_TOKEN_RE = re.compile(r"_arrowright[a-z0-9_]*", re.IGNORECASE)
+
+
+def resolve_trade_direction_display(direction: Any) -> dict[str, str]:
+    """Map option mechanics into operator-first directional language."""
+
+    normalized = normalize_trade_direction(direction)
+    if normalized in {"CALL", "LONG"}:
+        return {
+            "bias": "BULLISH",
+            "arrow": "UP",
+            "setup": "BULLISH SETUP",
+            "compact": "Bullish",
+            "tone": "good",
+        }
+    if normalized in {"PUT", "SHORT"}:
+        return {
+            "bias": "BEARISH",
+            "arrow": "DOWN",
+            "setup": "BEARISH SETUP",
+            "compact": "Bearish",
+            "tone": "bad",
+        }
+    return {
+        "bias": "NEUTRAL",
+        "arrow": "FLAT",
+        "setup": "NEUTRAL SETUP",
+        "compact": "Neutral",
+        "tone": "neutral",
+    }
+
+
+def sanitize_ui_text(value: Any, *, fallback: str = "") -> str:
+    """Clean dynamic UI strings so feed artifacts and debug tokens never leak to Production Mode."""
+
+    if value is None:
+        return fallback
+    text = str(value)
+    replacements = {
+        "â†‘": "Up",
+        "â†“": "Down",
+        "â†’": "",
+        "\r": " ",
+        "\n": " ",
+        "\t": " ",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = _UI_LEAK_TOKEN_RE.sub("", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = text.strip(" |-:")
+    return text or fallback
+
+
+def format_ui_text(value: Any, *, fallback: str = "Not available") -> str:
+    """Return one production-safe text label."""
+
+    return sanitize_ui_text(value, fallback=fallback)
+
+
+def format_ui_price(value: Any, *, fallback: str = "Not available") -> str:
+    """Format prices safely for operator-facing UI."""
+
+    numeric = _to_float_or_none(value)
+    return format_price(numeric) if numeric is not None else fallback
+
+
+def format_ui_estimate(value: Any, *, fallback: str = "Not enough data") -> str:
+    """Format execution estimates without blank or broken placeholders."""
+
+    numeric = _to_float_or_none(value)
+    return format_price(numeric) if numeric is not None else fallback
+
+
+def format_ui_percent(value: Any, *, fallback: str = "Not available") -> str:
+    """Format percentages for live UI."""
+
+    numeric = _to_float_or_none(value)
+    return f"{numeric:.0f}%" if numeric is not None else fallback
+
+
+def format_estimate_quality(value: Any, *, fallback: str = "Insufficient") -> str:
+    """Translate model confidence into calm operator-facing estimate quality."""
+
+    text = sanitize_ui_text(value, fallback="").lower()
+    mapping = {
+        "high": "Strong",
+        "strong": "Strong",
+        "medium": "Moderate",
+        "moderate": "Moderate",
+        "low": "Weak",
+        "weak": "Weak",
+        "speculative": "Insufficient",
+        "insufficient": "Insufficient",
+    }
+    return mapping.get(text, fallback)
+
+
+def should_render_card_no_trade_reason(decision: Any, *, developer_mode: bool = False) -> bool:
+    """Avoid repeating the primary no-trade reason across hero and production cards."""
+
+    return developer_mode and str(decision or "").upper() == "NO TRADE"
+
+
+def resolve_unified_decision_state(authority: dict[str, Any] | None, direction: Any) -> dict[str, str]:
+    """Normalize live execution wording into one non-conflicting production state."""
+
+    authority = authority or {}
+    decision = str(authority.get("decision", "") or "").upper()
+    setup_state = str(authority.get("setup_state", "") or "").upper()
+    invalidation_code = str(authority.get("invalidation_code", "") or "").upper()
+    execution_action = str(authority.get("execution_action", "") or "").upper()
+    direction_label = normalize_trade_direction(direction)
+
+    if decision == "STRONG BUY":
+        primary = "ENTER CALL" if direction_label == "CALL" else "ENTER PUT" if direction_label == "PUT" else "WAIT"
+    elif decision == "CONDITIONAL BUY" or execution_action in {"WAIT", "WAIT FOR RETEST", "PREPARE WITH CAUTION", "WAIT FOR EVENT PASS"}:
+        primary = "WAIT"
+    else:
+        primary = "NO TRADE"
+
+    if setup_state == "INVALIDATED" or invalidation_code in {"STRUCTURE_BROKEN", "SCENARIO_TRANSITIONED", "STOP_UNAVAILABLE"}:
+        modifier = "INVALIDATED"
+    elif setup_state in {"EXPIRED", "FILTERED_OUT", "NO_TRADE"} or (execution_action in {"SKIP TRADE"} and primary == "NO TRADE"):
+        modifier = "UNTRADEABLE"
+    else:
+        modifier = "VALID"
+
+    reason = format_ui_text(
+        authority.get("reason_line")
+        or authority.get("setup_state_reason")
+        or authority.get("execution_action_reason")
+        or authority.get("invalidation_message"),
+        fallback="Waiting for clearer execution conditions.",
+    )
+    return {
+        "primary": primary,
+        "modifier": modifier,
+        "reason": reason,
     }
 
 
@@ -834,7 +982,7 @@ def inject_app_styles() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
         :root {
             --spx-bg: #04070d;
             --spx-bg-soft: #0b1120;
@@ -850,7 +998,6 @@ def inject_app_styles() -> None:
             --spx-gold: #ffd740;
             --spx-purple: #b388ff;
             --spx-font-sans: "Outfit", "Segoe UI", sans-serif;
-            --spx-font-body: "Inter", "Segoe UI", sans-serif;
             --spx-font-mono: "JetBrains Mono", monospace;
         }
         .stApp {
@@ -866,7 +1013,7 @@ def inject_app_styles() -> None:
             max-width: 1400px;
         }
         html, body, .stApp, .main .block-container {
-            font-family: var(--spx-font-body);
+            font-family: var(--spx-font-sans);
         }
         h1, h2, h3, h4 {
             font-family: var(--spx-font-sans) !important;
@@ -880,12 +1027,10 @@ def inject_app_styles() -> None:
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] input,
         [data-testid="stSidebar"] textarea,
+        [data-testid="stSidebar"] button,
         [data-testid="stSidebar"] [data-baseweb="select"],
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
-            font-family: var(--spx-font-sans) !important;
-        }
-        [data-testid="stSidebar"] button:not([data-testid="collapsedControl"]) {
             font-family: var(--spx-font-sans) !important;
         }
         [data-testid="stSidebar"] .block-container {
@@ -897,12 +1042,98 @@ def inject_app_styles() -> None:
             line-height: 1.35 !important;
             font-weight: 500 !important;
         }
+        span[data-testid="stIconMaterial"],
+        button [data-testid="stIconMaterial"],
+        [data-testid="collapsedControl"] [data-testid="stIconMaterial"],
+        [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"],
+        [data-testid="baseButton-headerNoPadding"] [data-testid="stIconMaterial"],
+        button[data-testid="stBaseButton-header"] [data-testid="stIconMaterial"],
+        button[data-testid="stBaseButton-headerNoPadding"] [data-testid="stIconMaterial"] {
+            font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Symbols Sharp" !important;
+            font-weight: normal !important;
+            font-style: normal !important;
+            letter-spacing: normal !important;
+            text-transform: none !important;
+            white-space: nowrap !important;
+            word-wrap: normal !important;
+            direction: ltr !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+            -webkit-font-feature-settings: "liga";
+            font-feature-settings: "liga";
+            -webkit-font-smoothing: antialiased;
+            font-variation-settings:
+                "FILL" 0,
+                "wght" 400,
+                "GRAD" 0,
+                "opsz" 24;
+        }
+        [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="baseButton-headerNoPadding"],
+        button[data-testid="stBaseButton-header"],
+        button[data-testid="stBaseButton-headerNoPadding"] {
+            line-height: 1 !important;
+        }
+        [data-testid="collapsedControl"] button,
+        [data-testid="stSidebarCollapseButton"] button,
+        button[data-testid="collapsedControl"],
+        button[data-testid="stSidebarCollapseButton"],
+        button[data-testid="stBaseButton-header"],
+        button[data-testid="stBaseButton-headerNoPadding"] {
+            position: relative !important;
+            min-width: 2.1rem !important;
+            min-height: 2.1rem !important;
+            color: transparent !important;
+            font-size: 0 !important;
+            text-shadow: none !important;
+        }
+        [data-testid="collapsedControl"] button *,
+        [data-testid="stSidebarCollapseButton"] button *,
+        button[data-testid="collapsedControl"] *,
+        button[data-testid="stSidebarCollapseButton"] *,
+        button[data-testid="stBaseButton-header"] *,
+        button[data-testid="stBaseButton-headerNoPadding"] * {
+            color: transparent !important;
+            font-size: 0 !important;
+        }
+        [data-testid="collapsedControl"] button::before,
+        button[data-testid="collapsedControl"]::before,
+        button[data-testid="stBaseButton-header"]::before {
+            content: "▸";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--spx-text) !important;
+            font-size: 1rem !important;
+            line-height: 1 !important;
+            text-shadow: none !important;
+        }
+        [data-testid="stSidebarCollapseButton"] button::before,
+        button[data-testid="stSidebarCollapseButton"]::before,
+        button[data-testid="stBaseButton-headerNoPadding"]::before {
+            content: "◂";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--spx-text) !important;
+            font-size: 1rem !important;
+            line-height: 1 !important;
+            text-shadow: none !important;
+        }
         [data-testid="stSidebar"] .stSelectbox,
         [data-testid="stSidebar"] .stDateInput,
         [data-testid="stSidebar"] .stNumberInput,
         [data-testid="stSidebar"] .stTextInput,
         [data-testid="stSidebar"] .stRadio,
-        [data-testid="stSidebar"] .stCheckbox {
+        [data-testid="stSidebar"] .stCheckbox,
+        [data-testid="stSidebar"] .stExpander {
             margin-bottom: 0.35rem !important;
         }
         [data-testid="stMetric"] {
@@ -1741,172 +1972,98 @@ def inject_app_styles() -> None:
             background: rgba(8, 12, 22, 0.76);
             overflow: hidden;
         }
+        div[data-testid="stExpander"] details summary {
+            list-style: none;
+            position: relative;
+            padding-left: 0.15rem;
+            font-size: 0 !important;
+        }
+        div[data-testid="stExpander"] details summary::-webkit-details-marker {
+            display: none;
+        }
+        div[data-testid="stExpander"] details summary > div,
+        div[data-testid="stExpander"] details summary > span:not([data-testid="stIconMaterial"]),
+        div[data-testid="stExpander"] details summary [data-testid="stMarkdownContainer"],
+        div[data-testid="stExpander"] details summary [data-testid="stMarkdownContainer"] p {
+            font-size: 0.95rem !important;
+            line-height: 1.2 !important;
+            color: inherit !important;
+        }
+        div[data-testid="stExpander"] details summary [data-testid="stExpanderToggleIcon"],
+        div[data-testid="stExpander"] details summary [data-testid="stIconMaterial"],
+        div[data-testid="stExpander"] details summary .material-symbols-rounded,
+        div[data-testid="stExpander"] details summary .material-symbols-outlined,
+        div[data-testid="stExpander"] details summary .material-icons {
+            display: none !important;
+        }
+        div[data-testid="stExpander"] details summary::before {
+            content: "▸";
+            display: inline-block;
+            margin-right: 0.45rem;
+            color: var(--spx-muted);
+            font-size: 0.9rem;
+            transform: translateY(-0.02rem);
+        }
+        div[data-testid="stExpander"] details[open] summary::before {
+            content: "▾";
+        }
+        div[data-testid="stExpander"] details summary::before {
+            content: "\\25B8" !important;
+        }
+        div[data-testid="stExpander"] details[open] summary::before {
+            content: "\\25BE" !important;
+        }
+        div[data-testid="stExpander"] details summary {
+            color: transparent !important;
+            text-shadow: none !important;
+        }
+        div[data-testid="stExpander"] details summary > div,
+        div[data-testid="stExpander"] details summary > span:not([data-testid="stIconMaterial"]),
+        div[data-testid="stExpander"] details summary [data-testid="stMarkdownContainer"],
+        div[data-testid="stExpander"] details summary [data-testid="stMarkdownContainer"] p {
+            color: var(--spx-text) !important;
+        }
+        button[data-testid^="stBaseButton-header"] {
+            position: relative !important;
+            color: transparent !important;
+            font-size: 0 !important;
+            text-shadow: none !important;
+        }
+        button[data-testid^="stBaseButton-header"] * {
+            color: transparent !important;
+            font-size: 0 !important;
+        }
+        button[data-testid^="stBaseButton-header"]::before {
+            content: "\\25C2";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--spx-text) !important;
+            font-size: 1rem !important;
+            line-height: 1 !important;
+            text-shadow: none !important;
+        }
         div[data-testid="stTabs"] button {
             font-family: var(--spx-font-sans) !important;
             font-weight: 650;
             letter-spacing: 0.04em;
             border-radius: 12px 12px 0 0;
         }
-        /* ── SIDEBAR PREMIUM SHELL ───────────────────────────────────── */
         [data-testid="stSidebar"] {
-            background:
-                radial-gradient(circle at 50% 0%, rgba(0,212,255,0.06), transparent 55%),
-                linear-gradient(180deg, rgba(4,8,18,0.99) 0%, rgba(2,5,14,1) 100%);
-            border-right: 1px solid rgba(0,212,255,0.08) !important;
-        }
-        [data-testid="stSidebar"] > div:first-child {
-            background: transparent !important;
+            background: linear-gradient(180deg, rgba(10,15,25,0.98), rgba(6,10,18,0.98));
+            border-right: 1px solid rgba(255,255,255,0.06);
         }
         [data-testid="stSidebar"] .block-container {
-            padding-top: 0.6rem !important;
-            padding-bottom: 1.5rem !important;
+            padding-top: 1rem;
+            padding-bottom: 1.1rem;
         }
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] {
-            font-size: 0.84rem !important;
+            font-size: 0.86rem !important;
             line-height: 1.4;
-        }
-        /* ── SIDEBAR INPUTS ──────────────────────────────────────────── */
-        [data-testid="stSidebar"] input[type="number"],
-        [data-testid="stSidebar"] input[type="text"],
-        [data-testid="stSidebar"] textarea {
-            background: rgba(6,12,26,0.9) !important;
-            border: 1px solid rgba(0,212,255,0.12) !important;
-            border-radius: 10px !important;
-            color: #e8f4ff !important;
-            font-family: "JetBrains Mono", monospace !important;
-            font-size: 0.85rem !important;
-            transition: border-color 0.15s ease !important;
-        }
-        [data-testid="stSidebar"] input[type="number"]:focus,
-        [data-testid="stSidebar"] input[type="text"]:focus {
-            border-color: rgba(0,212,255,0.4) !important;
-            box-shadow: 0 0 0 2px rgba(0,212,255,0.08) !important;
-        }
-        [data-testid="stSidebar"] div[data-baseweb="input"] > div,
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-            background: rgba(6,12,26,0.9) !important;
-            border: 1px solid rgba(0,212,255,0.12) !important;
-            border-radius: 10px !important;
-        }
-        [data-testid="stSidebar"] div[data-baseweb="input"]:focus-within > div,
-        [data-testid="stSidebar"] div[data-baseweb="select"]:focus-within > div {
-            border-color: rgba(0,212,255,0.38) !important;
-            box-shadow: 0 0 0 2px rgba(0,212,255,0.08) !important;
-        }
-        /* ── SIDEBAR SELECT DROPDOWN TEXT ────────────────────────────── */
-        [data-testid="stSidebar"] div[data-baseweb="select"] span {
-            color: #d8eeff !important;
-        }
-        /* ── SIDEBAR LABELS ──────────────────────────────────────────── */
-        [data-testid="stSidebar"] label[data-testid="stWidgetLabel"] p,
-        [data-testid="stSidebar"] label p {
-            color: rgba(180,205,235,0.7) !important;
-            font-size: 0.72rem !important;
-            font-weight: 600 !important;
-            letter-spacing: 0.04em !important;
-            text-transform: uppercase !important;
-        }
-        /* ── SIDEBAR RADIO ───────────────────────────────────────────── */
-        [data-testid="stSidebar"] div[role="radiogroup"] {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 4px !important;
-        }
-        [data-testid="stSidebar"] div[role="radiogroup"] label {
-            width: 100% !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
-            padding: 7px 12px !important;
-            border-radius: 8px !important;
-            border: 1px solid rgba(0,212,255,0.10) !important;
-            border-left: 3px solid transparent !important;
-            background: rgba(255,255,255,0.02) !important;
-            cursor: pointer !important;
-            transition: all 0.14s ease !important;
-            text-transform: none !important;
-            letter-spacing: 0 !important;
-            font-size: 0.78rem !important;
-            font-weight: 500 !important;
-            color: rgba(180,210,240,0.60) !important;
-            white-space: nowrap !important;
-        }
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-            background: rgba(0,212,255,0.08) !important;
-            border-color: rgba(0,212,255,0.20) !important;
-            border-left-color: #00d4ff !important;
-            color: #6ae6ff !important;
-            font-weight: 600 !important;
-        }
-        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-            background: rgba(0,212,255,0.05) !important;
-            border-left-color: rgba(0,212,255,0.40) !important;
-            color: rgba(180,210,240,0.85) !important;
-        }
-        [data-testid="stSidebar"] div[role="radiogroup"] input[type="radio"] {
-            display: none !important;
-        }
-        /* ── SIDEBAR BUTTONS ─────────────────────────────────────────── */
-        [data-testid="stSidebar"] div.stButton > button {
-            background: rgba(0,212,255,0.08) !important;
-            border: 1px solid rgba(0,212,255,0.22) !important;
-            border-radius: 10px !important;
-            color: #6ae6ff !important;
-            font-weight: 700 !important;
-            font-size: 0.78rem !important;
-            letter-spacing: 0.04em !important;
-            transition: all 0.15s ease !important;
-            width: 100% !important;
-        }
-        [data-testid="stSidebar"] div.stButton > button:hover {
-            background: rgba(0,212,255,0.15) !important;
-            border-color: rgba(0,212,255,0.45) !important;
-            box-shadow: 0 0 16px rgba(0,212,255,0.2) !important;
-        }
-        /* ── SIDEBAR EXPANDERS ───────────────────────────────────────── */
-        [data-testid="stSidebar"] div[data-testid="stExpander"] {
-            border: 1px solid rgba(0,212,255,0.08) !important;
-            border-radius: 12px !important;
-            background: rgba(4,8,20,0.6) !important;
-            margin-bottom: 6px !important;
-        }
-        [data-testid="stSidebar"] div[data-testid="stExpander"] > details > summary {
-            padding: 0.55rem 0.85rem !important;
-            font-size: 0.76rem !important;
-            font-weight: 700 !important;
-            color: rgba(180,210,240,0.75) !important;
-            letter-spacing: 0.05em !important;
-        }
-        [data-testid="stSidebar"] div[data-testid="stExpander"] > details > summary:hover {
-            background: rgba(0,212,255,0.04) !important;
-            border-radius: 12px !important;
-        }
-        /* ── SIDEBAR CHECKBOX ────────────────────────────────────────── */
-        [data-testid="stSidebar"] span[data-testid="stCheckbox"] {
-            border-color: rgba(0,212,255,0.25) !important;
-            border-radius: 5px !important;
-        }
-        /* ── SIDEBAR DATE INPUT ──────────────────────────────────────── */
-        [data-testid="stSidebar"] div[data-testid="stDateInput"] input {
-            background: rgba(6,12,26,0.9) !important;
-            border: 1px solid rgba(0,212,255,0.12) !important;
-            border-radius: 10px !important;
-            color: #e8f4ff !important;
-            font-family: "JetBrains Mono", monospace !important;
-        }
-        /* ── SIDEBAR INFO/WARNING ALERTS ─────────────────────────────── */
-        [data-testid="stSidebar"] div[data-testid="stAlert"] {
-            border-radius: 10px !important;
-            font-size: 0.76rem !important;
-            padding: 8px 12px !important;
-        }
-        /* ── SIDEBAR CAPTION ─────────────────────────────────────────── */
-        [data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
-            font-size: 0.69rem !important;
-            color: rgba(142,161,188,0.65) !important;
-            line-height: 1.4 !important;
         }
         @keyframes spxFadeUp {
             from { opacity: 0; transform: translateY(10px); }
@@ -1929,284 +2086,6 @@ def inject_app_styles() -> None:
             .spx-card-grid {
                 grid-template-columns: 1fr;
             }
-        }
-
-        /* ── INTER BODY FONT ─────────────────────────────────────────── */
-        p, li,
-        span:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-symbols-sharp),
-        td, th, caption,
-        div[data-testid="stMarkdownContainer"] p,
-        div[data-testid="stMarkdownContainer"] li,
-        .spx-card-copy, .spx-banner-text, .spx-banner-meta,
-        .spx-play-note, .spx-muted, .spx-section-subtitle,
-        .spx-hero-subtitle, .spx-summary-body {
-            font-family: var(--spx-font-body) !important;
-        }
-        .stCaption, .stCaption p { font-family: var(--spx-font-body) !important; }
-
-        /* ── CUSTOM SCROLLBAR ────────────────────────────────────────── */
-        * { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,0.25) rgba(255,255,255,0.04); }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.3); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.5); }
-        ::-webkit-scrollbar-corner { background: transparent; }
-
-        /* ── TAB IMPROVEMENTS ────────────────────────────────────────── */
-        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-            background: rgba(8,12,22,0.72);
-            border-radius: 14px 14px 0 0;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            gap: 2px;
-            padding: 4px 6px 0 6px;
-        }
-        div[data-testid="stTabs"] button[role="tab"] {
-            border-radius: 10px 10px 0 0 !important;
-            padding: 0.5rem 1rem !important;
-            font-size: 0.78rem !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.06em !important;
-            color: var(--spx-muted) !important;
-            border: none !important;
-            background: transparent !important;
-            transition: all 180ms ease !important;
-        }
-        div[data-testid="stTabs"] button[role="tab"]:hover {
-            color: var(--spx-text) !important;
-            background: rgba(255,255,255,0.04) !important;
-        }
-        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-            color: var(--spx-cyan) !important;
-            background: linear-gradient(180deg, rgba(0,212,255,0.1), rgba(0,212,255,0.04)) !important;
-            border-bottom: 2px solid var(--spx-cyan) !important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-panel"] {
-            padding-top: 1rem;
-        }
-
-        /* ── IMPROVED INPUTS ─────────────────────────────────────────── */
-        div[data-baseweb="input"] input,
-        div[data-baseweb="select"] input {
-            font-family: var(--spx-font-body) !important;
-            color: var(--spx-text) !important;
-        }
-        div[data-baseweb="input"] > div,
-        div[data-baseweb="select"] > div,
-        textarea {
-            background: rgba(7,11,20,0.94) !important;
-            border-color: rgba(255,255,255,0.08) !important;
-            border-radius: 12px !important;
-            transition: border-color 150ms ease !important;
-        }
-        div[data-baseweb="input"]:focus-within > div,
-        div[data-baseweb="select"]:focus-within > div,
-        textarea:focus {
-            border-color: rgba(0,212,255,0.35) !important;
-            box-shadow: 0 0 0 3px rgba(0,212,255,0.08) !important;
-        }
-        div[data-testid="stTextInput"] label,
-        div[data-testid="stNumberInput"] label,
-        div[data-testid="stSelectbox"] label,
-        div[data-testid="stDateInput"] label,
-        div[data-testid="stTextArea"] label {
-            font-family: var(--spx-font-body) !important;
-            font-size: 0.75rem !important;
-            font-weight: 700 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.09em;
-            color: var(--spx-muted) !important;
-            margin-bottom: 0.2rem !important;
-        }
-
-        /* ── BUTTON IMPROVEMENTS ─────────────────────────────────────── */
-        div[data-testid="stButton"] > button {
-            font-family: var(--spx-font-body) !important;
-            font-size: 0.82rem !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.04em;
-            border-radius: 12px !important;
-            padding: 0.5rem 1.1rem !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
-            background: linear-gradient(145deg, rgba(20,28,46,0.96), rgba(10,16,28,0.98)) !important;
-            color: #d0e4ff !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important;
-            transition: all 160ms ease !important;
-        }
-        div[data-testid="stButton"] > button:hover {
-            border-color: rgba(0,212,255,0.28) !important;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.28), 0 0 14px rgba(0,212,255,0.1), inset 0 1px 0 rgba(255,255,255,0.07) !important;
-            transform: translateY(-1px) !important;
-            color: #e8f4ff !important;
-        }
-        div[data-testid="stButton"] > button[kind="primary"] {
-            background: linear-gradient(145deg, rgba(0,212,255,0.18), rgba(0,180,220,0.08)) !important;
-            border-color: rgba(0,212,255,0.28) !important;
-            color: #a8edff !important;
-        }
-
-        /* ── METRIC CARD IMPROVEMENTS ────────────────────────────────── */
-        div[data-testid="stMetric"] {
-            background: linear-gradient(145deg, rgba(13,20,36,0.94), rgba(8,12,22,0.98)) !important;
-            border: 1px solid rgba(255,255,255,0.07) !important;
-            border-radius: 16px !important;
-            padding: 0.85rem 0.9rem !important;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03) !important;
-            transition: box-shadow 200ms ease !important;
-        }
-        div[data-testid="stMetric"]:hover {
-            box-shadow: 0 12px 28px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.04) !important;
-        }
-        div[data-testid="stMetricLabel"] p {
-            font-family: var(--spx-font-body) !important;
-            font-size: 0.68rem !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.1em !important;
-            text-transform: uppercase;
-            color: var(--spx-muted) !important;
-        }
-        div[data-testid="stMetricValue"] {
-            font-family: var(--spx-font-mono) !important;
-            font-size: 1.1rem !important;
-            font-weight: 700 !important;
-            color: #e4f2ff !important;
-        }
-        div[data-testid="stMetricDelta"] { font-family: var(--spx-font-body) !important; }
-
-        /* ── EXPANDER IMPROVEMENTS ───────────────────────────────────── */
-        div[data-testid="stExpander"] {
-            border: 1px solid rgba(255,255,255,0.07) !important;
-            border-radius: 16px !important;
-            background: rgba(8,12,22,0.7) !important;
-            overflow: hidden;
-            margin-bottom: 0.6rem;
-            transition: border-color 150ms ease;
-        }
-        div[data-testid="stExpander"]:hover {
-            border-color: rgba(255,255,255,0.1) !important;
-        }
-        div[data-testid="stExpander"] > details > summary {
-            padding: 0.7rem 0.9rem !important;
-            font-size: 0.82rem !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.04em;
-            color: var(--spx-text) !important;
-            background: rgba(255,255,255,0.01) !important;
-        }
-        div[data-testid="stExpander"] > details > summary > p,
-        div[data-testid="stExpander"] > details > summary p[data-testid="stExpanderToggleLabel"] {
-            font-family: var(--spx-font-body) !important;
-        }
-        div[data-testid="stExpander"] > details > summary:hover {
-            background: rgba(0,212,255,0.04) !important;
-        }
-
-        /* ── DATAFRAME IMPROVEMENTS ──────────────────────────────────── */
-        div[data-testid="stDataFrame"] { border-radius: 16px !important; overflow: hidden; }
-        div[data-testid="stDataFrame"] iframe { border-radius: 16px !important; }
-        .stDataFrame th {
-            background: rgba(0,212,255,0.07) !important;
-            font-family: var(--spx-font-body) !important;
-            font-size: 0.72rem !important;
-            font-weight: 700 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--spx-muted) !important;
-        }
-        .stDataFrame td {
-            font-family: var(--spx-font-mono) !important;
-            font-size: 0.82rem !important;
-        }
-
-        /* ── SIDEBAR IMPROVEMENTS ────────────────────────────────────── */
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #060a14 0%, #04070f 100%) !important;
-            border-right: 1px solid rgba(0,212,255,0.06) !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] hr {
-            border: none;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-            margin: 0.5rem 0;
-        }
-        [data-testid="stSidebar"] .stRadio label {
-            font-family: var(--spx-font-body) !important;
-        }
-        /* ── FORM IMPROVEMENTS ───────────────────────────────────────── */
-        div[data-testid="stForm"] {
-            border: 1px solid rgba(255,255,255,0.07) !important;
-            border-radius: 18px !important;
-            background: rgba(8,12,22,0.72) !important;
-            padding: 1rem !important;
-        }
-
-        /* ── ALERT / WARNING / SUCCESS BOXES ─────────────────────────── */
-        div[data-testid="stAlert"] {
-            border-radius: 14px !important;
-            font-family: var(--spx-font-body) !important;
-            font-size: 0.88rem !important;
-        }
-
-        /* ── CHECKBOX / RADIO IMPROVEMENTS ──────────────────────────── */
-        [data-testid="stCheckbox"] label,
-        [data-testid="stRadio"] label { font-family: var(--spx-font-body) !important; }
-
-        /* ── PRODUCTION MODE FOCUS ───────────────────────────────────── */
-        body[data-prod-mode="true"] .spx-edge-only { display: none !important; }
-
-        /* ── HERO STAT VALUE ACCENT ──────────────────────────────────── */
-        .spx-hero-stat-value, .spx-card-stat-value {
-            background: linear-gradient(135deg, #e4f4ff 0%, #00d4ff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        /* ── GLOW ON PRIMARY ACTIONS ─────────────────────────────────── */
-        .spx-card.primary {
-            box-shadow: 0 16px 40px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,212,255,0.12), inset 0 1px 0 rgba(255,255,255,0.02) !important;
-        }
-        .spx-status-chip.good {
-            box-shadow: 0 0 18px rgba(0,230,118,0.15), inset 0 1px 0 rgba(255,255,255,0.05) !important;
-        }
-        .spx-status-chip.bad {
-            box-shadow: 0 0 18px rgba(255,23,68,0.15), inset 0 1px 0 rgba(255,255,255,0.03) !important;
-        }
-
-        /* ── GRADIENT DIVIDER ────────────────────────────────────────── */
-        .spx-divider {
-            height: 1px;
-            background: linear-gradient(90deg, transparent 0%, rgba(0,212,255,0.2) 30%, rgba(179,136,255,0.15) 70%, transparent 100%);
-            margin: 1rem 0;
-            border: none;
-        }
-
-        /* ── SELECTION HIGHLIGHT ─────────────────────────────────────── */
-        ::selection { background: rgba(0,212,255,0.2); color: #f8fbff; }
-
-        /* ── PRICE TAG (big number display) ──────────────────────────── */
-        .spx-price-tag {
-            font-family: var(--spx-font-mono);
-            font-size: 2.4rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, #ffffff 0%, #a0d8ff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            line-height: 1;
-        }
-
-        /* ── IMPROVED SPATIAL LADDER ─────────────────────────────────── */
-        .spx-ladder-row:hover { background: rgba(0,212,255,0.04) !important; cursor: default; }
-
-        /* ── LOADING STATE ───────────────────────────────────────────── */
-        div[data-testid="stSpinner"] { font-family: var(--spx-font-body) !important; }
-
-        /* ── TOOLTIP / CAPTION ───────────────────────────────────────── */
-        [data-testid="stCaptionContainer"] p {
-            font-family: var(--spx-font-body) !important;
-            color: var(--spx-muted-2) !important;
-            font-size: 0.76rem !important;
         }
         :root {
             --spx-bg: #030614;
@@ -2386,691 +2265,52 @@ def inject_app_styles() -> None:
             0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
             50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
         }
-        @keyframes spxBrandShimmer {
-            0%   { background-position: 0% center; }
-            100% { background-position: 300% center; }
-        }
-        @keyframes spxIconGlow {
-            0%,100% { box-shadow: 0 0 22px rgba(0,212,255,0.45), 0 0 44px rgba(0,150,255,0.18); }
-            50%      { box-shadow: 0 0 40px rgba(0,212,255,0.80), 0 0 80px rgba(0,150,255,0.35), 0 0 120px rgba(0,80,255,0.15); }
-        }
-        @keyframes spxBarTopLine {
-            0%,100% { opacity: 0.35; }
-            50%      { opacity: 1.0; }
-        }
-        @keyframes spxProphetGlow {
-            0%,100% { text-shadow: 0 0 18px rgba(0,212,255,0.25), 0 2px 8px rgba(0,0,0,0.6); }
-            50%      { text-shadow: 0 0 36px rgba(0,212,255,0.5), 0 0 70px rgba(0,150,255,0.2), 0 2px 8px rgba(0,0,0,0.6); }
-        }
-        /* ══ Decision Cockpit ══ */
-        .spx-cockpit {
-            border-radius: 20px; overflow: hidden; margin-bottom: 18px;
-            border: 1px solid rgba(0,212,255,0.14);
-            background: linear-gradient(180deg, rgba(3,10,26,0.99) 0%, rgba(1,6,18,1) 100%);
-            box-shadow: 0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset;
-        }
-        .cockpit-kicker {
-            font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase;
-            color: rgba(106,230,255,0.55); padding: 16px 24px 0;
-        }
-        .cockpit-header-row {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 16px; flex-wrap: wrap; padding: 10px 24px 10px;
-        }
-        .cockpit-headline {
-            font-family: var(--spx-font-sans); font-size: 1.45rem; font-weight: 800;
-            color: #f4f7ff; line-height: 1.2;
-        }
-        .cockpit-action-badge {
-            display: inline-flex; align-items: center; gap: 7px;
-            padding: 9px 18px; border-radius: 30px;
-            font-size: 0.78rem; font-weight: 700; letter-spacing: 0.07em;
-            text-transform: uppercase; white-space: nowrap;
-        }
-        .action-enter {
-            background: linear-gradient(135deg,rgba(0,230,118,0.22),rgba(0,180,90,0.1));
-            border: 1px solid rgba(0,230,118,0.42); color: #00e676;
-            box-shadow: 0 0 28px rgba(0,230,118,0.22), 0 2px 12px rgba(0,0,0,0.3);
-        }
-        .action-wait {
-            background: linear-gradient(135deg,rgba(255,212,64,0.18),rgba(220,160,0,0.08));
-            border: 1px solid rgba(255,212,64,0.38); color: #ffd740;
-            box-shadow: 0 0 20px rgba(255,212,64,0.14);
-        }
-        .action-caution {
-            background: linear-gradient(135deg,rgba(255,112,67,0.2),rgba(220,80,0,0.08));
-            border: 1px solid rgba(255,112,67,0.38); color: #ff7043;
-            box-shadow: 0 0 20px rgba(255,112,67,0.14);
-        }
-        .action-skip {
-            background: linear-gradient(135deg,rgba(239,83,80,0.18),rgba(180,40,40,0.08));
-            border: 1px solid rgba(239,83,80,0.32); color: #ef5350;
-        }
-        .cockpit-subline {
-            font-size: 0.82rem; color: rgba(244,247,255,0.48); line-height: 1.55;
-            padding: 0 24px 10px;
-        }
-        .cockpit-scenario-row {
-            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-            padding: 0 24px 12px;
-        }
-        .cockpit-scenario-code {
-            font-family: var(--spx-font-mono); font-size: 0.7rem;
-            background: rgba(0,212,255,0.07); border: 1px solid rgba(0,212,255,0.14);
-            color: rgba(106,230,255,0.75); padding: 2px 9px; border-radius: 6px;
-        }
-        .cockpit-structure-tag {
-            font-size: 0.7rem; color: rgba(244,247,255,0.38);
-        }
-        .cockpit-transition {
-            font-size: 0.74rem; color: rgba(255,212,64,0.65);
-            padding: 0 24px 10px;
-        }
-        /* Stats grid */
-        .cockpit-stats-row {
-            display: grid; grid-template-columns: repeat(5,1fr);
-            border-top: 1px solid rgba(255,255,255,0.05);
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        @media(max-width:720px) { .cockpit-stats-row { grid-template-columns: repeat(3,1fr); } }
-        .cockpit-stat {
-            padding: 14px 20px; border-right: 1px solid rgba(255,255,255,0.05);
-            background: rgba(255,255,255,0.013);
-        }
-        .cockpit-stat:last-child { border-right: none; }
-        .cockpit-stat-label {
-            font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
-            color: rgba(244,247,255,0.3); margin-bottom: 5px;
-        }
-        .cockpit-stat-value {
-            font-family: var(--spx-font-mono); font-size: 1.04rem;
-            font-weight: 500; color: #e0eeff;
-        }
-        .cockpit-stat-value.positive { color: #00e676; }
-        .cockpit-stat-value.warning  { color: #ffd740; }
-        .cockpit-stat-value.negative { color: #ef5350; }
-        /* Chips row */
-        .cockpit-chips-row {
-            display: grid; grid-template-columns: repeat(4,1fr);
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-        @media(max-width:720px) { .cockpit-chips-row { grid-template-columns: repeat(2,1fr); } }
-        .cockpit-chip {
-            padding: 10px 20px; border-right: 1px solid rgba(255,255,255,0.04);
-            display: flex; flex-direction: column; gap: 3px;
-        }
-        .cockpit-chip:last-child { border-right: none; }
-        .cockpit-chip-label {
-            font-size: 0.57rem; letter-spacing: 0.09em; text-transform: uppercase;
-            color: rgba(244,247,255,0.28);
-        }
-        .cockpit-chip-value {
-            font-size: 0.79rem; font-weight: 600; color: rgba(244,247,255,0.78);
-        }
-        /* Cockpit footer */
-        .cockpit-footer {
-            padding: 9px 24px; font-size: 0.68rem;
-            color: rgba(244,247,255,0.3); background: rgba(0,0,0,0.25);
-            letter-spacing: 0.02em;
-        }
-        /* ══ Key Levels Ladder ══ */
-        .spx-levels-wrap {
-            border-radius: 16px; overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.07);
-            background: rgba(3,7,18,0.96); margin-bottom: 14px;
-        }
-        .spx-levels-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 13px 20px; background: rgba(255,255,255,0.018);
-            border-bottom: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; gap: 8px;
-        }
-        .spx-levels-title {
-            font-family: var(--spx-font-sans); font-size: 0.78rem; font-weight: 700;
-            color: rgba(244,247,255,0.6); letter-spacing: 0.05em; text-transform: uppercase;
-        }
-        .spx-levels-badges { display: flex; gap: 8px; flex-wrap: wrap; }
-        .spx-badge {
-            font-size: 0.67rem; padding: 3px 10px; border-radius: 20px;
-            color: rgba(244,247,255,0.5);
-        }
-        .spx-badge-price { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.16); color: #6ae6ff; }
-        .spx-badge-offset { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
-        .spx-levels-body {}
-        .spx-level-row {
-            display: grid; grid-template-columns: 22px 100px 78px 1fr 58px;
-            align-items: center; gap: 10px; padding: 9px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.035);
-            border-left: 3px solid transparent;
-            transition: background 0.14s;
-        }
-        .spx-level-row:last-child { border-bottom: none; }
-        .spx-level-row:hover { background: rgba(255,255,255,0.02); }
-        .spx-level-row.level-top { border-left-color: rgba(239,83,80,0.35); }
-        .spx-level-row.level-current {
-            background: rgba(0,212,255,0.05); border-left-color: rgba(0,212,255,0.55);
-        }
-        .spx-level-row.level-bottom { border-left-color: rgba(0,230,118,0.35); }
-        .spx-level-dir { font-size: 0.75rem; text-align: center; }
-        .level-top .spx-level-dir { color: rgba(239,83,80,0.75); }
-        .level-current .spx-level-dir { color: #6ae6ff; }
-        .level-bottom .spx-level-dir { color: rgba(0,230,118,0.75); }
-        .spx-level-name { font-size: 0.74rem; color: rgba(244,247,255,0.5); font-weight: 500; }
-        .level-current .spx-level-name { color: #6ae6ff; font-weight: 600; }
-        .spx-level-price {
-            font-family: var(--spx-font-mono); font-size: 0.82rem;
-            color: #ddeeff; text-align: right;
-        }
-        .level-current .spx-level-price { color: #6ae6ff; }
-        .spx-level-bar-wrap {
-            height: 5px; background: rgba(255,255,255,0.05);
-            border-radius: 3px; overflow: hidden;
-        }
-        .spx-level-bar { height: 100%; border-radius: 3px; }
-        .bar-above   { background: linear-gradient(90deg, rgba(239,83,80,0.6), rgba(239,83,80,0.3)); }
-        .bar-below   { background: linear-gradient(90deg, rgba(0,230,118,0.6), rgba(0,230,118,0.3)); }
-        .bar-current { background: linear-gradient(90deg, rgba(0,212,255,0.7), rgba(0,212,255,0.3)); }
-        .bar-neutral { background: rgba(255,255,255,0.15); }
-        .spx-level-dist {
-            font-family: var(--spx-font-mono); font-size: 0.7rem; text-align: right;
-            color: rgba(244,247,255,0.3);
-        }
-        .dist-above { color: rgba(239,83,80,0.8); }
-        .dist-below { color: rgba(0,230,118,0.8); }
-        /* ── Alert panel ── */
-        .spx-alert-slot { flex: 1; min-width: 0; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
-        .spx-alert-label { font-size: 0.67rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px; }
-        .spx-alert-msg { font-size: 0.81rem; color: rgba(244,247,255,0.72); line-height: 1.5; margin-top: 8px; }
-        /* ── Market Intel section ── */
-        .spx-intel-wrap { border-radius: 18px; overflow: hidden; border: 1px solid rgba(0,212,255,0.12); margin-bottom: 16px; }
-        .spx-intel-header {
-            background: linear-gradient(135deg, rgba(0,10,28,0.98) 0%, rgba(0,18,48,0.98) 50%, rgba(0,30,60,0.95) 100%);
-            padding: 20px 24px 16px;
-            border-bottom: 1px solid rgba(0,212,255,0.1);
-            display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-        }
-        .spx-intel-icon {
-            width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
-            background: linear-gradient(135deg, #00d4ff 0%, #6ae6ff 100%);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.4rem; box-shadow: 0 0 24px rgba(0,212,255,0.35);
-        }
-        .spx-intel-meta { flex: 1; min-width: 0; }
-        .spx-intel-title { font-family: var(--spx-font-sans); font-size: 1.05rem; font-weight: 700; color: #f4f7ff; letter-spacing: 0.02em; }
-        .spx-intel-sub { font-size: 0.75rem; color: rgba(106,230,255,0.65); margin-top: 2px; }
-        .spx-intel-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .spx-risk-badge {
-            display: inline-flex; align-items: center; gap: 5px;
-            padding: 5px 12px; border-radius: 20px; font-size: 0.72rem;
-            font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-        }
-        .spx-risk-quiet { background: rgba(0,230,118,0.14); border: 1px solid rgba(0,230,118,0.3); color: #00e676; }
-        .spx-risk-elevated { background: rgba(255,212,64,0.14); border: 1px solid rgba(255,212,64,0.3); color: #ffd740; }
-        .spx-risk-major { background: rgba(255,109,64,0.16); border: 1px solid rgba(255,109,64,0.35); color: #ff7043; }
-        .spx-risk-extreme { background: rgba(229,57,53,0.18); border: 1px solid rgba(229,57,53,0.4); color: #ef5350; box-shadow: 0 0 12px rgba(229,57,53,0.2); }
-        @keyframes spxPulse { 0%,100% { box-shadow: 0 0 8px rgba(229,57,53,0.3); } 50% { box-shadow: 0 0 20px rgba(229,57,53,0.6); } }
-        .spx-risk-extreme { animation: spxPulse 2s ease-in-out infinite; }
-        .spx-intel-body { background: rgba(4,8,20,0.97); padding: 18px 24px; }
-        .spx-intel-reason { font-size: 0.84rem; color: rgba(244,247,255,0.65); line-height: 1.55; margin-bottom: 14px; }
-        .spx-intel-next {
-            display: flex; align-items: center; gap: 8px;
-            padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
-            background: rgba(255,212,64,0.06); border: 1px solid rgba(255,212,64,0.15);
-            font-size: 0.8rem; color: #ffd740;
-        }
-        .spx-intel-next-icon { font-size: 1rem; }
-        /* News grid */
-        .spx-news-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        @media (max-width: 640px) { .spx-news-grid { grid-template-columns: 1fr; } }
-        .spx-news-card {
-            display: flex; flex-direction: column; gap: 8px;
-            padding: 12px 14px; border-radius: 12px;
-            background: rgba(255,255,255,0.028);
-            border-left: 3px solid rgba(0,212,255,0.3);
-            border-top: 1px solid rgba(255,255,255,0.06);
-            border-right: 1px solid rgba(255,255,255,0.04);
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            text-decoration: none;
-            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
-        }
-        .spx-news-card:hover { background: rgba(0,212,255,0.06); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,255,0.1); }
-        .spx-news-card.cat-macro { border-left-color: #6ae6ff; }
-        .spx-news-card.cat-markets { border-left-color: #00e676; }
-        .spx-news-card.cat-politics { border-left-color: #ff7043; }
-        .spx-news-card.cat-fed { border-left-color: #b39ddb; }
-        .spx-news-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .spx-news-badge { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
-        .spx-news-badge.cat-macro { background: rgba(106,230,255,0.12); color: #6ae6ff; }
-        .spx-news-badge.cat-markets { background: rgba(0,230,118,0.12); color: #00e676; }
-        .spx-news-badge.cat-politics { background: rgba(255,112,67,0.12); color: #ff7043; }
-        .spx-news-badge.cat-fed { background: rgba(179,157,219,0.12); color: #b39ddb; }
-        .spx-news-time { font-size: 0.6rem; color: rgba(244,247,255,0.3); flex-shrink: 0; }
-        .spx-news-headline { font-size: 0.79rem; color: rgba(244,247,255,0.85); line-height: 1.45; font-weight: 500; }
-        a.spx-news-card .spx-news-headline { color: #c8e8ff; }
-        .spx-intel-empty { text-align: center; padding: 24px; font-size: 0.8rem; color: rgba(244,247,255,0.3); font-style: italic; }
-        /* Section icon bubble */
-        .spx-section-icon-bubble {
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 34px; height: 34px; border-radius: 10px; margin-right: 10px;
-            font-size: 1.05rem; vertical-align: middle; flex-shrink: 0;
-        }
-        /* ══ Premium Command Bar (top of app) ══ */
-        .spx-cmdbar {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 16px; flex-wrap: wrap;
-            padding: 14px 22px; margin-bottom: 14px;
-            background: linear-gradient(135deg, rgba(2,8,22,0.98) 0%, rgba(4,12,32,0.95) 50%, rgba(0,6,20,0.98) 100%);
-            border: 1px solid rgba(0,212,255,0.14);
-            border-radius: 16px;
-            box-shadow: 0 4px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.03) inset;
-            position: relative; overflow: hidden;
-        }
-        .spx-cmdbar::before {
-            content: ""; position: absolute; inset: 0;
-            background: radial-gradient(circle at 15% 50%, rgba(0,212,255,0.08), transparent 45%),
-                        radial-gradient(circle at 85% 50%, rgba(179,136,255,0.06), transparent 45%);
-            pointer-events: none;
-        }
-        .cmd-brand { display: flex; align-items: center; gap: 14px; z-index: 1; }
-        .cmd-logo {
-            width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
-            background: linear-gradient(135deg,#00d4ff 0%,#0077b6 50%,#6ae6ff 100%);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.35rem; box-shadow: 0 0 22px rgba(0,212,255,0.35), 0 2px 8px rgba(0,0,0,0.4);
-            position: relative;
-        }
-        .cmd-logo::after {
-            content: ""; position: absolute; inset: 2px; border-radius: 10px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 60%);
-            pointer-events: none;
-        }
-        .cmd-title-wrap { display: flex; flex-direction: column; }
-        .cmd-title {
-            font-family: var(--spx-font-sans); font-size: 1.06rem; font-weight: 800;
-            color: #f4f7ff; letter-spacing: -0.01em; line-height: 1;
-        }
-        .cmd-title-version {
-            display: inline-block; margin-left: 8px; font-size: 0.62rem;
-            font-weight: 700; color: #6ae6ff; padding: 2px 7px; border-radius: 6px;
-            background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
-            letter-spacing: 0.04em; vertical-align: middle;
-        }
-        .cmd-subtitle {
-            font-size: 0.64rem; letter-spacing: 0.13em; text-transform: uppercase;
-            color: rgba(142,161,188,0.65); margin-top: 3px; font-weight: 600;
-        }
-        .cmd-metrics { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; z-index: 1; }
-        .cmd-metric {
-            display: flex; flex-direction: column; gap: 2px; text-align: right;
-        }
-        .cmd-metric-label {
-            font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase;
-            color: rgba(142,161,188,0.5); font-weight: 600;
-        }
-        .cmd-metric-value {
-            font-family: var(--spx-font-mono); font-size: 0.9rem; font-weight: 500;
-            color: rgba(244,247,255,0.85);
-        }
-        .cmd-status {
-            display: inline-flex; align-items: center; gap: 7px;
-            padding: 6px 14px; border-radius: 20px;
-            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
-        .status-open {
-            background: linear-gradient(135deg, rgba(0,230,118,0.18), rgba(0,180,90,0.08));
-            border: 1px solid rgba(0,230,118,0.35); color: #00e676;
-        }
-        .status-premarket {
-            background: rgba(255,212,64,0.12); border: 1px solid rgba(255,212,64,0.28); color: #ffd740;
-        }
-        .status-afterhours {
-            background: rgba(179,136,255,0.12); border: 1px solid rgba(179,136,255,0.28); color: #b388ff;
-        }
-        .status-closed {
-            background: rgba(142,161,188,0.1); border: 1px solid rgba(142,161,188,0.24); color: #8ea1bc;
-        }
-        .cmd-status-dot {
-            width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-        }
-        .status-open .cmd-status-dot {
-            background: #00e676; box-shadow: 0 0 10px #00e676, 0 0 18px rgba(0,230,118,0.5);
-            animation: cmdPulse 1.8s ease-in-out infinite;
-        }
-        .status-premarket .cmd-status-dot { background: #ffd740; box-shadow: 0 0 8px #ffd740; }
-        .status-afterhours .cmd-status-dot { background: #b388ff; box-shadow: 0 0 8px #b388ff; }
-        .status-closed .cmd-status-dot { background: #8ea1bc; }
-        @keyframes cmdPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
-        .cmd-mode-pill {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 5px 12px; border-radius: 20px; font-size: 0.66rem;
-            font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase;
-        }
-        .mode-production {
-            background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,119,182,0.08));
-            border: 1px solid rgba(0,212,255,0.3); color: #6ae6ff;
-        }
-        .mode-edgelab {
-            background: linear-gradient(135deg, rgba(179,136,255,0.18), rgba(123,47,247,0.08));
-            border: 1px solid rgba(179,136,255,0.32); color: #c8a8ff;
-        }
-        /* ══ Confidence Gauge ══ */
-        .spx-gauge {
-            height: 4px; width: 100%; margin-top: 6px;
-            background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;
-            position: relative;
-        }
-        .spx-gauge-fill {
-            height: 100%; border-radius: 2px;
-            transition: width 0.4s ease;
-            background: linear-gradient(90deg, #ef5350 0%, #ffd740 50%, #00e676 100%);
-        }
-        /* ══ Button premium glow ══ */
-        div.stButton > button[kind="primary"],
-        div.stButton > button[data-testid="baseButton-primary"] {
-            background: linear-gradient(135deg, rgba(0,212,255,0.22), rgba(0,119,182,0.18)) !important;
-            border: 1px solid rgba(0,212,255,0.4) !important;
-            color: #f4f7ff !important; font-weight: 600 !important;
-            box-shadow: 0 0 20px rgba(0,212,255,0.18), 0 2px 8px rgba(0,0,0,0.3) !important;
-            transition: all 0.18s ease !important;
-        }
-        div.stButton > button[kind="primary"]:hover,
-        div.stButton > button[data-testid="baseButton-primary"]:hover {
-            box-shadow: 0 0 28px rgba(0,212,255,0.35), 0 4px 14px rgba(0,0,0,0.4) !important;
-            transform: translateY(-1px) !important;
-        }
-        /* ══ Sidebar premium hints ══ */
-        section[data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, rgba(2,8,22,0.98) 0%, rgba(4,10,28,1) 100%) !important;
-        }
-        section[data-testid="stSidebar"] .stRadio > div {
-            background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        /* ══ MATERIAL SYMBOLS PROTECTION — must be last to win cascade ══ */
-        /* Two-attribute selectors beat any single-attribute rule above    */
-        [data-testid="stExpander"] details summary span.material-symbols-rounded,
-        [data-testid="stExpander"] details summary span.material-symbols-outlined,
-        [data-testid="stExpander"] details summary span.material-symbols-sharp,
-        [data-testid="stSidebar"] span.material-symbols-rounded,
-        [data-testid="stSidebar"] span.material-symbols-outlined,
-        [data-testid="stSidebar"] span.material-symbols-sharp,
-        span.material-symbols-rounded,
-        span.material-symbols-outlined,
-        span.material-symbols-sharp {
-            font-family: "Material Symbols Rounded" !important;
-            font-style: normal !important;
-            font-weight: normal !important;
-            font-size: inherit !important;
-            line-height: 1 !important;
-            letter-spacing: normal !important;
-            text-transform: none !important;
-            word-wrap: normal !important;
-            white-space: nowrap !important;
-            font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24 !important;
-            -webkit-font-smoothing: antialiased !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _resolve_market_session(now_ct: datetime | None = None) -> dict[str, str]:
-    """Map current time to market session label/class for the command bar. ET = CT + 1h."""
+def render_section_header(title: str, subtitle: str | None = None) -> None:
+    """Render a compact styled section header."""
 
-    now = now_ct or (current_central_time() if current_central_time else datetime.now())
-    weekday = now.weekday()  # Mon=0..Sun=6
-    hour = now.hour + now.minute / 60.0  # CT decimal hour
-    if weekday >= 5:
-        return {"label": "WEEKEND", "cls": "status-closed", "icon": "◌"}
-    # CT windows: pre-market 3:00-8:30, regular 8:30-15:00, after 15:00-19:00
-    if 3.0 <= hour < 8.5:
-        return {"label": "PRE-MARKET", "cls": "status-premarket", "icon": "◐"}
-    if 8.5 <= hour < 15.0:
-        return {"label": "MARKET OPEN", "cls": "status-open", "icon": "●"}
-    if 15.0 <= hour < 19.0:
-        return {"label": "AFTER HOURS", "cls": "status-afterhours", "icon": "◑"}
-    return {"label": "MARKET CLOSED", "cls": "status-closed", "icon": "○"}
+    subtitle_html = f'<div class="spx-section-subtitle">{subtitle}</div>' if subtitle else ""
+    st.markdown(
+        f"""
+        <div class="spx-shell">
+            <div class="spx-section-title">{title}</div>
+            {subtitle_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> None:
-    """Render the premium top-of-app command bar with brand, clock, market status, mode."""
+def render_app_header(*, visibility_mode: str, operating_mode: str, next_trading_date: date) -> None:
+    """Render one clean app-level header for the live product shell."""
 
-    now = current_central_time() if current_central_time else datetime.now()
-    et_now = now + timedelta(hours=1)
-    clock = et_now.strftime("%H:%M:%S")
-    date_str = et_now.strftime("%a %b %d")
-    session = _resolve_market_session(now)
-    mode_icon = "🔬" if visibility_mode == "Edge Lab" else "◉"
-
-    next_date_html = ""
-    if next_trading_date is not None:
-        try:
-            next_date_html = (
-                f'<div style="text-align:right;">'
-                f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Next Session</div>'
-                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.9rem;color:rgba(244,247,255,0.85);">{escape(str(next_trading_date))}</div>'
-                f'</div>'
+    now_ct = current_central_time()
+    market_status = "MARKET OPEN" if is_live_market_session() else "MARKET CLOSED"
+    subtitle = "Production operator console" if visibility_mode == "Production Mode" else "Edge Lab diagnostics"
+    with st.container(border=True):
+        left_col, right_col = st.columns([3.4, 1.3], gap="large")
+        with left_col:
+            st.caption("SPX PROPHET")
+            st.markdown("## Live Decision Console")
+            st.caption(subtitle)
+        with right_col:
+            st.metric("Mode", sanitize_ui_text(visibility_mode, fallback="Production Mode"))
+            st.caption(
+                " | ".join(
+                    [
+                        market_status,
+                        sanitize_ui_text(operating_mode, fallback="Live Mode"),
+                        now_ct.strftime("%I:%M %p CT"),
+                        next_trading_date.strftime("%a %b %d"),
+                    ]
+                )
             )
-        except Exception:
-            next_date_html = ""
 
-    _status_styles = {
-        "status-open":       ("background:rgba(0,230,118,0.14);border:1px solid rgba(0,230,118,0.32)", "background:#00e676;box-shadow:0 0 8px #00e676"),
-        "status-premarket":  ("background:rgba(255,212,64,0.12);border:1px solid rgba(255,212,64,0.28)", "background:#ffd740"),
-        "status-afterhours": ("background:rgba(179,136,255,0.12);border:1px solid rgba(179,136,255,0.28)", "background:#b388ff"),
-        "status-closed":     ("background:rgba(142,161,188,0.1);border:1px solid rgba(142,161,188,0.22)", "background:#8ea1bc"),
-    }
-    _status_style, _dot_style = _status_styles.get(session["cls"], _status_styles["status-closed"])
-    _mode_style = (
-        "background:rgba(179,136,255,0.14);border:1px solid rgba(179,136,255,0.3);color:#c8a8ff"
-        if visibility_mode == "Edge Lab"
-        else "background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.26);color:#6ae6ff"
-    )
-
-    st.markdown(
-        # Keyframes must live in the same st.markdown block to reach this element
-        '<style>'
-        '@keyframes spxBrandShimmer{'
-        '0%{background-position:0% center}'
-        '100%{background-position:300% center}'
-        '}'
-        '@keyframes spxIconGlow{'
-        '0%,100%{box-shadow:0 0 22px rgba(0,212,255,.45),0 0 44px rgba(0,150,255,.18)}'
-        '50%{box-shadow:0 0 42px rgba(0,212,255,.85),0 0 84px rgba(0,150,255,.38),0 0 130px rgba(0,80,255,.18)}'
-        '}'
-        '@keyframes spxBarTopLine{'
-        '0%,100%{opacity:.3}'
-        '50%{opacity:1}'
-        '}'
-        '@keyframes spxProphetGlow{'
-        '0%,100%{text-shadow:0 0 18px rgba(0,212,255,.25),0 2px 8px rgba(0,0,0,.6)}'
-        '50%{text-shadow:0 0 40px rgba(0,212,255,.6),0 0 80px rgba(0,150,255,.25),0 2px 8px rgba(0,0,0,.6)}'
-        '}'
-        '</style>'
-        # ── Outer container ──────────────────────────────────────────────────
-        f'<div style="position:relative;overflow:hidden;'
-        f'padding:18px 24px 16px 24px;margin-bottom:16px;'
-        f'background:linear-gradient(135deg,rgba(1,6,20,0.99) 0%,rgba(3,10,28,0.98) 40%,rgba(0,8,24,0.99) 100%);'
-        f'border:1px solid rgba(0,212,255,0.16);border-radius:20px;'
-        f'box-shadow:0 8px 40px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.025) inset;">'
-
-        # Radial glow blobs (decorative background depth)
-        f'<div style="pointer-events:none;position:absolute;inset:0;">'
-        f'<div style="position:absolute;top:-30px;left:60px;width:280px;height:120px;'
-        f'background:radial-gradient(ellipse,rgba(0,212,255,0.08) 0%,transparent 70%);"></div>'
-        f'<div style="position:absolute;bottom:-20px;right:80px;width:220px;height:100px;'
-        f'background:radial-gradient(ellipse,rgba(0,80,255,0.07) 0%,transparent 70%);"></div>'
-        f'</div>'
-
-        # Animated top-edge glow line
-        f'<div style="position:absolute;top:0;left:0;right:0;height:2px;'
-        f'background:linear-gradient(90deg,transparent 0%,rgba(0,212,255,0.0) 10%,rgba(0,212,255,0.7) 40%,rgba(100,200,255,1) 50%,rgba(0,212,255,0.7) 60%,rgba(0,212,255,0.0) 90%,transparent 100%);'
-        f'animation:spxBarTopLine 3s ease-in-out infinite;"></div>'
-
-        # ── Brand block ──────────────────────────────────────────────────────
-        f'<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
-        f'<div style="display:flex;align-items:center;gap:16px;">'
-
-        # Icon bubble: animated pyramid with orbiting stars
-        f'<div style="flex-shrink:0;width:54px;height:54px;border-radius:16px;'
-        f'background:linear-gradient(135deg,#060810 0%,#0a0d1c 50%,#060a10 100%);'
-        f'border:1px solid rgba(0,212,255,0.3);overflow:hidden;'
-        f'display:flex;align-items:center;justify-content:center;'
-        f'animation:spxIconGlow 3s ease-in-out infinite;">'
-        '<svg viewBox="0 0 54 54" width="50" height="50" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
-        '<defs>'
-        '<linearGradient id="pyrR" x1="0%" y1="0%" x2="100%" y2="100%">'
-        '<stop offset="0%" stop-color="#FFE033"/><stop offset="100%" stop-color="#C8900A"/>'
-        '</linearGradient>'
-        '<linearGradient id="pyrL" x1="100%" y1="0%" x2="0%" y2="100%">'
-        '<stop offset="0%" stop-color="#B07808"/><stop offset="100%" stop-color="#7A5508"/>'
-        '</linearGradient>'
-        '<filter id="sg" x="-150%" y="-150%" width="400%" height="400%">'
-        '<feGaussianBlur in="SourceGraphic" stdDeviation="1.0" result="b"/>'
-        '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
-        '</filter>'
-        '<filter id="pg" x="-30%" y="-30%" width="160%" height="160%">'
-        '<feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="b"/>'
-        '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
-        '</filter>'
-        '<path id="o1" d="M 45.7,26.7 A 19,4.5 -10 1,0 8.3,33.3 A 19,4.5 -10 1,0 45.7,26.7"/>'
-        '<path id="o2" d="M 36.2,37.1 A 16,6 55 1,0 17.8,10.9 A 16,6 55 1,0 36.2,37.1"/>'
-        '<path id="o3" d="M 35.5,8.9 A 20,5 -65 1,0 18.5,45.1 A 20,5 -65 1,0 35.5,8.9"/>'
-        '</defs>'
-        '<circle cx="7" cy="9" r="0.7" fill="white" opacity="0.35"/>'
-        '<circle cx="47" cy="11" r="0.5" fill="white" opacity="0.3"/>'
-        '<circle cx="5" cy="42" r="0.6" fill="#6ae6ff" opacity="0.3"/>'
-        '<circle cx="49" cy="46" r="0.5" fill="white" opacity="0.25"/>'
-        '<circle cx="44" cy="5" r="0.4" fill="#c0a0ff" opacity="0.4"/>'
-        '<circle cx="10" cy="48" r="0.5" fill="white" opacity="0.25"/>'
-        '<ellipse cx="27" cy="30" rx="19" ry="4.5" fill="none" stroke="rgba(0,212,255,0.30)" stroke-width="0.6" stroke-dasharray="2,2" transform="rotate(-10,27,30)"/>'
-        '<ellipse cx="27" cy="24" rx="16" ry="6" fill="none" stroke="rgba(180,100,255,0.30)" stroke-width="0.6" stroke-dasharray="2,2" transform="rotate(55,27,24)"/>'
-        '<ellipse cx="27" cy="27" rx="20" ry="5" fill="none" stroke="rgba(100,200,255,0.24)" stroke-width="0.6" stroke-dasharray="2,2" transform="rotate(-65,27,27)"/>'
-        '<polygon points="27,7 43,43 27,43" fill="url(#pyrR)" filter="url(#pg)"/>'
-        '<polygon points="27,7 11,43 27,43" fill="url(#pyrL)"/>'
-        '<line x1="17.5" y1="31" x2="36.5" y2="31" stroke="rgba(255,215,0,0.28)" stroke-width="0.5"/>'
-        '<circle cx="27" cy="7" r="2" fill="#FFE033" opacity="0.85">'
-        '<animate attributeName="r" values="1.5;3;1.5" dur="2.4s" repeatCount="indefinite"/>'
-        '<animate attributeName="opacity" values="0.85;0.3;0.85" dur="2.4s" repeatCount="indefinite"/>'
-        '</circle>'
-        '<circle r="1.8" fill="#6ae6ff" filter="url(#sg)">'
-        '<animateMotion dur="3.2s" repeatCount="indefinite" rotate="auto"><mpath xlink:href="#o1" href="#o1"/></animateMotion>'
-        '</circle>'
-        '<circle r="1.0" fill="#b0eeff" filter="url(#sg)" opacity="0.7">'
-        '<animateMotion dur="3.2s" repeatCount="indefinite" begin="1.6s" rotate="auto"><mpath xlink:href="#o1" href="#o1"/></animateMotion>'
-        '</circle>'
-        '<circle r="1.5" fill="#c0a0ff" filter="url(#sg)">'
-        '<animateMotion dur="4.8s" repeatCount="indefinite" begin="0.5s" rotate="auto"><mpath xlink:href="#o2" href="#o2"/></animateMotion>'
-        '</circle>'
-        '<circle r="0.9" fill="#e0d0ff" filter="url(#sg)" opacity="0.65">'
-        '<animateMotion dur="4.8s" repeatCount="indefinite" begin="2.9s" rotate="auto"><mpath xlink:href="#o2" href="#o2"/></animateMotion>'
-        '</circle>'
-        '<circle r="1.6" fill="#ffffff" filter="url(#sg)">'
-        '<animateMotion dur="2.8s" repeatCount="indefinite" begin="0.8s" rotate="auto"><mpath xlink:href="#o3" href="#o3"/></animateMotion>'
-        '</circle>'
-        '</svg>'
-        f'</div>'
-
-        # Name + subtitle
-        f'<div style="display:flex;flex-direction:column;gap:3px;">'
-
-        # "SPX" — large animated gradient shimmer text
-        f'<div style="display:flex;align-items:baseline;gap:10px;line-height:1;">'
-        f'<span style="font-family:\'Outfit\',sans-serif;font-size:2.6rem;font-weight:900;'
-        f'letter-spacing:-0.04em;'
-        f'background:linear-gradient(90deg,#6ae6ff 0%,#00d4ff 20%,#e8f8ff 45%,#00d4ff 70%,#6ae6ff 100%);'
-        f'background-size:300% auto;'
-        f'-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
-        f'background-clip:text;'
-        f'animation:spxBrandShimmer 5s linear infinite;">SPX</span>'
-
-        # "PROPHET" — bold white with subtle pulse glow
-        f'<span style="font-family:\'Outfit\',sans-serif;font-size:2.6rem;font-weight:300;'
-        f'letter-spacing:0.12em;color:#e8f4ff;'
-        f'animation:spxProphetGlow 4s ease-in-out infinite;">PROPHET</span>'
-
-        # Version badge
-        f'<span style="font-size:0.58rem;font-weight:700;letter-spacing:0.06em;'
-        f'background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.28);'
-        f'color:#6ae6ff;padding:2px 8px;border-radius:6px;'
-        f'vertical-align:middle;align-self:center;">{escape(APP_VERSION)}</span>'
-        f'</div>'
-
-        # Subtitle tagline
-        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.63rem;font-weight:600;'
-        f'letter-spacing:0.16em;text-transform:uppercase;'
-        f'color:rgba(106,230,255,0.5);">ES Structure &nbsp;·&nbsp; Options Intelligence &nbsp;·&nbsp; 0DTE</div>'
-        f'</div>'  # end name+subtitle
-        f'</div>'  # end brand left
-
-        # ── Right metrics ────────────────────────────────────────────────────
-        f'<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
-
-        # Clock
-        f'<div style="text-align:right;">'
-        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">New York</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{clock}&nbsp;ET</div>'
-        f'</div>'
-
-        # Date
-        f'<div style="text-align:right;">'
-        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Date</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{date_str}</div>'
-        f'</div>'
-
-        f'{next_date_html}'
-
-        # Market status pill
-        f'<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;{_status_style}">'
-        f'<div style="width:7px;height:7px;border-radius:50%;{_dot_style}"></div>'
-        f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">{escape(session["label"])}</div>'
-        f'</div>'
-
-        # Mode pill
-        f'<div style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;{_mode_style}">'
-        f'<div style="font-size:0.68rem;font-weight:800;letter-spacing:0.11em;text-transform:uppercase;">{mode_icon}&nbsp;{escape(visibility_mode)}</div>'
-        f'</div>'
-
-        f'</div>'  # end right metrics
-        f'</div>'  # end inner flex
-        f'</div>',  # end outer container
-        unsafe_allow_html=True,
-    )
-
-
-def render_section_header(title: str, subtitle: str | None = None, icon: str = "", icon_gradient: str = "linear-gradient(135deg,#00d4ff,#6ae6ff)") -> None:
-    """Render a premium bordered section header matching the MI design language."""
-
-    _icon_html = (
-        f'<div style="flex-shrink:0;width:38px;height:38px;border-radius:10px;'
-        f'background:{icon_gradient};'
-        f'box-shadow:0 0 16px rgba(0,212,255,0.28);'
-        f'display:flex;align-items:center;justify-content:center;font-size:1.1rem;">{icon}</div>'
-    ) if icon else ""
-    _sub_html = (
-        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.55);margin-top:3px;letter-spacing:0.03em;">'
-        f'{subtitle}</div>'
-    ) if subtitle else ""
-    st.markdown(
-        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.12);'
-        f'box-shadow:0 4px 24px rgba(0,0,0,0.32);margin-bottom:10px;">'
-        f'<div style="display:flex;align-items:center;gap:13px;padding:13px 18px;'
-        f'background:linear-gradient(135deg,rgba(0,25,55,0.98) 0%,rgba(4,8,20,0.98) 100%);">'
-        f'{_icon_html}'
-        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:700;'
-        f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">{escape(title)}</div>{_sub_html}</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def render_divider() -> None:
-    """Render a gradient accent divider using inline styles."""
-    st.markdown(
-        '<div style="height:1px;margin:18px 0;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.18),transparent);"></div>',
-        unsafe_allow_html=True,
-    )
 
 def build_render_fallback_payload(section_title: str, exc: Exception | None = None, *, developer_mode: bool = False) -> dict[str, str]:
     """Build a production-safe fallback message for a failed section render."""
@@ -3089,20 +2329,13 @@ def build_render_fallback_payload(section_title: str, exc: Exception | None = No
 def render_section_fallback(payload: dict[str, str]) -> None:
     """Render one polished fallback card instead of exposing raw tracebacks."""
 
-    _title = escape(str(payload.get("title", "Section unavailable")))
-    _reason = escape(str(payload.get("reason", "Temporarily unavailable")))
     st.markdown(
-        f'<div style="border-radius:12px;overflow:hidden;border:1px solid rgba(255,109,64,0.2);'
-        f'box-shadow:0 4px 20px rgba(0,0,0,0.3);margin-bottom:10px;">'
-        f'<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;'
-        f'background:linear-gradient(135deg,rgba(40,10,5,0.98),rgba(20,5,2,0.98));">'
-        f'<div style="flex-shrink:0;width:34px;height:34px;border-radius:8px;'
-        f'background:linear-gradient(135deg,#b71c1c,#7f0000);'
-        f'display:flex;align-items:center;justify-content:center;font-size:1rem;">⚠️</div>'
-        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:0.88rem;font-weight:700;'
-        f'color:#ff7043;line-height:1.2;">{_title}</div>'
-        f'<div style="font-size:0.72rem;color:rgba(224,238,255,0.5);margin-top:2px;">{_reason}</div>'
-        f'</div></div></div>',
+        f"""
+        <div class="spx-fallback-card">
+            <div class="spx-fallback-title">{escape(str(payload.get("title", "Section unavailable")))}</div>
+            <div class="spx-fallback-body">{escape(str(payload.get("reason", "Temporarily unavailable")))}</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -3267,11 +2500,505 @@ LIVE_STRUCTURE_STATE_LABELS = {
     "OUTSIDE_ALL_STRUCTURES": "Outside All Structures",
 }
 
+CHANNEL_STATE_INSIDE = "INSIDE"
+CHANNEL_STATE_TESTING_CEILING = "TESTING_CEILING"
+CHANNEL_STATE_TESTING_FLOOR = "TESTING_FLOOR"
+CHANNEL_STATE_BROKEN_ABOVE = "BROKEN_ABOVE"
+CHANNEL_STATE_BROKEN_BELOW = "BROKEN_BELOW"
+CHANNEL_STATE_ACCEPTED_ABOVE = "ACCEPTED_ABOVE"
+CHANNEL_STATE_ACCEPTED_BELOW = "ACCEPTED_BELOW"
+
+TOUCH_TOLERANCE_POINTS = 2.0
+MIN_TEST_TOUCHES = 2
+ACCEPTANCE_RETEST_TOLERANCE_POINTS = 2.0
+
 
 def format_live_state_label(value: str | None) -> str:
     """Format raw live state labels for calm production display."""
 
     return LIVE_STRUCTURE_STATE_LABELS.get(str(value or "").upper(), str(value or "Unknown").replace("_", " ").title())
+
+
+def _normalize_channel_state_candles(candles: pd.DataFrame | None) -> pd.DataFrame:
+    """Normalize an hourly candle frame for channel-state analysis."""
+
+    if candles is None or candles.empty or "timestamp" not in candles.columns:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close"])
+
+    working = candles.copy()
+    timestamps = pd.to_datetime(working["timestamp"], errors="coerce")
+    if getattr(timestamps.dt, "tz", None) is None:
+        timestamps = timestamps.dt.tz_localize("America/Chicago", ambiguous="NaT", nonexistent="shift_forward")
+    else:
+        timestamps = timestamps.dt.tz_convert("America/Chicago")
+    working["timestamp"] = timestamps
+    working = working.dropna(subset=["timestamp"])
+    for column in ("open", "high", "low", "close"):
+        if column not in working.columns:
+            working[column] = None
+        working[column] = pd.to_numeric(working[column], errors="coerce")
+    working = working.dropna(subset=["high", "low", "close"]).sort_values("timestamp").reset_index(drop=True)
+    return working[["timestamp", "open", "high", "low", "close"]]
+
+
+def _count_boundary_touches(
+    candles: pd.DataFrame,
+    *,
+    boundary: float | None,
+    side: str,
+    tolerance: float,
+) -> int:
+    """Count distinct hourly candles that meaningfully test one channel boundary."""
+
+    boundary_value = _to_float_or_none(boundary)
+    if boundary_value is None or candles.empty:
+        return 0
+
+    count = 0
+    for _, row in candles.iterrows():
+        high = _to_float_or_none(row.get("high"))
+        low = _to_float_or_none(row.get("low"))
+        close = _to_float_or_none(row.get("close"))
+        if high is None or low is None or close is None:
+            continue
+        if side == "ceiling":
+            touched = high >= (boundary_value - tolerance) and close <= (boundary_value + tolerance)
+        else:
+            touched = low <= (boundary_value + tolerance) and close >= (boundary_value - tolerance)
+        if touched:
+            count += 1
+    return count
+
+
+def _evaluate_acceptance_sequence(
+    candles: pd.DataFrame,
+    *,
+    level: float | None,
+    direction: str,
+    tolerance: float,
+) -> dict[str, Any]:
+    """Evaluate break and retest acceptance against a fixed structural level."""
+
+    level_value = _to_float_or_none(level)
+    if level_value is None or candles.empty:
+        return {
+            "state": CHANNEL_STATE_INSIDE,
+            "breakout_confirmation_candle_time": None,
+            "retracement_confirmation_candle_time": None,
+            "accepted_level": None,
+            "acceptance_confirmed": False,
+        }
+
+    latest_broken: dict[str, Any] | None = None
+    for idx in range(len(candles) - 1, -1, -1):
+        row = candles.iloc[idx]
+        close = _to_float_or_none(row.get("close"))
+        if close is None:
+            continue
+        broke = close > level_value if direction == "above" else close < level_value
+        if not broke:
+            continue
+
+        breakout_time = row["timestamp"].isoformat() if pd.notna(row["timestamp"]) else None
+        next_row = candles.iloc[idx + 1] if idx + 1 < len(candles) else None
+        if next_row is not None:
+            next_low = _to_float_or_none(next_row.get("low"))
+            next_high = _to_float_or_none(next_row.get("high"))
+            next_close = _to_float_or_none(next_row.get("close"))
+            retraced = (
+                next_low is not None
+                and next_high is not None
+                and next_low <= (level_value + tolerance)
+                and next_high >= (level_value - tolerance)
+            )
+            held = next_close is not None and (next_close > level_value if direction == "above" else next_close < level_value)
+            if retraced and held:
+                return {
+                    "state": CHANNEL_STATE_ACCEPTED_ABOVE if direction == "above" else CHANNEL_STATE_ACCEPTED_BELOW,
+                    "breakout_confirmation_candle_time": breakout_time,
+                    "retracement_confirmation_candle_time": next_row["timestamp"].isoformat() if pd.notna(next_row["timestamp"]) else None,
+                    "accepted_level": round_price(level_value),
+                    "acceptance_confirmed": True,
+                }
+
+        if latest_broken is None:
+            latest_broken = {
+                "state": CHANNEL_STATE_BROKEN_ABOVE if direction == "above" else CHANNEL_STATE_BROKEN_BELOW,
+                "breakout_confirmation_candle_time": breakout_time,
+                "retracement_confirmation_candle_time": None,
+                "accepted_level": round_price(level_value),
+                "acceptance_confirmed": False,
+            }
+
+    if latest_broken is not None:
+        return latest_broken
+
+    return {
+        "state": CHANNEL_STATE_INSIDE,
+        "breakout_confirmation_candle_time": None,
+        "retracement_confirmation_candle_time": None,
+        "accepted_level": round_price(level_value),
+        "acceptance_confirmed": False,
+    }
+
+
+def _build_channel_orientation_snapshot(
+    *,
+    orientation: str,
+    current_price: float | None,
+    candles: pd.DataFrame,
+    overnight_candles: pd.DataFrame,
+    ceiling: float | None,
+    floor: float | None,
+) -> dict[str, Any]:
+    """Build the deterministic state snapshot for one channel orientation."""
+
+    price = _to_float_or_none(current_price)
+    ceiling_value = _to_float_or_none(ceiling)
+    floor_value = _to_float_or_none(floor)
+    inside = (
+        price is not None
+        and ceiling_value is not None
+        and floor_value is not None
+        and floor_value <= price <= ceiling_value
+    )
+
+    ceiling_touch_count = _count_boundary_touches(
+        candles,
+        boundary=ceiling_value,
+        side="ceiling",
+        tolerance=TOUCH_TOLERANCE_POINTS,
+    )
+    floor_touch_count = _count_boundary_touches(
+        candles,
+        boundary=floor_value,
+        side="floor",
+        tolerance=TOUCH_TOLERANCE_POINTS,
+    )
+    overnight_ceiling_touch_count = _count_boundary_touches(
+        overnight_candles,
+        boundary=ceiling_value,
+        side="ceiling",
+        tolerance=TOUCH_TOLERANCE_POINTS,
+    )
+    overnight_floor_touch_count = _count_boundary_touches(
+        overnight_candles,
+        boundary=floor_value,
+        side="floor",
+        tolerance=TOUCH_TOLERANCE_POINTS,
+    )
+
+    accepted_above = _evaluate_acceptance_sequence(
+        candles,
+        level=ceiling_value,
+        direction="above",
+        tolerance=ACCEPTANCE_RETEST_TOLERANCE_POINTS,
+    )
+    accepted_below = _evaluate_acceptance_sequence(
+        candles,
+        level=floor_value,
+        direction="below",
+        tolerance=ACCEPTANCE_RETEST_TOLERANCE_POINTS,
+    )
+
+    if accepted_above["state"] == CHANNEL_STATE_ACCEPTED_ABOVE:
+        state = CHANNEL_STATE_ACCEPTED_ABOVE
+        acceptance = accepted_above
+        reason = f"{orientation.title()} ceiling broke and held on the retest."
+    elif accepted_below["state"] == CHANNEL_STATE_ACCEPTED_BELOW:
+        state = CHANNEL_STATE_ACCEPTED_BELOW
+        acceptance = accepted_below
+        reason = f"{orientation.title()} floor broke and held on the retest."
+    elif accepted_above["state"] == CHANNEL_STATE_BROKEN_ABOVE:
+        state = CHANNEL_STATE_BROKEN_ABOVE
+        acceptance = accepted_above
+        reason = f"{orientation.title()} ceiling broke, but acceptance is not confirmed."
+    elif accepted_below["state"] == CHANNEL_STATE_BROKEN_BELOW:
+        state = CHANNEL_STATE_BROKEN_BELOW
+        acceptance = accepted_below
+        reason = f"{orientation.title()} floor broke, but acceptance is not confirmed."
+    elif inside and overnight_ceiling_touch_count >= MIN_TEST_TOUCHES:
+        state = CHANNEL_STATE_TESTING_CEILING
+        acceptance = accepted_above
+        reason = f"{orientation.title()} ceiling is being tested repeatedly overnight."
+    elif inside and overnight_floor_touch_count >= MIN_TEST_TOUCHES:
+        state = CHANNEL_STATE_TESTING_FLOOR
+        acceptance = accepted_below
+        reason = f"{orientation.title()} floor is being tested repeatedly overnight."
+    else:
+        state = CHANNEL_STATE_INSIDE
+        acceptance = accepted_above if accepted_above["breakout_confirmation_candle_time"] else accepted_below
+        reason = f"Price remains inside the {orientation} channel."
+
+    return {
+        "orientation": orientation,
+        "state": state,
+        "reason": reason,
+        "inside_channel": inside,
+        "ceiling": round_price(ceiling_value) if ceiling_value is not None else None,
+        "floor": round_price(floor_value) if floor_value is not None else None,
+        "ceiling_touch_count": ceiling_touch_count,
+        "floor_touch_count": floor_touch_count,
+        "overnight_ceiling_touch_count": overnight_ceiling_touch_count,
+        "overnight_floor_touch_count": overnight_floor_touch_count,
+        "breakout_confirmation_candle_time": acceptance.get("breakout_confirmation_candle_time"),
+        "retracement_confirmation_candle_time": acceptance.get("retracement_confirmation_candle_time"),
+        "accepted_level": acceptance.get("accepted_level"),
+        "acceptance_confirmed": bool(acceptance.get("acceptance_confirmed")),
+    }
+
+
+def resolve_channel_trade_context(
+    *,
+    current_price: float | None,
+    line_values: dict[str, float],
+    es_candles: pd.DataFrame | None,
+    next_trading_date: date | None,
+    scenario_origin: str | None,
+    live_scenario: str | None,
+) -> dict[str, Any]:
+    """Resolve one deterministic channel-state context for execution decisions."""
+
+    required = {"asc_ceiling", "asc_floor", "desc_ceiling", "desc_floor"}
+    if required.difference(line_values):
+        return {
+            "channel_state": CHANNEL_STATE_INSIDE,
+            "channel_orientation": "",
+            "channel_reason": "Channel boundaries unavailable",
+            "trade_bias": "neutral",
+            "activation_state": "WAIT",
+            "primary_direction": "",
+            "alternate_direction": "",
+            "activation_direction": "",
+            "activation_allowed": False,
+            "ceiling_touch_count": 0,
+            "floor_touch_count": 0,
+            "overnight_ceiling_touch_count": 0,
+            "overnight_floor_touch_count": 0,
+            "breakout_confirmation_candle_time": None,
+            "retracement_confirmation_candle_time": None,
+            "accepted_level": None,
+            "acceptance_confirmed": False,
+            "entry_price_underlying": None,
+            "entry_zone_low": None,
+            "entry_zone_high": None,
+            "entry_zone_mid": None,
+            "entry_reason": "Entry unavailable",
+            "descending_channel_state": CHANNEL_STATE_INSIDE,
+            "ascending_channel_state": CHANNEL_STATE_INSIDE,
+        }
+
+    price = _to_float_or_none(current_price)
+    normalized_candles = _normalize_channel_state_candles(es_candles)
+    if next_trading_date is None:
+        next_trading_date = current_central_time().date()
+    prior_session_date = previous_business_day(next_trading_date)
+    overnight_candles = filter_time_range(
+        normalized_candles,
+        at_central(prior_session_date, 17, 0),
+        at_central(next_trading_date, 9, 0),
+    ) if not normalized_candles.empty else normalized_candles
+
+    descending_snapshot = _build_channel_orientation_snapshot(
+        orientation="descending",
+        current_price=price,
+        candles=normalized_candles,
+        overnight_candles=overnight_candles,
+        ceiling=line_values.get("desc_ceiling"),
+        floor=line_values.get("desc_floor"),
+    )
+    ascending_snapshot = _build_channel_orientation_snapshot(
+        orientation="ascending",
+        current_price=price,
+        candles=normalized_candles,
+        overnight_candles=overnight_candles,
+        ceiling=line_values.get("asc_ceiling"),
+        floor=line_values.get("asc_floor"),
+    )
+
+    scenario_text = f"{str(live_scenario or '')} {str(scenario_origin or '')}".upper()
+    origin_text = str(scenario_origin or "").upper()
+    live_text = str(live_scenario or "").upper()
+    active_snapshot = descending_snapshot
+    if price is not None:
+        if (
+            line_values.get("desc_floor") is not None
+            and line_values.get("desc_ceiling") is not None
+            and float(line_values["desc_floor"]) <= price <= float(line_values["desc_ceiling"])
+        ):
+            active_snapshot = descending_snapshot
+        elif (
+            ("ASCENDING" in origin_text or (not origin_text and "ASCENDING" in live_text))
+            and ascending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_BELOW, CHANNEL_STATE_BROKEN_BELOW, CHANNEL_STATE_ACCEPTED_ABOVE}
+        ):
+            active_snapshot = ascending_snapshot
+        elif (
+            ("DESCENDING" in origin_text or (not origin_text and "DESCENDING" in live_text))
+            and descending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_ABOVE, CHANNEL_STATE_BROKEN_ABOVE, CHANNEL_STATE_ACCEPTED_BELOW}
+        ):
+            active_snapshot = descending_snapshot
+        elif (
+            descending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_ABOVE, CHANNEL_STATE_BROKEN_ABOVE}
+            and price > float(line_values.get("desc_ceiling", price))
+        ):
+            active_snapshot = descending_snapshot
+        elif (
+            ascending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_BELOW, CHANNEL_STATE_BROKEN_BELOW}
+            and price < float(line_values.get("asc_floor", price))
+        ):
+            active_snapshot = ascending_snapshot
+        elif (
+            line_values.get("asc_floor") is not None
+            and line_values.get("asc_ceiling") is not None
+            and float(line_values["asc_floor"]) <= price <= float(line_values["asc_ceiling"])
+        ):
+            active_snapshot = ascending_snapshot
+        elif price > float(line_values.get("asc_ceiling", price)):
+            active_snapshot = ascending_snapshot
+        elif price < float(line_values.get("desc_floor", price)):
+            active_snapshot = descending_snapshot
+        elif ascending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_BELOW, CHANNEL_STATE_BROKEN_BELOW, CHANNEL_STATE_ACCEPTED_ABOVE}:
+            active_snapshot = ascending_snapshot
+        elif descending_snapshot["state"] in {CHANNEL_STATE_ACCEPTED_ABOVE, CHANNEL_STATE_BROKEN_ABOVE, CHANNEL_STATE_ACCEPTED_BELOW}:
+            active_snapshot = descending_snapshot
+        elif "ASCENDING" in scenario_text:
+            active_snapshot = ascending_snapshot
+        else:
+            active_snapshot = descending_snapshot
+    elif "ASCENDING" in scenario_text:
+        active_snapshot = ascending_snapshot
+
+    orientation = active_snapshot["orientation"]
+    state = active_snapshot["state"]
+    entry_anchor = active_snapshot["ceiling"] if orientation == "descending" else active_snapshot["floor"]
+    activation_state = "WAIT"
+    trade_bias = "neutral"
+    primary_direction = ""
+    alternate_direction = ""
+    activation_direction = ""
+    activation_allowed = False
+    entry_reason = "Entry unavailable"
+    zone_width = ACCEPTANCE_RETEST_TOLERANCE_POINTS
+
+    if orientation == "descending":
+        alternate_direction = "CALL"
+        if state == CHANNEL_STATE_INSIDE:
+            trade_bias = "bearish"
+            primary_direction = "PUT"
+            activation_direction = "PUT"
+            activation_allowed = True
+            entry_anchor = active_snapshot["ceiling"]
+            activation_state = "PUT setup active"
+            entry_reason = "Inside descending continuation uses the ceiling rejection area."
+        elif state == CHANNEL_STATE_TESTING_CEILING:
+            trade_bias = "bearish weakening"
+            primary_direction = "PUT"
+            activation_state = "WAIT"
+            entry_anchor = active_snapshot["ceiling"]
+            entry_reason = "Breakout pressure is building at the descending ceiling."
+        elif state == CHANNEL_STATE_BROKEN_ABOVE:
+            trade_bias = "bullish pressure"
+            primary_direction = "CALL"
+            activation_state = "WAIT FOR ACCEPTANCE"
+            entry_anchor = active_snapshot["ceiling"]
+            entry_reason = "Break above the descending ceiling needs a retest and close back above."
+        elif state == CHANNEL_STATE_ACCEPTED_ABOVE:
+            trade_bias = "bullish"
+            primary_direction = "CALL"
+            activation_direction = "CALL"
+            activation_allowed = True
+            entry_anchor = active_snapshot["accepted_level"] or active_snapshot["ceiling"]
+            activation_state = "CALL setup active"
+            entry_reason = "Accepted-above setup uses the prior descending ceiling as support."
+        elif state == CHANNEL_STATE_BROKEN_BELOW:
+            trade_bias = "bearish pressure"
+            primary_direction = "PUT"
+            activation_state = "WAIT FOR ACCEPTANCE"
+            entry_anchor = active_snapshot["floor"]
+            entry_reason = "Break below the descending floor needs retest acceptance."
+        elif state == CHANNEL_STATE_ACCEPTED_BELOW:
+            trade_bias = "bearish"
+            primary_direction = "PUT"
+            activation_direction = "PUT"
+            activation_allowed = True
+            entry_anchor = active_snapshot["accepted_level"] or active_snapshot["floor"]
+            activation_state = "PUT setup active"
+            entry_reason = "Accepted-below setup uses the prior floor as resistance."
+    else:
+        alternate_direction = "PUT"
+        if state == CHANNEL_STATE_INSIDE:
+            trade_bias = "bullish"
+            primary_direction = "CALL"
+            activation_direction = "CALL"
+            activation_allowed = True
+            entry_anchor = active_snapshot["floor"]
+            activation_state = "CALL setup active"
+            entry_reason = "Inside ascending continuation uses the floor support area."
+        elif state == CHANNEL_STATE_TESTING_FLOOR:
+            trade_bias = "bullish weakening"
+            primary_direction = "CALL"
+            activation_state = "WAIT"
+            entry_anchor = active_snapshot["floor"]
+            entry_reason = "Breakdown pressure is building at the ascending floor."
+        elif state == CHANNEL_STATE_BROKEN_BELOW:
+            trade_bias = "bearish pressure"
+            primary_direction = "PUT"
+            activation_state = "WAIT FOR ACCEPTANCE"
+            entry_anchor = active_snapshot["floor"]
+            entry_reason = "Break below the ascending floor needs a retest and close back below."
+        elif state == CHANNEL_STATE_ACCEPTED_BELOW:
+            trade_bias = "bearish"
+            primary_direction = "PUT"
+            activation_direction = "PUT"
+            activation_allowed = True
+            entry_anchor = active_snapshot["accepted_level"] or active_snapshot["floor"]
+            activation_state = "PUT setup active"
+            entry_reason = "Accepted-below setup uses the prior ascending floor as resistance."
+        elif state == CHANNEL_STATE_BROKEN_ABOVE:
+            trade_bias = "bullish pressure"
+            primary_direction = "CALL"
+            activation_state = "WAIT FOR ACCEPTANCE"
+            entry_anchor = active_snapshot["ceiling"]
+            entry_reason = "Break above the ascending ceiling needs retest acceptance."
+        elif state == CHANNEL_STATE_ACCEPTED_ABOVE:
+            trade_bias = "bullish"
+            primary_direction = "CALL"
+            activation_direction = "CALL"
+            activation_allowed = True
+            entry_anchor = active_snapshot["accepted_level"] or active_snapshot["ceiling"]
+            activation_state = "CALL setup active"
+            entry_reason = "Accepted-above setup uses the prior ceiling as support."
+
+    return {
+        "channel_state": state,
+        "channel_orientation": orientation,
+        "channel_reason": active_snapshot["reason"],
+        "trade_bias": trade_bias,
+        "activation_state": activation_state,
+        "primary_direction": primary_direction,
+        "alternate_direction": alternate_direction,
+        "activation_direction": activation_direction,
+        "activation_allowed": activation_allowed,
+        "ceiling_touch_count": active_snapshot["ceiling_touch_count"],
+        "floor_touch_count": active_snapshot["floor_touch_count"],
+        "overnight_ceiling_touch_count": active_snapshot["overnight_ceiling_touch_count"],
+        "overnight_floor_touch_count": active_snapshot["overnight_floor_touch_count"],
+        "breakout_confirmation_candle_time": active_snapshot["breakout_confirmation_candle_time"],
+        "retracement_confirmation_candle_time": active_snapshot["retracement_confirmation_candle_time"],
+        "accepted_level": active_snapshot["accepted_level"],
+        "acceptance_confirmed": active_snapshot["acceptance_confirmed"],
+        "entry_price_underlying": entry_anchor,
+        "entry_zone_low": round_price(entry_anchor - zone_width) if entry_anchor is not None else None,
+        "entry_zone_high": round_price(entry_anchor + zone_width) if entry_anchor is not None else None,
+        "entry_zone_mid": round_price(entry_anchor) if entry_anchor is not None else None,
+        "entry_reason": entry_reason,
+        "descending_channel_state": descending_snapshot["state"],
+        "ascending_channel_state": ascending_snapshot["state"],
+        "descending_breakout_confirmation_candle_time": descending_snapshot["breakout_confirmation_candle_time"],
+        "descending_retracement_confirmation_candle_time": descending_snapshot["retracement_confirmation_candle_time"],
+        "ascending_breakout_confirmation_candle_time": ascending_snapshot["breakout_confirmation_candle_time"],
+        "ascending_retracement_confirmation_candle_time": ascending_snapshot["retracement_confirmation_candle_time"],
+    }
 
 
 def compute_live_structure_state(current_price: float | None, line_values: dict[str, float]) -> dict[str, Any]:
@@ -4031,6 +3758,14 @@ def build_execution_state(
     original_scenario = str((live_context or {}).get("scenario_origin", "") or "")
     live_scenario = str((live_context or {}).get("live_scenario", "") or original_scenario)
     transition_type = get_scenario_transition_type(original_scenario, live_scenario)
+    channel_state = str((live_context or {}).get("channel_state", CHANNEL_STATE_INSIDE) or CHANNEL_STATE_INSIDE)
+    channel_orientation = str((live_context or {}).get("channel_orientation", "") or "")
+    channel_bias = str((live_context or {}).get("trade_bias", "neutral") or "neutral")
+    activation_state = str((live_context or {}).get("activation_state", "WAIT") or "WAIT")
+    channel_reason = str((live_context or {}).get("channel_reason", "") or "")
+    activation_direction = str((live_context or {}).get("activation_direction", "") or "")
+    structural_entry_price = _to_float_or_none((live_context or {}).get("entry_price_underlying"))
+    structural_entry_reason = str((live_context or {}).get("entry_reason", "") or "")
     plan_validity = assess_plan_validity(
         original_scenario,
         live_scenario,
@@ -4052,7 +3787,7 @@ def build_execution_state(
     ladder_rows = list(option_display_state.get("ladder_rows", []))
     recommended_symbol = str(option_display_state.get("recommended_contract_symbol", "") or "")
     selected_symbol = str((selected_contract_quote or {}).get("contract_symbol") or (selected_contract_quote or {}).get("symbol") or "")
-    planned_entry_spx = _to_float_or_none(intelligence.get("locked_entry_spx")) or _to_float_or_none((play or {}).get("entry", {}).get("price"))
+    planned_entry_spx = structural_entry_price or _to_float_or_none(intelligence.get("locked_entry_spx")) or _to_float_or_none((play or {}).get("entry", {}).get("price"))
     entry_zone = build_entry_zone_model(
         locked_entry_spx=planned_entry_spx,
         current_spx_price=current_spx_price,
@@ -4060,6 +3795,22 @@ def build_execution_state(
         stop_spx=authority_levels["authoritative_stop_spx"],
         move_completion_pct=_to_float_or_none(intelligence.get("move_completion_pct")),
     )
+    direction_allowed = not activation_direction or activation_direction == direction
+    activation_requires_wait = channel_state in {
+        CHANNEL_STATE_TESTING_CEILING,
+        CHANNEL_STATE_TESTING_FLOOR,
+        CHANNEL_STATE_BROKEN_ABOVE,
+        CHANNEL_STATE_BROKEN_BELOW,
+    }
+    if channel_state in {CHANNEL_STATE_ACCEPTED_ABOVE, CHANNEL_STATE_ACCEPTED_BELOW} and not direction_allowed:
+        plan_validity = {"label": "invalid", "reason": "Live channel acceptance now favors the opposite direction."}
+    elif channel_state == CHANNEL_STATE_INSIDE and activation_direction and not direction_allowed:
+        plan_validity = {"label": "caution", "reason": f"{direction.title()} is not the active continuation side inside the {channel_orientation or 'current'} channel."}
+    elif activation_requires_wait:
+        plan_validity = {
+            "label": "caution" if plan_validity["label"] == "valid" else plan_validity["label"],
+            "reason": channel_reason or "Structure is transitioning and still needs acceptance.",
+        }
     move_completion_bucket = classify_move_completion_bucket(_to_float_or_none(intelligence.get("move_completion_pct")))
     preferred_row = choose_contract_for_strike_profile(
         ladder_rows,
@@ -4100,6 +3851,16 @@ def build_execution_state(
         structure_valid,
         cheaper_valid_strike_exists=cheaper_valid_strike_exists,
     )
+    if activation_requires_wait:
+        action = {
+            "action": "WAIT FOR RETEST" if "TESTING" in channel_state else "WAIT",
+            "reason": channel_reason or "Waiting for channel acceptance before activation.",
+        }
+    elif activation_direction and not direction_allowed:
+        action = {
+            "action": "SKIP TRADE",
+            "reason": channel_reason or "This direction is not the active channel setup.",
+        }
     trigger = classify_trigger_state(
         direction=direction,
         entry_zone=entry_zone,
@@ -4230,6 +3991,20 @@ def build_execution_state(
 
     return {
         "transition_type": transition_type,
+        "channel_state": channel_state,
+        "channel_orientation": channel_orientation,
+        "channel_trade_bias": channel_bias,
+        "channel_activation_state": activation_state,
+        "channel_reason": channel_reason,
+        "activation_direction": activation_direction,
+        "ceiling_touch_count": int((live_context or {}).get("ceiling_touch_count", 0) or 0),
+        "floor_touch_count": int((live_context or {}).get("floor_touch_count", 0) or 0),
+        "overnight_ceiling_touch_count": int((live_context or {}).get("overnight_ceiling_touch_count", 0) or 0),
+        "overnight_floor_touch_count": int((live_context or {}).get("overnight_floor_touch_count", 0) or 0),
+        "breakout_confirmation_candle_time": (live_context or {}).get("breakout_confirmation_candle_time"),
+        "retracement_confirmation_candle_time": (live_context or {}).get("retracement_confirmation_candle_time"),
+        "accepted_level": _to_float_or_none((live_context or {}).get("accepted_level")),
+        "acceptance_confirmed": bool((live_context or {}).get("acceptance_confirmed", False)),
         "plan_validity": plan_validity["label"],
         "plan_validity_reason": plan_validity["reason"],
         "timing_bucket": timing["bucket"],
@@ -4271,6 +4046,11 @@ def build_execution_state(
         "entry_zone_status": entry_zone["status"],
         "entry_zone_width_spx": entry_zone["width"],
         "entry_zone_source": entry_zone["source"],
+        "entry_price_underlying": planned_entry_spx,
+        "entry_zone_low": entry_zone["low"],
+        "entry_zone_high": entry_zone["high"],
+        "entry_zone_mid": entry_zone["mid"],
+        "entry_reason": structural_entry_reason or channel_reason or entry_zone["source"],
         "setup_state": setup_state,
         "setup_state_reason": setup_state_reason,
         "setup_priority": setup_priority,
@@ -4309,6 +4089,8 @@ def resolve_live_scenario_context(
     open_price: float | None,
     scenario_origin: str,
     state_key: str,
+    es_candles: pd.DataFrame | None = None,
+    next_trading_date: date | None = None,
     confirmation_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Persist and return the latest live scenario/state snapshot for the active session."""
@@ -4323,6 +4105,14 @@ def resolve_live_scenario_context(
         previous_live_scenario=previous_state.get("live_scenario"),
         previous_structure_state=previous_state.get("live_structure_state"),
         confirmation_confirmed=confirmation_confirmed,
+    )
+    channel_context = resolve_channel_trade_context(
+        current_price=current_price,
+        line_values=line_values,
+        es_candles=es_candles,
+        next_trading_date=next_trading_date,
+        scenario_origin=scenario_origin,
+        live_scenario=raw_snapshot.get("live_scenario"),
     )
     stable_scenario = str(previous_state.get("live_scenario") or raw_snapshot.get("live_scenario") or "")
     stable_structure = str(previous_state.get("live_structure_state") or raw_snapshot.get("live_structure_state") or "")
@@ -4360,6 +4150,7 @@ def resolve_live_scenario_context(
 
     snapshot = {
         **raw_snapshot,
+        **channel_context,
         "raw_live_scenario": raw_scenario,
         "raw_live_structure_state": raw_structure,
         "live_scenario": stable_scenario,
@@ -4817,131 +4608,35 @@ def render_key_levels_card(
     *,
     compact: bool = False,
 ) -> None:
-    """Render a premium visual key-levels ladder."""
+    """Render a compact structured key-level card without concatenated text blocks."""
 
-    current_price = current_es_price if is_valid_price_input(current_es_price) else None
+    current_label = format_ui_price(current_es_price, fallback="Not entered")
+    groups = [
+        ("Top Zone", ["hw", "asc_ceiling"]),
+        ("Mid Zone", ["asc_floor"]),
+        ("Lower Zone", ["desc_ceiling", "desc_floor"]),
+        ("Extreme Zone", ["lw"]),
+    ]
 
-    levels = []
-    for key, data in final_lines.items():
-        price = data.get("projected_price")
-        label = data.get("label", key)
-        if is_valid_price_input(price):
-            levels.append({"key": key, "label": label, "price": float(price)})
-    levels.sort(key=lambda x: x["price"], reverse=True)
+    with st.container(border=True):
+        st.caption("Structure Map")
+        st.markdown("### Key Levels")
+        st.caption("Projected ES levels for the active session framework.")
 
-    all_prices = [lv["price"] for lv in levels]
-    if current_price is not None:
-        all_prices.append(current_price)
-    price_min = min(all_prices) if all_prices else 0.0
-    price_max = max(all_prices) if all_prices else 1.0
-    price_range = price_max - price_min if price_max != price_min else 1.0
+        summary_col1, summary_col2 = st.columns(2, gap="large")
+        summary_col1.metric("Current ES", current_label)
+        summary_col2.metric("Offset", format_ui_price(effective_offset))
 
-    def _bar_pct(price: float) -> float:
-        return max(4.0, min(100.0, (price - price_min) / price_range * 100.0))
-
-    def _dist(price: float) -> tuple[str, str]:
-        if current_price is None:
-            return "—", ""
-        delta = price - current_price
-        sign = "+" if delta >= 0 else ""
-        return f"{sign}{delta:.1f}", ("dist-above" if delta >= 0 else "dist-below")
-
-    rows: list[dict] = []
-    current_inserted = False
-    for lv in levels:
-        if current_price is not None and not current_inserted and lv["price"] <= current_price:
-            rows.append({"type": "current", "price": current_price})
-            current_inserted = True
-        rows.append({"type": "level", **lv})
-    if current_price is not None and not current_inserted:
-        rows.append({"type": "current", "price": current_price})
-
-    rows_html_inline = ""
-    for row in rows:
-        if row["type"] == "current":
-            cp = row["price"]
-            pct = _bar_pct(cp)
-            rows_html_inline += (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;'
-                f'border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid rgba(0,212,255,0.55);'
-                f'background:rgba(0,212,255,0.05);">'
-                f'<div style="width:18px;font-size:0.75rem;color:#6ae6ff;text-align:center;">&#9654;</div>'
-                f'<div style="flex:0 0 110px;font-size:0.74rem;color:#6ae6ff;font-weight:600;">Current ES</div>'
-                f'<div style="flex:0 0 80px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;'
-                f'color:#6ae6ff;text-align:right;">{escape(format_price(cp))}</div>'
-                f'<div style="flex:1;padding:0 10px;">'
-                f'<div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
-                f'<div style="height:100%;width:{pct:.1f}%;background:rgba(0,212,255,0.6);border-radius:2px;"></div>'
-                f'</div></div>'
-                f'<div style="width:48px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
-                f'color:rgba(244,247,255,0.3);text-align:right;">&mdash;</div>'
-                f'</div>'
-            )
-        else:
-            price = row["price"]
-            lbl = escape(row["label"])
-            pct = _bar_pct(price)
-            d_str, d_cls = _dist(price)
-            if current_price is None:
-                border_col = "rgba(142,161,188,0.3)"
-                arrow = "&#9660;"
-                bar_col = "rgba(142,161,188,0.3)"
-                dist_col = "rgba(244,247,255,0.3)"
-            elif price > current_price:
-                border_col = "rgba(239,83,80,0.4)"
-                arrow = "&#9650;"
-                bar_col = "rgba(239,83,80,0.55)"
-                dist_col = "rgba(239,83,80,0.8)"
-            else:
-                border_col = "rgba(0,230,118,0.4)"
-                arrow = "&#9660;"
-                bar_col = "rgba(0,230,118,0.55)"
-                dist_col = "rgba(0,230,118,0.8)"
-            rows_html_inline += (
-                f'<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;'
-                f'border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid {border_col};">'
-                f'<div style="width:18px;font-size:0.75rem;color:{border_col};text-align:center;">{arrow}</div>'
-                f'<div style="flex:0 0 110px;font-size:0.74rem;color:rgba(244,247,255,0.55);font-weight:500;">{lbl}</div>'
-                f'<div style="flex:0 0 80px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;'
-                f'color:#ddeeff;text-align:right;">{escape(format_price(price))}</div>'
-                f'<div style="flex:1;padding:0 10px;">'
-                f'<div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
-                f'<div style="height:100%;width:{pct:.1f}%;background:{bar_col};border-radius:2px;"></div>'
-                f'</div></div>'
-                f'<div style="width:48px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
-                f'color:{dist_col};text-align:right;">{escape(d_str)}</div>'
-                f'</div>'
-            )
-
-    # Header badges inline
-    price_badge_html = ""
-    if current_price is not None:
-        price_badge_html += (
-            f'<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
-            f'background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.16);color:#6ae6ff;">'
-            f'ES&nbsp;<strong>{format_price(current_price)}</strong></span>'
-        )
-    if not compact:
-        price_badge_html += (
-            f'&nbsp;<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
-            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(244,247,255,0.5);">'
-            f'Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
-        )
-
-    st.markdown(
-        f'<div style="background:rgba(3,7,18,0.96);border-radius:16px;'
-        f'border:1px solid rgba(255,255,255,0.07);overflow:hidden;margin-bottom:14px;">'
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'padding:12px 18px;background:rgba(255,255,255,0.018);'
-        f'border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;gap:8px;">'
-        f'<span style="font-size:0.78rem;font-weight:700;color:rgba(244,247,255,0.6);'
-        f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Key Levels &mdash; ES Structure</span>'
-        f'<div>{price_badge_html}</div>'
-        f'</div>'
-        f'{rows_html_inline}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        for group_name, line_names in groups:
+            st.markdown(f"**{group_name}**")
+            group_columns = st.columns(len(line_names), gap="medium")
+            for column, line_name in zip(group_columns, line_names):
+                details = final_lines.get(line_name, {})
+                with column:
+                    st.metric(
+                        format_ui_text(details.get("label"), fallback=line_name.replace("_", " ").title()),
+                        format_ui_price(details.get("projected_price")),
+                    )
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -5131,6 +4826,306 @@ def build_ladder_items(
         )
 
     return items
+
+
+def compute_ladder_layout(
+    projected_lines: dict[str, dict[str, Any]],
+    current_price: float | None,
+) -> dict[str, Any]:
+    """Compute proportional and anti-collision positions for the ladder."""
+
+    items = build_ladder_items(projected_lines, current_price)
+    values = [item["value"] for item in items]
+    maximum = max(values)
+    minimum = min(values)
+    value_range = maximum - minimum
+    padding = max(value_range * 0.08, 2.0)
+    upper_bound = maximum + padding
+    lower_bound = minimum - padding
+    effective_range = max(upper_bound - lower_bound, 1.0)
+    min_gap = 9.0
+
+    sorted_items = sorted(items, key=lambda item: item["value"], reverse=True)
+    previous_position: float | None = None
+
+    for item in sorted_items:
+        raw_top = ((upper_bound - item["value"]) / effective_range) * 100.0
+        adjusted_top = raw_top if previous_position is None else max(raw_top, previous_position + min_gap)
+        item["raw_top"] = raw_top
+        item["top"] = min(adjusted_top, 95.0)
+        previous_position = item["top"]
+
+    overflow = sorted_items[-1]["top"] - 95.0 if sorted_items else 0.0
+    if overflow > 0:
+        for item in sorted_items:
+            item["top"] = max(item["top"] - overflow, 5.0)
+
+    return {
+        "items": sorted_items,
+        "upper_bound": upper_bound,
+        "lower_bound": lower_bound,
+        "has_current_price": current_price is not None,
+    }
+
+
+def render_spatial_ladder(
+    projected_lines: dict[str, dict[str, Any]],
+    current_price: float | None,
+    price_space_label: str = "SPX",
+) -> None:
+    """Render the spatial ladder visualization with custom HTML/CSS."""
+
+    st.markdown(
+        f"""
+        <div class="spx-shell">
+            <div class="spx-section-title">Spatial Ladder</div>
+            <div class="spx-section-subtitle">
+                Live structure map shown in {price_space_label} terms. Ladder and visible line table use the same unit.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    layout = compute_ladder_layout(projected_lines, current_price)
+    items = layout["items"]
+    upper_bound = layout["upper_bound"]
+    lower_bound = layout["lower_bound"]
+    has_current_price = layout["has_current_price"]
+
+    marker_html: list[str] = []
+    guide_html: list[str] = []
+
+    for item in items:
+        top = item["top"]
+        raw_top = item["raw_top"]
+        value_label = f"{format_price(item['value'])} ({price_space_label})"
+        color = item["color"]
+        marker_class = f"ladder-marker {item['side']} {item['kind']}"
+        label_class = f"ladder-label {item['side']} {item['kind']}"
+
+        if item["kind"] == "current":
+            marker_html.append(
+                f"""
+                <div class="current-band" style="top:{top:.2f}%;">
+                    <div class="current-band-line"></div>
+                    <div class="current-band-pill">Current Price | {value_label}</div>
+                </div>
+                """
+            )
+            continue
+
+        guide_html.append(
+            f"""
+            <div class="ladder-guide" style="top:{raw_top:.2f}%;">
+                <div class="ladder-guide-line" style="border-color:{color}33;"></div>
+            </div>
+            """
+        )
+        marker_html.append(
+            f"""
+            <div class="{marker_class}" style="top:{top:.2f}%;">
+                <div class="ladder-dot" style="background:{color}; box-shadow:0 0 0 3px {color}22, 0 0 18px {color}55;"></div>
+            </div>
+            <div class="{label_class}" style="top:{top:.2f}%;">
+                <div class="ladder-pill" style="border-color:{color}55;">
+                    <span class="ladder-pill-label">{item['label']}</span>
+                    <span class="ladder-pill-value">{value_label}</span>
+                </div>
+            </div>
+            """
+        )
+
+    empty_state_html = ""
+    if not has_current_price:
+        empty_state_html = """
+        <div class="ladder-empty-state">
+            Current price not entered. Showing projected structure only.
+        </div>
+        """
+
+    ladder_html = f"""
+    <html>
+    <head>
+        <style>
+            body {{
+                margin: 0;
+                font-family: Inter, "Segoe UI", sans-serif;
+                background: transparent;
+                color: #e8eef8;
+            }}
+            .ladder-shell {{
+                position: relative;
+                height: 560px;
+                border-radius: 22px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background:
+                    radial-gradient(circle at 50% 50%, rgba(0, 212, 255, 0.06), transparent 28%),
+                    linear-gradient(180deg, rgba(12, 18, 30, 0.96), rgba(8, 12, 22, 0.96));
+                overflow: hidden;
+            }}
+            .ladder-frame {{
+                position: absolute;
+                inset: 0;
+            }}
+            .ladder-rail {{
+                position: absolute;
+                top: 6%;
+                bottom: 6%;
+                width: 2px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(180deg, rgba(255, 215, 64, 0.16), rgba(0, 212, 255, 0.5), rgba(255, 215, 64, 0.16));
+                box-shadow: 0 0 24px rgba(0, 212, 255, 0.12);
+            }}
+            .ladder-boundary {{
+                position: absolute;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 12px;
+                color: #7f93b2;
+                background: rgba(5, 9, 18, 0.85);
+                padding: 4px 8px;
+                border-radius: 999px;
+                border: 1px solid rgba(255,255,255,0.05);
+            }}
+            .ladder-boundary.top {{
+                top: 2%;
+            }}
+            .ladder-boundary.bottom {{
+                bottom: 2%;
+            }}
+            .ladder-guide {{
+                position: absolute;
+                left: 0;
+                right: 0;
+                height: 0;
+            }}
+            .ladder-guide-line {{
+                position: absolute;
+                top: 0;
+                left: 16%;
+                right: 16%;
+                border-top: 1px dashed rgba(255,255,255,0.08);
+            }}
+            .ladder-marker {{
+                position: absolute;
+                width: 22px;
+                height: 22px;
+                transform: translateY(-50%);
+                z-index: 3;
+            }}
+            .ladder-marker.left {{
+                left: calc(50% - 14px);
+                transform: translate(-100%, -50%);
+            }}
+            .ladder-marker.right {{
+                left: calc(50% + 14px);
+                transform: translate(0, -50%);
+            }}
+            .ladder-dot {{
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                margin: 5px;
+            }}
+            .ladder-label {{
+                position: absolute;
+                transform: translateY(-50%);
+                z-index: 4;
+            }}
+            .ladder-label.left {{
+                right: calc(50% + 26px);
+                text-align: right;
+                width: 38%;
+            }}
+            .ladder-label.right {{
+                left: calc(50% + 26px);
+                width: 38%;
+            }}
+            .ladder-pill {{
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                max-width: 100%;
+                background: rgba(9, 13, 24, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 999px;
+                padding: 8px 12px;
+                box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+            }}
+            .ladder-pill-label {{
+                font-size: 12px;
+                font-weight: 700;
+                color: #f1f5fb;
+                white-space: nowrap;
+            }}
+            .ladder-pill-value {{
+                font-size: 12px;
+                color: #8ea2c2;
+                white-space: nowrap;
+            }}
+            .current-band {{
+                position: absolute;
+                left: 15%;
+                right: 15%;
+                height: 0;
+                transform: translateY(-50%);
+                z-index: 5;
+            }}
+            .current-band-line {{
+                height: 8px;
+                border-radius: 999px;
+                background: linear-gradient(90deg, rgba(0, 212, 255, 0.12), rgba(0, 212, 255, 0.82), rgba(0, 212, 255, 0.12));
+                box-shadow: 0 0 30px rgba(0, 212, 255, 0.45);
+            }}
+            .current-band-pill {{
+                position: absolute;
+                left: 50%;
+                top: -18px;
+                transform: translateX(-50%);
+                background: rgba(2, 18, 26, 0.96);
+                color: #e9fbff;
+                border: 1px solid rgba(0, 212, 255, 0.4);
+                border-radius: 999px;
+                padding: 8px 14px;
+                font-size: 12px;
+                font-weight: 800;
+                white-space: nowrap;
+                box-shadow: 0 0 28px rgba(0, 212, 255, 0.24);
+            }}
+            .ladder-empty-state {{
+                position: absolute;
+                left: 50%;
+                bottom: 4%;
+                transform: translateX(-50%);
+                padding: 8px 14px;
+                background: rgba(255, 215, 64, 0.1);
+                border: 1px solid rgba(255, 215, 64, 0.22);
+                border-radius: 999px;
+                color: #ffe695;
+                font-size: 12px;
+                font-weight: 700;
+                z-index: 6;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="ladder-shell">
+            <div class="ladder-frame">
+                <div class="ladder-boundary top">Top {format_price(upper_bound)}</div>
+                <div class="ladder-boundary bottom">Bottom {format_price(lower_bound)}</div>
+                <div class="ladder-rail"></div>
+                {''.join(guide_html)}
+                {''.join(marker_html)}
+                {empty_state_html}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    components.html(ladder_html, height=585, scrolling=False)
 
 
 def previous_business_day(today: date) -> date:
@@ -7383,12 +7378,32 @@ def build_play_decision_authority(
     )
     expected_value = expectancy_snapshot["expected_value"]
 
-    if not structure_valid or not stop_valid or raw_final_decision == "SKIP TRADE":
+    channel_state = str(execution_state.get("channel_state", CHANNEL_STATE_INSIDE) or CHANNEL_STATE_INSIDE)
+    execution_action = str(execution_state.get("execution_action", "") or "")
+
+    if (
+        not structure_valid
+        or not stop_valid
+        or raw_final_decision == "SKIP TRADE"
+        or execution_action == "SKIP TRADE"
+        or channel_state in {CHANNEL_STATE_ACCEPTED_ABOVE, CHANNEL_STATE_ACCEPTED_BELOW}
+        and str(execution_state.get("activation_direction", "") or "") != str(play.get("direction", "") or "")
+    ):
         decision = "NO TRADE"
         condition_required = ""
-    elif raw_final_decision == "WAIT" or intelligence.get("chase_status") == "WAIT":
+    elif (
+        raw_final_decision == "WAIT"
+        or intelligence.get("chase_status") == "WAIT"
+        or execution_action in {"WAIT", "WAIT FOR RETEST", "WAIT FOR EVENT PASS", "PREPARE WITH CAUTION"}
+        or channel_state in {
+            CHANNEL_STATE_TESTING_CEILING,
+            CHANNEL_STATE_TESTING_FLOOR,
+            CHANNEL_STATE_BROKEN_ABOVE,
+            CHANNEL_STATE_BROKEN_BELOW,
+        }
+    ):
         decision = "CONDITIONAL BUY"
-        condition_required = "Wait for price to return toward the planned zone"
+        condition_required = execution_state.get("execution_action_reason") or "Wait for price to return toward the planned zone"
     elif rr_ratio is None or rr_ratio < 1.0 or intelligence.get("plan_status") == "DRIFTING" or intelligence.get("entry_zone_status") not in {"IN ZONE", "APPROACHING"} or (move_completion_pct is not None and move_completion_pct >= 70):
         decision = "CONDITIONAL BUY"
         if not stop_valid:
@@ -7424,6 +7439,10 @@ def build_play_decision_authority(
         reason_line = execution_state.get("execution_action_reason") or "Setup valid, but event risk reduces confidence."
     elif execution_state["execution_action"] == "DOWNGRADE STRIKE":
         reason_line = execution_state["execution_action_reason"]
+    elif channel_state in {CHANNEL_STATE_TESTING_CEILING, CHANNEL_STATE_TESTING_FLOOR}:
+        reason_line = execution_state.get("channel_reason") or "Pressure is building, but acceptance is not confirmed."
+    elif channel_state in {CHANNEL_STATE_BROKEN_ABOVE, CHANNEL_STATE_BROKEN_BELOW}:
+        reason_line = execution_state.get("channel_reason") or "Break is visible, but acceptance is not confirmed."
     elif execution_state["execution_action"] == "WAIT FOR RETEST":
         reason_line = "Plan still valid. Premium expanded. Wait for retest."
     elif decision == "STRONG BUY":
@@ -7483,6 +7502,20 @@ def build_play_decision_authority(
         "factor_states": factor_states,
         "raw_final_decision": raw_final_decision,
         "transition_type": execution_state["transition_type"],
+        "channel_state": execution_state["channel_state"],
+        "channel_orientation": execution_state["channel_orientation"],
+        "channel_trade_bias": execution_state["channel_trade_bias"],
+        "channel_activation_state": execution_state["channel_activation_state"],
+        "channel_reason": execution_state["channel_reason"],
+        "activation_direction": execution_state["activation_direction"],
+        "ceiling_touch_count": execution_state["ceiling_touch_count"],
+        "floor_touch_count": execution_state["floor_touch_count"],
+        "overnight_ceiling_touch_count": execution_state["overnight_ceiling_touch_count"],
+        "overnight_floor_touch_count": execution_state["overnight_floor_touch_count"],
+        "breakout_confirmation_candle_time": execution_state["breakout_confirmation_candle_time"],
+        "retracement_confirmation_candle_time": execution_state["retracement_confirmation_candle_time"],
+        "accepted_level": execution_state["accepted_level"],
+        "acceptance_confirmed": execution_state["acceptance_confirmed"],
         "plan_validity": execution_state["plan_validity"],
         "plan_validity_reason": execution_state["plan_validity_reason"],
         "timing_bucket": execution_state["timing_bucket"],
@@ -7518,6 +7551,11 @@ def build_play_decision_authority(
         "entry_zone_status": execution_state["entry_zone_status"],
         "entry_zone_width_spx": execution_state["entry_zone_width_spx"],
         "entry_zone_source": execution_state["entry_zone_source"],
+        "entry_price_underlying": execution_state["entry_price_underlying"],
+        "entry_zone_low": execution_state["entry_zone_low"],
+        "entry_zone_high": execution_state["entry_zone_high"],
+        "entry_zone_mid": execution_state["entry_zone_mid"],
+        "entry_reason": execution_state["entry_reason"],
         "setup_state": execution_state["setup_state"],
         "setup_state_reason": execution_state["setup_state_reason"],
         "setup_priority": execution_state["setup_priority"],
@@ -7991,6 +8029,13 @@ def validate_contract_binding(selected_contract: dict[str, Any] | None, displaye
     if selected_strike is not None and displayed_strike is not None and abs(selected_strike - displayed_strike) >= 1e-9:
         errors.append("strike_mismatch")
 
+    mark_source_symbol = str(displayed_payload.get("mark_source_symbol") or displayed_payload.get("source_contract_symbol", "") or "")
+    predicted_source_symbol = str(displayed_payload.get("predicted_entry_source_symbol") or displayed_payload.get("source_contract_symbol", "") or "")
+    if displayed_symbol and mark_source_symbol and mark_source_symbol != displayed_symbol:
+        errors.append("mark_source_mismatch")
+    if displayed_symbol and predicted_source_symbol and predicted_source_symbol != displayed_symbol:
+        errors.append("predicted_entry_source_mismatch")
+
     result = {
         "binding_status": "OK" if not errors else "MISMATCH",
         "errors": errors,
@@ -7998,8 +8043,8 @@ def validate_contract_binding(selected_contract: dict[str, Any] | None, displaye
         "selected_strike": selected_strike,
         "displayed_contract_symbol": displayed_symbol,
         "displayed_strike": displayed_strike,
-        "mark_source_symbol": str(displayed_payload.get("source_contract_symbol", "") or ""),
-        "predicted_entry_source_symbol": str(displayed_payload.get("source_contract_symbol", "") or ""),
+        "mark_source_symbol": mark_source_symbol,
+        "predicted_entry_source_symbol": predicted_source_symbol,
     }
     return result
 
@@ -8069,7 +8114,7 @@ def estimate_entry_timing(
         reason = "Price is close enough to the planned zone to prepare"
     elif zone == "MISSED":
         minutes = None
-        bucket = "overdue"
+        bucket = "missed"
         reason = "Price has already moved through the planned zone"
     elif distance <= 6:
         minutes = 25
@@ -8081,7 +8126,7 @@ def estimate_entry_timing(
         reason = "Entry likely needs more time to develop"
     else:
         minutes = 90 if completion is None or completion < 70 else None
-        bucket = "far" if minutes is not None else "overdue"
+        bucket = "far" if minutes is not None else "missed"
         reason = "Entry is still far from the locked plan" if minutes is not None else "Move is already too extended"
 
     expected_entry_time_ct = None
@@ -8159,7 +8204,7 @@ def estimate_contract_value_at_planned_entry(
     theta_days = min((minutes_to_entry or 0.0) / 1440.0, FORWARD_PRICING_MAX_THETA_DAYS)
     decay_component = (theta_value * theta_days) if theta_value is not None and theta_days > 0 else 0.0
     event_level = str(event_risk_level or "quiet").lower()
-    event_factor = {"quiet": 0.0, "elevated": 0.08, "major": 0.18, "extreme": 0.30}.get(event_level, 0.0)
+    event_factor = {"quiet": 0.0, "low": 0.04, "elevated": 0.08, "medium": 0.08, "high": 0.18, "major": 0.18, "extreme": 0.30}.get(event_level, 0.0)
     if headline_shock_risk:
         event_factor = max(event_factor, 0.18)
     iv_scalar = iv_value / 100.0 if iv_value is not None and iv_value > 1 else (iv_value or 0.0)
@@ -8199,11 +8244,11 @@ def estimate_contract_value_at_planned_entry(
         confidence_score -= 0.12
     elif minutes_to_entry > 90:
         confidence_score -= 0.08
-    if entry_time_bucket in {"far", "overdue"}:
+    if entry_time_bucket in {"far", "missed"}:
         confidence_score -= 0.10
     if event_window_active:
         confidence_score -= 0.18
-    elif event_level in {"major", "extreme"}:
+    elif event_level in {"high", "major", "extreme"}:
         confidence_score -= 0.10
     projection_confidence = _confidence_label_from_score(max(0.0, min(1.0, confidence_score)))
     uncertainty_multiplier = {"high": 0.10, "medium": 0.18, "low": 0.28, "speculative": 0.40}[projection_confidence]
@@ -8233,6 +8278,62 @@ def estimate_contract_value_at_planned_entry(
         "premium_projection_evidence": " + ".join(evidence_tokens),
         "premium_projection_uncertainty_band_low": round_price(max(0.01, projected_fill - uncertainty_band)),
         "premium_projection_uncertainty_band_high": round_price(projected_fill + uncertainty_band),
+    }
+
+
+def estimate_contract_value_at_entry(
+    current_underlying_price: float | None,
+    entry_underlying_price: float | None,
+    current_mark: float | None,
+    bid: float | None,
+    ask: float | None,
+    delta: float | None,
+    gamma: float | None,
+    theta: float | None,
+    vega: float | None,
+    implied_volatility: float | None,
+    option_type: str,
+    strike: float | None,
+    minutes_to_entry: float | None,
+    event_risk_level: str | None,
+    liquidity_score: float | None,
+    spread_width: float | None,
+    calibration_bias: float | None = None,
+    slippage_bias: float | None = None,
+    current_last: float | None = None,
+    expiration: str | None = None,
+    entry_time_bucket: str = "unavailable",
+) -> dict[str, Any]:
+    """Estimate contract value at the structural entry level with safe aliases for the UI layer."""
+
+    projection = estimate_contract_value_at_planned_entry(
+        current_underlying_price=current_underlying_price,
+        planned_underlying_entry_price=entry_underlying_price,
+        current_mark=current_mark,
+        current_bid=bid,
+        current_ask=ask,
+        current_last=current_last,
+        option_type=option_type,
+        strike=strike,
+        expiration=expiration,
+        delta=delta,
+        gamma=gamma,
+        theta=theta,
+        vega=vega,
+        implied_volatility=implied_volatility,
+        spread_width=spread_width,
+        liquidity_score=liquidity_score,
+        time_to_entry_minutes=minutes_to_entry,
+        entry_time_bucket=entry_time_bucket,
+        calibration_bias=(slippage_bias or 0.0) + (calibration_bias or 0.0),
+        event_risk_level=event_risk_level,
+        event_window_active=str(event_risk_level or "").lower() in {"high", "major", "extreme"},
+        headline_shock_risk=str(event_risk_level or "").lower() == "extreme",
+    )
+    return {
+        **projection,
+        "estimate_quality": str(projection.get("projection_confidence", "speculative")).title(),
+        "estimate_reason": str(projection.get("projection_warning", "") or "Layered entry-value estimate"),
     }
 
 
@@ -8416,7 +8517,7 @@ def apply_event_risk_to_execution_guidance(
     event_level = str(context.get("event_risk_level", "quiet")).lower()
     event_mode = str(context.get("event_trading_mode", "normal")).lower()
     event_reason = str(context.get("event_risk_reason", "") or "Event risk is active")
-    if current_action == "ENTER NOW" and event_level in {"major", "extreme"}:
+    if current_action == "ENTER NOW" and event_level in {"high", "major", "extreme"}:
         return {"action": "WAIT FOR EVENT PASS", "reason": event_reason}
     if current_action in {"ENTER NOW", "WAIT FOR RETEST"} and event_mode in {"caution", "reduced confidence"}:
         return {"action": "PREPARE WITH CAUTION", "reason": event_reason}
@@ -8832,6 +8933,10 @@ def build_option_display_state(
             reason = ""
             if row.get("is_selected") and not row.get("is_recommended"):
                 reason = "User Selected"
+            elif row.get("budget_status") == "Above Budget":
+                reason = "Above Budget"
+            elif str(row.get("premium_projection_confidence", "")).lower() in {"low", "speculative"}:
+                reason = "Weak Estimate"
             elif row.get("is_recommended") and row.get("budget_status") == "Within Budget":
                 reason = "System Pick"
             elif cheapest_row is not None and row.get("contract_symbol") == cheapest_row.get("contract_symbol"):
@@ -9026,7 +9131,7 @@ def build_ladder_display_dataframe(
     ladder_rows = ladder_rows or []
     records = [
         {
-            "labels": " | ".join(row.get("labels", [])),
+            "labels": " | ".join([str(label) for label in row.get("labels", []) if str(label).strip()]),
             "selection_reason": row.get("selection_reason", ""),
             "strike": int(row["strike"]) if row.get("strike") is not None else "",
             "contract_symbol": row.get("contract_symbol", ""),
@@ -9051,12 +9156,20 @@ def build_ladder_display_dataframe(
     if frame.empty:
         return frame
     if not developer_mode:
+        frame["tag"] = frame.apply(
+            lambda row: " | ".join(
+                [
+                    str(value)
+                    for value in [row.get("labels", ""), row.get("selection_reason", "")]
+                    if str(value).strip()
+                ]
+            ),
+            axis=1,
+        )
         at_entry_column = "projected_mark_at_entry" if frame.get("projected_mark_at_entry", pd.Series(dtype=object)).replace("", pd.NA).notna().any() else "predicted_entry_price"
-        display_columns = ["labels", "selection_reason", "strike", "mark", at_entry_column, "expected_fill_mark", "delta", "rr_ratio", "budget_status"]
+        display_columns = ["strike", "mark", at_entry_column, "expected_fill_mark", "rr_ratio", "budget_status", "tag"]
         frame = frame[[column for column in display_columns if column in frame.columns]].rename(
             columns={
-                "labels": "tag",
-                "selection_reason": "reason",
                 "mark": "current_mark",
                 "projected_mark_at_entry": "at_entry",
                 "predicted_entry_price": "at_entry",
@@ -10163,62 +10276,19 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     default_open_reference = float(live_defaults["default_open_reference"])
 
     with st.sidebar:
-        # ── Premium app header ────────────────────────────────────────────────
-        _mode_now = st.session_state.get("sidebar_operating_mode", "Live Mode")
-        _mode_color = "#00e676" if _mode_now == "Live Mode" else "#ffd740"
-        _mode_dot_shadow = "0 0 8px #00e676,0 0 16px rgba(0,230,118,0.4)" if _mode_now == "Live Mode" else "0 0 8px #ffd740"
-        _mode_label = "LIVE" if _mode_now == "Live Mode" else "HIST"
-        st.markdown(
-            f'<div style="padding:14px 4px 10px 4px;margin-bottom:4px;border-bottom:1px solid rgba(0,212,255,0.1);">'
-            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
-            f'<div>'
-            f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.18rem;font-weight:800;color:#f4f8ff;letter-spacing:-0.01em;line-height:1.1;">{APP_TITLE}</div>'
-            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-top:0.2rem;">ES Structure · Options Intelligence</div>'
-            f'</div>'
-            f'<div style="display:flex;align-items:center;gap:5px;padding:4px 8px;border-radius:8px;'
-            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">'
-            f'<div style="width:6px;height:6px;border-radius:50%;background:{_mode_color};box-shadow:{_mode_dot_shadow};flex-shrink:0;"></div>'
-            f'<span style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:800;letter-spacing:0.12em;color:{_mode_color};">{_mode_label}</span>'
-            f'</div>'
-            f'</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        # ── Mode & Visibility ─────────────────────────────────────────────────
-        st.markdown(
-            '<div style="display:flex;align-items:center;gap:8px;margin:10px 0 6px 0;">'
-            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,212,255,0.3),rgba(0,100,200,0.2));'
-            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,212,255,0.2);">⚙</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
-            'text-transform:uppercase;color:rgba(0,212,255,0.7);">MODE</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=safe_option_index(["Live Mode", "Historical Mode"], st.session_state.get("sidebar_operating_mode", "Live Mode")), key="sidebar_operating_mode", label_visibility="collapsed")
+        st.markdown("## SPX PROPHET")
+        st.caption("Operator controls")
+        operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
         visibility_options = ["Production Mode", "Edge Lab"]
         visibility_mode = st.radio(
             "Visibility",
             visibility_options,
             index=safe_option_index(visibility_options, settings.get("visibility_mode", DEFAULT_SETTINGS["visibility_mode"])),
-            label_visibility="collapsed",
         )
         historical_mode = operating_mode == "Historical Mode"
-        if not historical_mode and st.button("↺  Refresh Live Quotes", use_container_width=True):
+        if not historical_mode and st.button("Refresh Live Quotes", use_container_width=True):
             st.session_state["refresh_live_quotes"] = True
             st.rerun()
-
-        # ── Session / Date ────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
-            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
-            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(179,136,255,0.3),rgba(100,60,200,0.15));'
-            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(179,136,255,0.15);">📅</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
-            'text-transform:uppercase;color:rgba(179,136,255,0.7);">SESSION</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
         if historical_mode:
             prior_session_date = st.date_input("Prior NY session date", value=default_prior)
             next_trading_date = st.date_input("Next trading date", value=default_next)
@@ -10230,41 +10300,21 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         historical_defaults = fetch_historical_input_defaults(prior_session_date, next_trading_date, configured_offset) if historical_mode else None
         sync_projection_price_inputs(next_trading_date, historical_mode, live_defaults, historical_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
-        data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])), label_visibility="collapsed")
+        data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
-        # ── Price Inputs ──────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
-            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
-            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,230,118,0.3),rgba(0,150,80,0.15));'
-            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,230,118,0.15);">$</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
-            'text-transform:uppercase;color:rgba(0,230,118,0.7);">PRICES</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown("### Session Inputs")
+        st.caption("Core prices and session context.")
         active_defaults = historical_defaults if historical_mode and historical_defaults is not None else live_defaults
         current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", active_defaults["default_spx_price"])), step=0.25, format="%.2f", key="current_spx_price_input")
         current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", active_defaults["default_es_price"])), step=0.25, format="%.2f", key="current_es_price_input")
         open_reference = st.number_input("9:00 AM open reference", value=float(st.session_state.get("open_reference_input", active_defaults["default_open_reference"])), step=0.25, format="%.2f", key="open_reference_input")
         if historical_mode:
             if historical_defaults and historical_defaults["spx_available"] and historical_defaults["es_available"]:
-                st.info("Historical mode — ES/SPX values auto-loaded, editable.")
+                st.info("Historical projection mode active. Recent historical 9:00 AM ES/SPX values were loaded automatically and remain editable.")
             else:
-                st.info("Historical mode — enter 9:00 AM prices manually.")
+                st.info("Historical projection mode active. Enter historical 9:00 AM prices manually to enable scenario outputs.")
         elif not live_defaults["es_available"] or not live_defaults["spx_available"]:
-            _fail_cls = classify_quote_failure(live_defaults["es_fetch_status"], live_defaults["spx_fetch_status"])
-            _missing = []
-            if not live_defaults["spx_available"]:
-                _missing.append("SPX")
-            if not live_defaults["es_available"]:
-                _missing.append("ES")
-            _fail_label = {"provider failure": "Provider returned no quote", "deployment environment issue": "Network/environment issue"}.get(_fail_cls, "Quote unavailable")
-            st.warning(f"Live {' & '.join(_missing)} unavailable: {_fail_label}. Enter manually or retry.")
-            if st.button("↺  Retry Live Quotes", key="sidebar_retry_live_quotes", use_container_width=True):
-                fetch_live_es_price.clear()
-                fetch_live_spx_price.clear()
-                st.rerun()
+            st.warning("Live quote unavailable. Enter current prices manually.")
         news_day = st.checkbox("Fed / CPI / NFP day", value=bool(settings.get("news_day", DEFAULT_SETTINGS["news_day"])))
         live_effective_offset = (
             float(live_defaults["derived_live_offset"])
@@ -10272,18 +10322,6 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             else None
         )
         es_spx_offset = st.number_input("ES-SPX offset", value=configured_offset, step=0.25, format="%.2f")
-
-        # ── Controls section header ───────────────────────────────────────────
-        st.markdown(
-            '<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.12),transparent);margin:10px 0 8px 0;"></div>'
-            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
-            '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(255,212,64,0.3),rgba(200,140,0,0.15));'
-            'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(255,212,64,0.15);">⚡</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
-            'text-transform:uppercase;color:rgba(255,212,64,0.7);">CONTROLS</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
         if historical_mode:
             current_spx_source_label = historical_defaults["spx_source"] if historical_defaults and historical_defaults["spx_available"] and abs(float(current_spx_price) - float(historical_defaults["default_spx_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_spx_price) else "unavailable")
             current_es_source_label = historical_defaults["es_source"] if historical_defaults and historical_defaults["es_available"] and abs(float(current_es_price) - float(historical_defaults["default_es_price"])) < 0.005 else ("manual entry" if is_valid_price_input(current_es_price) else "unavailable")
@@ -10303,6 +10341,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             )
             open_reference_source_label = "live SPX quote" if live_defaults["spx_available"] and abs(float(open_reference) - float(live_defaults["default_open_reference"])) < 0.005 else "manual entry"
         with st.expander("Advanced Controls", expanded=False):
+            st.caption("Budget, event risk, and provider settings.")
             st.caption(f"Current SPX source: {current_spx_source_label}")
             st.caption(f"Current ES source: {current_es_source_label}")
             st.caption(f"9:00 AM open source: {open_reference_source_label}")
@@ -10348,6 +10387,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 st.caption(f"Options provider: {options_provider}")
 
         with st.expander("Manual Anchors", expanded=False):
+            st.caption("Override anchor points only when you need manual structure control.")
             pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
             pivot_low_hour = st.selectbox("Bounce pivot time", options=[12, 13, 14, 15, 16], index=2)
             pivot_green_high = st.number_input("Rejection green candle high", value=6857.70, step=0.25, format="%.2f")
@@ -10360,6 +10400,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             lw_price = st.number_input("Lowest wick price", value=6840.25, step=0.25, format="%.2f")
 
         with st.expander("Overnight Overrides", expanded=False):
+            st.caption("Optional line overrides for overnight structure handling.")
             use_asc_ceiling_override = st.checkbox("Override ASC Ceiling")
             asc_ceiling_override = st.number_input("ASC Ceiling override value", value=0.00, step=0.25, format="%.2f")
             use_desc_ceiling_override = st.checkbox("Override DESC Ceiling")
@@ -11051,13 +11092,9 @@ def render_play_card(
     """Render a single structured play card."""
 
     if play_spx is None:
-        st.markdown(
-            f'<div class="spx-card alternate" style="padding:18px 22px">'
-            f'<div class="spx-card-heading" style="margin-bottom:4px">{escape(title)}</div>'
-            f'<div class="spx-card-copy" style="opacity:0.45">No setup available for this session.</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption("No setup.")
         return
 
     def _decision_class(value: str) -> str:
@@ -11401,14 +11438,9 @@ def render_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning(f"Operator override enabled | State: {setup_state}")
-        _clr_col, _ovr_col = st.columns(2)
-        if _clr_col.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
-            st.session_state.pop(override_intent_key, None)
-            st.session_state.pop(override_reason_key, None)
-            st.rerun()
+        st.warning("Manual override active")
         if not st.session_state.get(override_intent_key, False):
-            if _ovr_col.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
@@ -12041,9 +12073,7 @@ def render_evening_location_panel(current_es_price: float, selected_checkpoint: 
     top_left, top_mid, top_right = st.columns(3)
     top_left.metric("Checkpoint", selected_checkpoint["label"])
     top_mid.metric("Current ES", format_price(current_es_price))
-    _scen_full = reference_scenario["scenario_name"]
-    _scen_display = (_scen_full[:22] + "…") if len(_scen_full) > 22 else _scen_full
-    top_right.metric("Structure", _scen_display, help=_scen_full)
+    top_right.metric("Structure", reference_scenario["scenario_name"])
 
     lower_left, lower_right = st.columns(2)
     lower_left.metric(
@@ -12169,46 +12199,43 @@ def render_trade_log_tab(
     developer_mode = settings.get("visibility_mode") == "Edge Lab"
 
     st.markdown(
-        '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 20px 24px;margin-bottom:18px;'
-        'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(8,16,40,0.97) 50%,rgba(2,6,20,0.99) 100%);'
-        'border:1px solid rgba(0,212,255,0.12);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
-        '<div style="pointer-events:none;position:absolute;top:-20px;left:60px;width:200px;height:120px;'
-        'background:radial-gradient(ellipse,rgba(0,212,255,0.08) 0%,transparent 70%);"></div>'
-        '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px;">'
-        '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
-        'font-size:1.4rem;background:linear-gradient(135deg,rgba(0,212,255,0.25),rgba(0,80,160,0.2));'
-        'box-shadow:0 0 20px rgba(0,212,255,0.2);border:1px solid rgba(0,212,255,0.18);">◈</div>'
-        '<div style="flex:1;min-width:0;">'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
-        'text-transform:uppercase;color:rgba(0,212,255,0.55);margin-bottom:4px;">Trade Journal + Intelligence</div>'
-        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
-        'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Review The Edge</div>'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
-        'Capture execution quality, review snapshots, and track which scenarios actually pay you over time.'
-        '</div>'
-        '</div>'
-        '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
-        'background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);flex-shrink:0;">'
-        '<div style="width:6px;height:6px;border-radius:50%;background:#00e676;box-shadow:0 0 8px #00e676;"></div>'
-        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#00e676;">JOURNAL READY</span>'
-        '</div>'
-        '</div>'
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;">'
-        + "".join([
-            f'<div style="background:rgba(4,8,22,0.9);padding:14px 16px;">'
-            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-bottom:6px;">{lbl}</div>'
-            f'<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:700;color:#ddeeff;margin-bottom:4px;">{val}</div>'
-            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.7rem;color:rgba(180,205,240,0.45);line-height:1.4;">{note}</div>'
-            f'</div>'
-            for lbl, val, note in [
-                ("Entry", "Log Trades", "Capture scenario, confirmation, and notes."),
-                ("Review", "Snapshots", "Connect structure to outcome quality."),
-                ("Analytics", "Expectancy", "Find the setups that truly hold edge."),
-                ("Storage", "Local JSON", "Backed up and exportable."),
-            ]
-        ])
-        + '</div>'
-        '</div>',
+        """
+        <div class="spx-hero">
+            <div class="spx-hero-top">
+                <div>
+                    <div class="spx-hero-kicker">Trade Journal + Intelligence</div>
+                    <div class="spx-hero-title">Review The Edge</div>
+                    <div class="spx-hero-subtitle">Capture execution quality, review snapshots, and track which scenarios actually pay you over time.</div>
+                </div>
+                <div class="spx-hero-status">
+                    <div class="spx-hero-status-label">Mode</div>
+                    <div class="spx-status-chip good"><span>◉</span><span>Journal Ready</span></div>
+                </div>
+            </div>
+            <div class="spx-hero-grid">
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Entry</div>
+                    <div class="spx-hero-stat-value">Log Trades</div>
+                    <div class="spx-hero-stat-note">Capture scenario, confirmation, and notes.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Review</div>
+                    <div class="spx-hero-stat-value">Snapshots</div>
+                    <div class="spx-hero-stat-note">Connect structure to outcome quality.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Analytics</div>
+                    <div class="spx-hero-stat-value">Expectancy</div>
+                    <div class="spx-hero-stat-note">Find the setups that truly hold edge.</div>
+                </div>
+                <div class="spx-hero-stat">
+                    <div class="spx-hero-stat-label">Storage</div>
+                    <div class="spx-hero-stat-value">Local JSON</div>
+                    <div class="spx-hero-stat-note">Backed up and exportable.</div>
+                </div>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -12244,11 +12271,11 @@ def render_trade_log_tab(
         available_snapshot_options.append(option_label)
         snapshot_lookup[option_label] = (snapshot["id"], snapshot["snapshot_date"])
 
-    journal_tabs = st.tabs(["📝  Log Trade", "📊  Review Outcomes", "🔬  Analytics / Edge"])
+    journal_tabs = st.tabs(["Log Trade", "Review Outcomes", "Analytics / Edge"])
     log_tab, review_tab, analytics_tab = journal_tabs
 
     with log_tab:
-        render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.", icon="📝", icon_gradient="linear-gradient(135deg,#00b4d8,#0077b6)")
+        render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.")
         with st.container(border=True):
             summary_cols = st.columns(5)
             summary_cols[0].metric("Decision", str(prefill.get("final_authority_decision") or prefill.get("final_decision") or "Unspecified"))
@@ -12256,13 +12283,11 @@ def render_trade_log_tab(
             summary_cols[2].metric("Risk", str(prefill.get("final_authority_risk_class") or "Unrated"))
             summary_cols[3].metric("Expected Value", format_price(_to_float_or_none(prefill.get("final_authority_expected_value"))) if _to_float_or_none(prefill.get("final_authority_expected_value")) is not None else "Insufficient")
             summary_cols[4].metric("Override", "Yes" if prefill.get("override_flag") else "No")
-        _notice_col, _clear_col = st.columns([3, 1])
         if st.session_state.get("trade_form_notice"):
-            _notice_col.info(st.session_state["trade_form_notice"])
-        if _clear_col.button("Clear Form", use_container_width=True, key="clear_trade_form_btn"):
-            clear_trade_form_prefill()
-            st.session_state.pop("trade_form_notice", None)
-            st.rerun()
+            st.info(st.session_state["trade_form_notice"])
+            if st.button("Clear Prefill", type="secondary", use_container_width=False):
+                clear_trade_form_prefill()
+                st.rerun()
         with st.form("trade_entry_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
             with col1:
@@ -12486,7 +12511,7 @@ def render_trade_log_tab(
         max_trade_date = current_central_time().date()
 
     with review_tab:
-        render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.", icon="🔍", icon_gradient="linear-gradient(135deg,#7b2ff7,#b39ddb)")
+        render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.")
         with st.container(border=True):
             filter_col1, filter_col2, filter_col3 = st.columns(3)
             with filter_col1:
@@ -12557,7 +12582,7 @@ def render_trade_log_tab(
     analytics_low_data = build_low_data_state(filtered_trades, minimum=5, label="reviewed trades")
 
     with review_tab:
-        render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.", icon="📊", icon_gradient="linear-gradient(135deg,#7b2ff7,#b39ddb)")
+        render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
         if outcome_review_df.empty:
             st.info(review_low_data["message"] or "No reviewed trade outcomes are available yet.")
         else:
@@ -12693,8 +12718,8 @@ def render_trade_log_tab(
                     st.bar_chart(result_counts)
 
     with analytics_tab:
-        render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.", icon="⚡", icon_gradient="linear-gradient(135deg,#ffd740,#ff9100)")
-        render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.", icon="📈", icon_gradient="linear-gradient(135deg,#00e676,#00b0ff)")
+        render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.")
+        render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.")
         stats = compute_trade_statistics(filtered_trades)
         stat1, stat2, stat3 = st.columns(3)
         stat1.metric("Total Trades", str(stats["total_trades"]))
@@ -12708,7 +12733,7 @@ def render_trade_log_tab(
         if not analytics_low_data["enough"]:
             st.info(analytics_low_data["message"])
 
-        render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.", icon="🔬", icon_gradient="linear-gradient(135deg,#7b2ff7,#00d4ff)")
+        render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
         learn_col1, learn_col2, learn_col3 = st.columns(3)
         learn_col1.metric("Avg Prediction Error", format_price(learning_metrics["avg_prediction_error"]))
         learn_col2.metric("Median Prediction Error", format_price(learning_metrics["median_prediction_error"]))
@@ -12728,7 +12753,7 @@ def render_trade_log_tab(
         plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
         plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
 
-        render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.", icon="🎯", icon_gradient="linear-gradient(135deg,#ff6f00,#ffd740)")
+        render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.")
         calibration_col1, calibration_col2, calibration_col3, calibration_col4 = st.columns(4)
         derived_rows = [derive_outcome_tracking_fields(trade) for trade in filtered_trades]
         prediction_bias_values = [float(row["prediction_error_signed"]) for row in derived_rows if row.get("prediction_error_signed") is not None]
@@ -12780,7 +12805,7 @@ def render_trade_log_tab(
                 st.markdown("**By Chase Status**")
                 st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
 
-        render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.", icon="🧠", icon_gradient="linear-gradient(135deg,#b39ddb,#7b2ff7)")
+        render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
         st.caption("Analytics update live from the filtered trade set below.")
         breakdown_tabs = st.tabs(["By Scenario", "By Confluence", "By Session", "By Confirmation", "By Tag"])
         breakdown_dimensions = [
@@ -12798,7 +12823,7 @@ def render_trade_log_tab(
                 else:
                     st.dataframe(breakdown, use_container_width=True, hide_index=True)
 
-        render_section_header("Decision Filter Intelligence", "Review which filters and confirmations actually improve outcomes.", icon="🔦", icon_gradient="linear-gradient(135deg,#00b4d8,#7b2ff7)")
+        render_section_header("Decision Filter Intelligence", "Review which filters and confirmations actually improve outcomes.")
         best_worst = compute_best_worst_summary(filtered_trades)
         best_col1, best_col2, best_col3 = st.columns(3)
         best_col1.metric("Best Scenario by Win Rate", best_worst["best_scenario_win_rate"])
@@ -12864,7 +12889,7 @@ def render_trade_log_tab(
             else:
                 st.dataframe(session_confirmation, use_container_width=True, hide_index=True)
 
-        render_section_header("Expectancy", "See what happens when you trust the system repeatedly.", icon="💎", icon_gradient="linear-gradient(135deg,#00e676,#00b0ff)")
+        render_section_header("Expectancy", "See what happens when you trust the system repeatedly.")
         expectancy_tabs = st.tabs(["Expectancy", "Weekly", "Monthly", "Scenario Frequency", "Advanced Breakdowns"])
         with expectancy_tabs[0]:
             expectancy_col1, expectancy_col2 = st.columns(2)
@@ -12929,7 +12954,7 @@ def render_trade_log_tab(
                 else:
                     st.dataframe(session_confirmation_pnl, use_container_width=True, hide_index=True)
 
-        render_section_header("Setup Quality", "Spot the strongest and weakest edges in the filtered record set.", icon="🏆", icon_gradient="linear-gradient(135deg,#ffd740,#ff6f00)")
+        render_section_header("Setup Quality", "Spot the strongest and weakest edges in the filtered record set.")
         setup_quality = build_setup_quality_summary(filtered_trades)
         quality_col1, quality_col2, quality_col3 = st.columns(3)
         quality_col1.metric("Highest Expectancy Scenario", setup_quality["highest_expectancy_scenario"])
@@ -13461,59 +13486,15 @@ def render_review_card(title: str, review: dict[str, Any]) -> None:
 
 
 def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anchor_bundle: dict[str, Any]) -> None:
-    """Render the historical mode premium header with session metadata."""
+    """Render a compact historical context banner."""
 
-    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual"
+    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual input"
     anchor_source = anchor_bundle.get("source", "Session anchors")
-    prior_str = inputs["prior_session_date"].strftime("%b %d, %Y")
-    next_str = inputs["next_trading_date"].strftime("%b %d, %Y")
-    target_str = format_timestamp(nine_am_target)
-
-    stats = [
-        ("Prior Session", prior_str),
-        ("Next Trading Day", next_str),
-        ("Projection Target", target_str),
-        ("Anchor Source", f"{anchor_source} · {source_mode}"),
-    ]
-    stats_html = "".join([
-        f'<div style="flex:1;min-width:120px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.05);">'
-        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.58rem;font-weight:700;letter-spacing:0.12em;'
-        f'text-transform:uppercase;color:rgba(255,212,64,0.55);margin-bottom:5px;">{lbl}</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.86rem;font-weight:600;color:#e8f4ff;">{val}</div>'
-        f'</div>'
-        for lbl, val in stats
-    ])
-    st.markdown(
-        '<div style="position:relative;overflow:hidden;border-radius:20px;padding:20px 24px 18px 24px;margin-bottom:18px;'
-        'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(10,20,44,0.97) 50%,rgba(2,6,20,0.99) 100%);'
-        'border:1px solid rgba(255,212,64,0.12);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
-        '<div style="pointer-events:none;position:absolute;top:-20px;right:60px;width:200px;height:120px;'
-        'background:radial-gradient(ellipse,rgba(255,212,64,0.07) 0%,transparent 70%);"></div>'
-        '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px;">'
-        '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
-        'font-size:1.4rem;background:linear-gradient(135deg,rgba(255,212,64,0.25),rgba(200,140,0,0.15));'
-        'box-shadow:0 0 20px rgba(255,212,64,0.18);border:1px solid rgba(255,212,64,0.2);">◷</div>'
-        '<div style="flex:1;min-width:0;">'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
-        'text-transform:uppercase;color:rgba(255,212,64,0.6);margin-bottom:4px;">Historical Analysis</div>'
-        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
-        'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Session Projection Review</div>'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
-        'Replay any prior session — project the structure, validate anchors, and review scenario outputs.'
-        '</div>'
-        '</div>'
-        '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
-        'background:rgba(255,212,64,0.08);border:1px solid rgba(255,212,64,0.2);flex-shrink:0;">'
-        '<div style="width:6px;height:6px;border-radius:50%;background:#ffd740;box-shadow:0 0 8px #ffd740;"></div>'
-        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#ffd740;">HISTORICAL</span>'
-        '</div>'
-        '</div>'
-        f'<div style="display:flex;flex-wrap:wrap;background:rgba(255,255,255,0.03);border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.05);">'
-        f'{stats_html}'
-        f'</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Prior Session", inputs["prior_session_date"].strftime("%Y-%m-%d"))
+    col2.metric("Next Trading Day", inputs["next_trading_date"].strftime("%Y-%m-%d"))
+    col3.metric("Projection Target", format_timestamp(nine_am_target))
+    col4.metric("Anchor Source", f"{anchor_source} | {source_mode}")
 
 
 def render_live_decision_center(
@@ -13531,9 +13512,11 @@ def render_live_decision_center(
     active_contract_quote: dict[str, Any] | None = None,
     active_option_display: dict[str, Any] | None = None,
 ) -> None:
-    """Render the production-first live decision center using native Streamlit components."""
+    """Render a single clean decision cockpit for Production Mode."""
 
     authority = hero_authority or {}
+    active_contract_quote = active_contract_quote or {}
+    active_option_display = active_option_display or {}
     chosen_play = None
     if signal_package is not None:
         scenario_payload = signal_package["scenario"]
@@ -13541,267 +13524,89 @@ def render_live_decision_center(
             chosen_play = scenario_payload.get("alternate_play") or scenario_payload.get("primary_play")
         else:
             chosen_play = scenario_payload.get("primary_play") or scenario_payload.get("alternate_play")
-    live_scenario = str((live_context or {}).get("live_scenario") or "Awaiting Valid SPX Input")
-    live_structure_state = format_live_state_label((live_context or {}).get("live_structure_state"))
-    transition_note = build_scenario_transition_note(live_context)
-    current_es_display = format_price(current_es_price) if is_valid_price_input(current_es_price) else "Not entered"
-    decision = str(authority.get("decision", "NO TRADE"))
-    confidence = int(authority.get("confidence_score", 0) or 0)
-    expected_value = authority.get("expected_value")
-    risk_class = str(authority.get("risk_class", "HIGH"))
-    reason_line = str(authority.get("reason_line", "Waiting for valid live setup."))
-    evidence_label = str(authority.get("evidence_level", (adaptive_overlay or {}).get("adaptive_evidence_level", "None")))
+
     direction_value = chosen_play.get("direction") if isinstance(chosen_play, dict) else ""
     direction_display = resolve_trade_direction_display(direction_value)
-    execution_display = resolve_trade_execution_display(direction_value, decision)
-    presentation_state = resolve_presentation_state(decision, direction_display["bias"])
+    unified_state = resolve_unified_decision_state(authority, direction_value)
+    live_scenario = format_ui_text((live_context or {}).get("live_scenario"), fallback="Awaiting valid live scenario")
+    transition_note = build_scenario_transition_note(live_context)
+    scenario_changed = bool(
+        (live_context or {}).get("live_scenario")
+        and (live_context or {}).get("scenario_origin")
+        and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin")
+    )
+    confidence = int(authority.get("confidence_score", 0) or 0)
+    risk_class = format_ui_text(authority.get("risk_class"), fallback="Not available")
+    hero_action_label = format_ui_text(resolve_hero_action_label(authority, event_risk_context), fallback="WAIT")
+    reason_line = format_ui_text(
+        authority.get("reason_line") or authority.get("execution_action_reason") or authority.get("setup_state_reason"),
+        fallback="Waiting for a cleaner live setup.",
+    )
     entry_value = intelligence_summary.get("locked_entry_spx") if intelligence_summary else None
-    if entry_value is None and signal_package is not None:
-        primary_play = signal_package["scenario"].get("primary_play")
-        if isinstance(primary_play, dict) and isinstance(primary_play.get("entry"), dict):
-            entry_value = primary_play["entry"].get("price")
-    strike_value = "-"
-    active_contract_quote = active_contract_quote or {}
-    active_option_display = active_option_display or {}
+    if entry_value is None and isinstance(chosen_play, dict) and isinstance(chosen_play.get("entry"), dict):
+        entry_value = chosen_play["entry"].get("price")
     selected_strike = _to_float_or_none(active_contract_quote.get("strike"))
-    if selected_strike is not None:
-        strike_value = str(int(selected_strike))
-    elif signal_package is not None:
-        primary_play = signal_package["scenario"].get("primary_play")
-        if isinstance(primary_play, dict) and primary_play.get("strike") is not None:
-            strike_value = str(primary_play["strike"])
-    lock_label = "Locked" if intelligence_summary and intelligence_summary.get("session_plan_locked") else "-"
-    plan_validity = str(authority.get("plan_validity", "-")).replace("_", " ").title()
-    timing_bucket = str(authority.get("timing_bucket", "-")).replace("_", " ").title()
-    execution_action = str(authority.get("execution_action", decision or "-"))
-    hero_action_label = resolve_hero_action_label(authority, event_risk_context)
-    setup_state = str(authority.get("setup_state", "NO_TRADE")).replace("_", " ").title()
-    trigger_state = str(authority.get("trigger_state", "UNAVAILABLE")).replace("_", " ").title()
+    if selected_strike is None and isinstance(chosen_play, dict):
+        selected_strike = _to_float_or_none(chosen_play.get("strike"))
     expected_fill = _to_float_or_none(active_contract_quote.get("projected_fill_at_entry")) or _to_float_or_none(active_contract_quote.get("expected_fill_mark"))
-    estimate_quality = str(active_contract_quote.get("premium_projection_confidence", "") or "Insufficient")
-    budget_status = str(active_contract_quote.get("budget_status", "") or "Unknown")
-    scenario_changed = bool((live_context or {}).get("live_scenario") and (live_context or {}).get("scenario_origin") and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin"))
-    top_line = presentation_state["headline"] if str(decision).upper() == "NO TRADE" else f"{direction_display['arrow']} {direction_display['headline']}"
-    subline = str(authority.get("setup_state_reason") or authority.get("execution_action_reason") or reason_line)
+    event_label = format_ui_text((event_risk_context or {}).get("event_risk_status"), fallback="Unknown")
+    estimate_quality = format_estimate_quality(active_contract_quote.get("premium_projection_confidence"))
+    budget_status = format_ui_text(active_contract_quote.get("budget_status"), fallback="Unknown")
+    channel_state = format_ui_text(str((live_context or {}).get("channel_state", "")).replace("_", " ").title(), fallback="Not available")
+    activation_state = format_ui_text((live_context or {}).get("activation_state"), fallback="Waiting")
+    lock_label = "Yes" if intelligence_summary and intelligence_summary.get("session_plan_locked") else "No"
+    current_es_display = format_ui_price(current_es_price, fallback="Not entered")
+    bias_display = format_ui_text(direction_display["bias"], fallback="Neutral")
+    modifier = unified_state["modifier"].title()
+    title_line = unified_state["primary"]
 
-    # ── action badge resolution ──────────────────────────────────────────────
-    _action_upper = hero_action_label.upper()
-    if _action_upper == "ENTER NOW":
-        _badge_cls = "action-enter"
-        _badge_icon = "✅"
-    elif _action_upper in {"PREPARE WITH CAUTION", "WAIT FOR EVENT PASS", "CAUTION EVENT RISK"}:
-        _badge_cls = "action-caution"
-        _badge_icon = "⚠️"
-    elif _action_upper in {"PREPARE TO ENTER", "WAIT FOR ENTRY"}:
-        _badge_cls = "action-wait"
-        _badge_icon = "⏳"
-    elif _action_upper in {"SKIP TRADE", "UNTRADEABLE"}:
-        _badge_cls = "action-skip"
-        _badge_icon = "🚫"
-    else:
-        _badge_cls = "action-wait"
-        _badge_icon = "⏳"
+    with st.container(border=True):
+        top_left, top_right = st.columns([3.2, 1.1], gap="large")
+        with top_left:
+            st.caption("Decision Center")
+            st.markdown(f"## {title_line}")
+            st.caption(f"{bias_display.title()} | {live_scenario}")
+            st.caption(f"{channel_state} | {activation_state}")
+            st.caption(f"{hero_action_label} | {modifier}")
+            st.write(reason_line)
+            if scenario_changed and transition_note:
+                st.caption(format_ui_text(transition_note, fallback="Structure changed"))
+        with top_right:
+            st.metric("Current ES", current_es_display)
+            st.caption(f"Active play: {format_ui_text(active_play_label, fallback='None')}")
 
-    # ── confidence colour ────────────────────────────────────────────────────
-    if confidence >= 80:
-        _conf_cls = "positive"
-    elif confidence >= 60:
-        _conf_cls = "warning"
-    else:
-        _conf_cls = "negative"
+        stat1, stat2, stat3, stat4, stat5 = st.columns(5)
+        stat1.metric("Planned Entry", f"{format_ui_price(entry_value)} SPX")
+        stat2.metric("Strike", str(int(selected_strike)) if selected_strike is not None else "Not available")
+        stat3.metric("Expected Fill", format_ui_estimate(expected_fill))
+        stat4.metric("Confidence", f"{confidence}%")
+        stat5.metric("Risk", risk_class)
 
-    # ── derived display values ───────────────────────────────────────────────
-    _entry_display = format_price(entry_value) if entry_value is not None else "-"
-    _fill_display = format_price(expected_fill) if expected_fill is not None else "—"
-    _ev_display = format_price(expected_value) if expected_value is not None else "-"
-    _event_risk_status = escape(str((event_risk_context or {}).get("event_risk_status", "Unknown")))
-    _transition_html = (
-        f'<div class="cockpit-transition">{escape(transition_note)}</div>'
-        if transition_note else ""
-    )
-    _scenario_changed_flag = " · ⚡ SCENARIO SHIFTED" if scenario_changed else ""
-    _lock_display = f"Plan: {escape(lock_label)}{_scenario_changed_flag}"
-
-    # Unified state — one authoritative display, no contradictions
-    _is_no_trade = str(decision).upper() == "NO TRADE" or str(hero_action_label).upper() in {"SKIP TRADE", "UNTRADEABLE"}
-    if _is_no_trade:
-        _badge_cls = "action-skip"
-        _badge_icon = "🚫"
-        _display_headline = str(presentation_state.get("headline") or "NO TRADE")
-        _display_badge = "NO TRADE"
-    else:
-        # Already set by the existing action badge resolution block
-        _display_headline = top_line
-        _display_badge = hero_action_label
-
-    # ── Badge inline style (no CSS class dependency) ────────────────────────
-    _badge_styles = {
-        "action-enter":  "background:linear-gradient(135deg,rgba(0,230,118,0.22),rgba(0,180,90,0.1));border:1px solid rgba(0,230,118,0.42);color:#00e676;box-shadow:0 0 20px rgba(0,230,118,0.2);",
-        "action-wait":   "background:linear-gradient(135deg,rgba(255,212,64,0.18),rgba(220,160,0,0.08));border:1px solid rgba(255,212,64,0.38);color:#ffd740;",
-        "action-caution":"background:linear-gradient(135deg,rgba(255,112,67,0.2),rgba(220,80,0,0.08));border:1px solid rgba(255,112,67,0.38);color:#ff7043;",
-        "action-skip":   "background:linear-gradient(135deg,rgba(239,83,80,0.18),rgba(180,40,40,0.08));border:1px solid rgba(239,83,80,0.32);color:#ef5350;",
-    }
-    _badge_style = _badge_styles.get(_badge_cls, _badge_styles["action-wait"])
-    _conf_colors = {"positive": "#00e676", "warning": "#ffd740", "negative": "#ef5350"}
-    _conf_color  = _conf_colors.get(_conf_cls, "#e0eeff")
-    _play_kicker = f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""
-    _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:14px 18px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
-    _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:10px 18px;border-right:1px solid rgba(255,255,255,0.04);"
-    _lbl_s       = "display:block;font-size:0.58rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.3);margin-bottom:5px;"
-    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.02rem;font-weight:500;color:#e0eeff;"
-    _chip_lbl    = "display:block;font-size:0.57rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.28);margin-bottom:3px;"
-    _chip_val    = "display:block;font-size:0.79rem;font-weight:600;color:rgba(244,247,255,0.78);"
-    _gauge_w     = max(0, min(100, confidence))
-
-    st.markdown(
-        f'<div style="border-radius:20px;overflow:hidden;margin-bottom:18px;'
-        f'border:1px solid rgba(0,212,255,0.14);'
-        f'background:linear-gradient(180deg,rgba(3,10,26,0.99),rgba(1,6,18,1));'
-        f'box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
-
-        f'<div style="font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;'
-        f'color:rgba(106,230,255,0.55);padding:16px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
-
-        f'<div style="display:flex;align-items:center;justify-content:space-between;'
-        f'gap:16px;flex-wrap:wrap;padding:10px 24px 8px;">'
-        f'<div style="font-family:Outfit,sans-serif;font-size:1.45rem;font-weight:800;'
-        f'color:#f4f7ff;line-height:1.2;">{escape(_display_headline)}</div>'
-        f'<div style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;'
-        f'border-radius:30px;font-size:0.78rem;font-weight:700;letter-spacing:0.07em;'
-        f'text-transform:uppercase;white-space:nowrap;{_badge_style}">'
-        f'{_badge_icon}&nbsp;{escape(_display_badge)}</div>'
-        f'</div>'
-
-        f'<div style="font-size:0.82rem;color:rgba(244,247,255,0.48);line-height:1.55;padding:0 24px 8px;">{escape(subline)}</div>'
-
-        f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 24px 12px;">'
-        f'<code style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
-        f'background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.14);'
-        f'color:rgba(106,230,255,0.75);padding:2px 9px;border-radius:6px;">{escape(live_scenario)}</code>'
-        f'<span style="font-size:0.7rem;color:rgba(244,247,255,0.38);">{escape(live_structure_state)}</span>'
-        f'</div>'
-
-        + (f'<div style="font-size:0.74rem;color:rgba(255,212,64,0.65);padding:0 24px 10px;">{escape(transition_note)}</div>' if transition_note else '')
-
-        + f'<div style="display:flex;border-top:1px solid rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.05);">'
-        f'<div style="{_stat_cell}">'
-        f'<div style="{_lbl_s}">Entry SPX</div>'
-        f'<div style="{_val_s}">{escape(_entry_display)}</div>'
-        f'</div>'
-        f'<div style="{_stat_cell}">'
-        f'<div style="{_lbl_s}">Strike</div>'
-        f'<div style="{_val_s}">{escape(str(strike_value))}</div>'
-        f'</div>'
-        f'<div style="{_stat_cell}">'
-        f'<div style="{_lbl_s}">ES Live</div>'
-        f'<div style="{_val_s}">{escape(current_es_display)}</div>'
-        f'</div>'
-        f'<div style="{_stat_cell}">'
-        f'<div style="{_lbl_s}">Confidence</div>'
-        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.02rem;font-weight:500;color:{_conf_color};">{confidence}%</div>'
-        f'<div style="height:4px;margin-top:6px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
-        f'<div style="height:100%;width:{_gauge_w}%;background:linear-gradient(90deg,#ef5350,#ffd740 50%,#00e676);border-radius:2px;"></div>'
-        f'</div>'
-        f'</div>'
-        f'<div style="display:inline-block;flex:1;min-width:0;padding:14px 18px;background:rgba(255,255,255,0.013);">'
-        f'<div style="{_lbl_s}">Expected Fill</div>'
-        f'<div style="{_val_s}">{escape(_fill_display)}</div>'
-        f'</div>'
-        f'</div>'
-
-        f'<div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.04);">'
-        f'<div style="{_chip_cell}">'
-        f'<div style="{_chip_lbl}">Setup</div>'
-        f'<div style="{_chip_val}">{escape(setup_state)}</div>'
-        f'</div>'
-        f'<div style="{_chip_cell}">'
-        f'<div style="{_chip_lbl}">Risk Class</div>'
-        f'<div style="{_chip_val}">{escape(risk_class)}</div>'
-        f'</div>'
-        f'<div style="{_chip_cell}">'
-        f'<div style="{_chip_lbl}">Timing</div>'
-        f'<div style="{_chip_val}">{escape(timing_bucket)}</div>'
-        f'</div>'
-        f'<div style="display:inline-block;flex:1;min-width:0;padding:10px 18px;">'
-        f'<div style="{_chip_lbl}">Event Risk</div>'
-        f'<div style="{_chip_val}">{_event_risk_status}</div>'
-        f'</div>'
-        f'</div>'
-
-        f'<div style="padding:9px 24px;font-size:0.68rem;color:rgba(244,247,255,0.3);'
-        f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
-        f'{escape(_lock_display)}'
-        f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
-        f'&nbsp;&middot;&nbsp;EV:&nbsp;{escape(_ev_display)}'
-        f'&nbsp;&middot;&nbsp;Evidence:&nbsp;{escape(evidence_label if evidence_label else "None")}'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        strip_parts = [
+            f"Plan locked: {lock_label}",
+            f"Scenario changed: {'Yes' if scenario_changed else 'No'}",
+            f"Event risk: {event_label}",
+            f"Best contract fit: {budget_status}",
+            f"Estimate quality: {estimate_quality}",
+        ]
+        st.caption(" | ".join(strip_parts))
 
 
 def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_authority: dict[str, Any] | None) -> None:
-    """Render a premium inline-styled execution alert panel for both live plays."""
+    """Render one compact alert strip for both live plays."""
 
-    # State → (accent color, bg color, label)
-    _state_map = {
-        "ACT_NOW":    ("#00e676", "rgba(0,230,118,0.12)",  "ACT NOW"),
-        "READY":      ("#00e676", "rgba(0,230,118,0.12)",  "READY"),
-        "PREPARE":    ("#ffd740", "rgba(255,215,64,0.11)", "PREPARE"),
-        "WATCH":      ("#6ae6ff", "rgba(106,230,255,0.1)", "WATCH"),
-        "INVALIDATED":("#ef5350", "rgba(239,83,80,0.12)",  "INVALIDATED"),
-        "EXPIRED":    ("#ef5350", "rgba(239,83,80,0.12)",  "EXPIRED"),
-        "QUIET":      ("#8ea1bc", "rgba(142,161,188,0.08)","QUIET"),
-    }
-    _priority_map = {
-        "HIGH":   ("#ef5350", "rgba(239,83,80,0.12)"),
-        "MEDIUM": ("#ffd740", "rgba(255,215,64,0.11)"),
-        "LOW":    ("#8ea1bc", "rgba(142,161,188,0.08)"),
-    }
-    _badge_base = "display:inline-flex;align-items:center;gap:4px;font-size:0.62rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:2px 9px;border-radius:20px;"
-
-    slots_html = ""
-    for label, auth_obj, icon in [("Primary", primary_authority or {}, "🎯"), ("Alternate", alternate_authority or {}, "🔄")]:
-        alert_state = str(auth_obj.get("alert_state", "QUIET"))
-        priority = str(auth_obj.get("alert_priority", "LOW"))
-        message = str(auth_obj.get("alert_message", "No live execution edge"))
-        sc, sb, sl = _state_map.get(alert_state, ("#8ea1bc", "rgba(142,161,188,0.08)", alert_state))
-        pc, pb = _priority_map.get(priority, ("#8ea1bc", "rgba(142,161,188,0.08)"))
-        slots_html += (
-            f'<div style="flex:1;min-width:220px;padding:14px 16px;'
-            f'background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);'
-            f'border-left:3px solid {sc};border-radius:10px;">'
-            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">'
-            f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#8ea1bc;">'
-            f'{escape(label)}</div>'
-            f'<div style="display:flex;gap:5px;">'
-            f'<span style="{_badge_base}background:{sb};color:{sc};">{escape(sl)}</span>'
-            f'<span style="{_badge_base}background:{pb};color:{pc};">{escape(priority)}</span>'
-            f'</div></div>'
-            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.78);line-height:1.5;">'
-            f'{escape(message)}</div>'
-            f'</div>'
-        )
-    st.markdown(
-        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.13);'
-        f'box-shadow:0 4px 32px rgba(0,0,0,0.35);margin-bottom:14px;">'
-        f'<div style="display:flex;align-items:center;gap:14px;padding:14px 20px;'
-        f'background:linear-gradient(135deg,rgba(0,30,60,0.98) 0%,rgba(4,8,20,0.98) 100%);'
-        f'border-bottom:1px solid rgba(0,212,255,0.1);">'
-        f'<div style="flex-shrink:0;width:38px;height:38px;border-radius:10px;'
-        f'background:linear-gradient(135deg,#e65100,#bf360c);'
-        f'box-shadow:0 0 16px rgba(230,81,0,0.35);'
-        f'display:flex;align-items:center;justify-content:center;font-size:1.15rem;">⚡</div>'
-        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;color:#f4f7ff;">'
-        f'Execution Alerts</div>'
-        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;">'
-        f'Live operator action status for each play</div></div>'
-        f'</div>'
-        f'<div style="background:rgba(4,8,20,0.97);padding:14px 16px;">'
-        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{slots_html}</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
+    entries = [("Primary", primary_authority or {}), ("Alternate", alternate_authority or {})]
+    with st.container(border=True):
+        st.caption("Execution Alerts")
+        col1, col2 = st.columns(2, gap="large")
+        for column, (label, authority) in zip((col1, col2), entries):
+            with column:
+                st.markdown(f"**{label}**")
+                st.caption(
+                    f"{authority.get('alert_state', 'QUIET')} | "
+                    f"{authority.get('alert_priority', 'LOW')}"
+                )
+                st.caption(str(authority.get("alert_message", "No live execution edge")))
 
 
 def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_context: dict[str, Any] | None) -> str:
@@ -13812,7 +13617,7 @@ def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_conte
     event_level = str(event_risk_context.get("event_risk_level", "quiet")).lower()
     execution_action = str(authority.get("execution_action", "") or "")
     setup_state = str(authority.get("setup_state", "") or "")
-    if event_level in {"major", "extreme"} and execution_action not in {"SKIP TRADE"}:
+    if event_level in {"high", "major", "extreme"} and execution_action not in {"SKIP TRADE"}:
         return "CAUTION EVENT RISK"
     if execution_action == "ENTER NOW":
         return "ENTER NOW"
@@ -13828,176 +13633,46 @@ def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_conte
 
 
 def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
-    """Premium market intelligence panel: event risk + live news feed for 0DTE."""
+    """Render one compact market-context card with event risk and headlines."""
 
     context = event_risk_context or {}
-    level = str(context.get("event_risk_level", "unknown")).lower()
-    status = str(context.get("event_risk_status", "Unknown"))
-    reason = str(context.get("event_risk_reason", ""))
-    mode = str(context.get("event_trading_mode", "normal")).title()
-    next_event = str(context.get("next_known_event", "") or "")
+    status = format_ui_text(context.get("event_risk_status"), fallback="Unknown")
+    reason = format_ui_text(context.get("event_risk_reason"), fallback="Live news unavailable")
+    next_event = format_ui_text(context.get("next_known_event"), fallback="")
+    mode = format_ui_text(str(context.get("event_trading_mode", "normal")).title(), fallback="Normal")
+    window_state = "Active event window" if context.get("event_window_active") else "Quiet window"
     time_until = context.get("time_until_event")
-    window_active = bool(context.get("event_window_active", False))
-    headlines = list(context.get("headlines", []) or [])[:NEWS_FEED_MAX_ITEMS]
-    source_status = str(context.get("source_status", ""))
 
-    # Inline style maps — no CSS class dependency
-    _risk_styles = {
-        "quiet":    {"bg": "rgba(0,230,118,0.12)",  "border": "rgba(0,230,118,0.35)",  "color": "#00e676", "icon": "🟢", "label": "All Clear",    "glow": "rgba(0,230,118,0.15)"},
-        "elevated": {"bg": "rgba(255,215,64,0.12)",  "border": "rgba(255,215,64,0.35)",  "color": "#ffd740", "icon": "🟡", "label": "Elevated",     "glow": "rgba(255,215,64,0.12)"},
-        "high":     {"bg": "rgba(255,109,64,0.13)",  "border": "rgba(255,109,64,0.38)",  "color": "#ff7043", "icon": "🟠", "label": "High Risk",     "glow": "rgba(255,109,64,0.15)"},
-        "major":    {"bg": "rgba(255,109,64,0.13)",  "border": "rgba(255,109,64,0.38)",  "color": "#ff7043", "icon": "🟠", "label": "Major Event",   "glow": "rgba(255,109,64,0.15)"},
-        "extreme":  {"bg": "rgba(239,83,80,0.16)",   "border": "rgba(239,83,80,0.45)",   "color": "#ef5350", "icon": "🔴", "label": "Extreme Risk",  "glow": "rgba(239,83,80,0.25)"},
-    }
-    _cat_styles = {
-        "macro":    {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.10)", "icon": "📊", "label": "Macro"},
-        "markets":  {"accent": "#00e676", "bg": "rgba(0,230,118,0.10)",  "icon": "📈", "label": "Markets"},
-        "politics": {"accent": "#ff7043", "bg": "rgba(255,112,67,0.10)", "icon": "🏛",  "label": "Politics"},
-        "fed":      {"accent": "#b39ddb", "bg": "rgba(179,157,219,0.10)","icon": "🏦",  "label": "Fed"},
-    }
-    _default_cat = {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.08)", "icon": "📰", "label": "News"}
+    with st.container(border=True):
+        st.caption("Market Context")
+        left_col, right_col = st.columns([2.2, 1.1], gap="large")
+        with left_col:
+            st.markdown(f"**{status}**")
+            st.caption(reason)
+            if next_event:
+                next_line = f"Next major event: {next_event}"
+                if time_until is not None:
+                    next_line += f" | T-{int(time_until)} min"
+                st.caption(next_line)
+        with right_col:
+            st.metric("Mode", mode)
+            st.caption(window_state)
 
-    rs = _risk_styles.get(level, {"bg": "rgba(255,215,64,0.12)", "border": "rgba(255,215,64,0.35)", "color": "#ffd740", "icon": "⚪", "label": status, "glow": "rgba(255,215,64,0.10)"})
-    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.65rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:3px 10px;border-radius:20px;'
-    _risk_bs   = f'{_badge_s}background:{rs["bg"]};border:1px solid {rs["border"]};color:{rs["color"]};'
-    _mode_bs   = f'{_badge_s}background:rgba(0,230,118,0.10);border:1px solid rgba(0,230,118,0.28);color:#00e676;' if mode.lower() == "normal" else f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
-    _window_bs = f'{_badge_s}background:rgba(255,109,64,0.13);border:1px solid rgba(255,109,64,0.35);color:#ff7043;'
-    _tuntil_bs = f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
-    _mode_icon = "✅" if mode.lower() == "normal" else "⚠️"
-
-    # Badge row HTML
-    badges_html = f'<span style="{_risk_bs}">{rs["icon"]} {escape(rs["label"])}</span>'
-    badges_html += f'<span style="{_mode_bs}">{_mode_icon} {escape(mode)}</span>'
-    if window_active:
-        badges_html += f'<span style="{_window_bs}">⏱ Window Active</span>'
-    if time_until is not None:
-        badges_html += f'<span style="{_tuntil_bs}">T‑{int(time_until)} min</span>'
-
-    # Status strip (reason + next event)
-    status_parts = ""
-    if reason:
-        status_parts += (
-            f'<div style="font-size:0.82rem;color:rgba(224,238,255,0.72);line-height:1.55;'
-            f'padding:12px 20px;border-bottom:1px solid rgba(0,212,255,0.07);">'
-            f'{escape(reason)}</div>'
-        )
-    if next_event:
-        status_parts += (
-            f'<div style="display:flex;align-items:center;gap:8px;padding:10px 20px;'
-            f'border-bottom:1px solid rgba(0,212,255,0.07);background:rgba(0,212,255,0.03);">'
-            f'<span style="font-size:0.9rem;">📅</span>'
-            f'<span style="font-size:0.78rem;color:rgba(224,238,255,0.55);">Next event:</span>'
-            f'<span style="font-size:0.78rem;font-weight:600;color:#e0eeff;">{escape(next_event)}</span>'
-            f'</div>'
-        )
-
-    # News cards — 100% inline, flexbox two-column
-    from datetime import timezone as _tz
-    cards_html = ""
-    for item in headlines:
-        _title = str(item.get("title", "")).strip()
-        if not _title:
-            continue
-        _link  = str(item.get("link", "")).strip()
-        _ckey  = str(item.get("category", "markets")).lower()
-        _cs    = _cat_styles.get(_ckey, _default_cat)
-        _pub   = str(item.get("published_at", "")).strip()
-        _tstr  = ""
-        if _pub:
-            for _fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z"):
-                try:
-                    _dt = datetime.strptime(_pub, _fmt)
-                    if _dt.tzinfo:
-                        _dt = _dt.astimezone(_tz.utc)
-                    _tstr = _dt.strftime("%H:%M UTC")
-                    break
-                except Exception:
-                    pass
-
-        _card_inner = (
-            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px;">'
-            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.6rem;font-weight:700;'
-            f'letter-spacing:0.08em;text-transform:uppercase;padding:2px 8px;border-radius:20px;'
-            f'background:{_cs["bg"]};color:{_cs["accent"]};">{_cs["icon"]} {escape(_cs["label"])}</span>'
-            f'<span style="font-size:0.6rem;color:rgba(224,238,255,0.3);flex-shrink:0;">{escape(_tstr)}</span>'
-            f'</div>'
-            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.88);line-height:1.48;font-weight:500;">'
-            f'{escape(_title)}</div>'
-        )
-        _card_style = (
-            f'flex:1;min-width:240px;padding:12px 14px;'
-            f'background:rgba(255,255,255,0.025);'
-            f'border:1px solid rgba(255,255,255,0.06);'
-            f'border-left:3px solid {_cs["accent"]};'
-            f'border-radius:8px;'
-            f'text-decoration:none;display:block;'
-            f'transition:background 0.15s ease;'
-        )
-        if _link:
-            cards_html += f'<a href="{escape(_link)}" target="_blank" style="{_card_style}color:inherit;">{_card_inner}</a>'
+        headlines = list(context.get("headlines", []) or [])[:5]
+        if headlines:
+            st.caption("Latest market-moving headlines")
+            for item in headlines:
+                title = format_ui_text(item.get("title"), fallback="")
+                if not title:
+                    continue
+                link = str(item.get("link", "") or "").strip()
+                category = format_ui_text(item.get("category"), fallback="News").title()
+                if link:
+                    st.markdown(f"- [{category}: {title}]({link})")
+                else:
+                    st.markdown(f"- {category}: {title}")
         else:
-            cards_html += f'<div style="{_card_style}">{_card_inner}</div>'
-
-    if cards_html:
-        feed_html = (
-            f'<div style="display:flex;flex-wrap:wrap;gap:10px;padding:16px 18px;">'
-            f'{cards_html}'
-            f'</div>'
-        )
-    elif source_status == "unavailable":
-        feed_html = (
-            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
-            f'color:rgba(224,238,255,0.3);font-style:italic;">'
-            f'📡 Live news feed unavailable — check network or use manual event risk override</div>'
-        )
-    else:
-        feed_html = (
-            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
-            f'color:rgba(224,238,255,0.3);font-style:italic;">'
-            f'No market-moving headlines at this time</div>'
-        )
-
-    st.markdown(
-        # Outer container
-        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.13);'
-        f'box-shadow:0 4px 32px rgba(0,0,0,0.35);margin-bottom:6px;">'
-
-        # Header
-        f'<div style="display:flex;align-items:center;gap:14px;padding:16px 20px;'
-        f'background:linear-gradient(135deg,rgba(0,30,60,0.98) 0%,rgba(4,8,20,0.98) 100%);'
-        f'border-bottom:1px solid rgba(0,212,255,0.1);">'
-
-        # Icon bubble
-        f'<div style="flex-shrink:0;width:42px;height:42px;border-radius:10px;'
-        f'background:linear-gradient(135deg,#0077b6,#023e8a);'
-        f'box-shadow:0 0 18px rgba(0,119,182,0.4);'
-        f'display:flex;align-items:center;justify-content:center;font-size:1.25rem;">📡</div>'
-
-        # Title + subtitle
-        f'<div style="flex:1;min-width:0;">'
-        f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;'
-        f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">Market Intelligence</div>'
-        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;letter-spacing:0.04em;">'
-        f'0DTE event risk · economic data · breaking headlines</div>'
-        f'</div>'
-
-        # Badges
-        f'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">'
-        f'{badges_html}'
-        f'</div>'
-        f'</div>'  # end header
-
-        # Status strip
-        f'{status_parts}'
-
-        # News feed
-        f'<div style="background:rgba(4,8,20,0.97);">'
-        f'{feed_html}'
-        f'</div>'
-
-        f'</div>',  # end outer container
-        unsafe_allow_html=True,
-    )
+            st.caption("Live news unavailable")
 
 
 def render_operator_play_card(
@@ -14026,13 +13701,9 @@ def render_operator_play_card(
     """Render a calmer operator-first play card for live mode."""
 
     if play_spx is None:
-        st.markdown(
-            f'<div class="spx-card alternate" style="padding:18px 22px">'
-            f'<div class="spx-card-heading" style="margin-bottom:4px">{escape(title)}</div>'
-            f'<div class="spx-card-copy" style="opacity:0.45">No setup available for this session.</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
+            st.caption("No setup.")
         return
 
     def _decision_class(value: str) -> str:
@@ -14142,6 +13813,8 @@ def render_operator_play_card(
     retest_summary = str(authority.get("retest_summary", ""))
     setup_state = str(authority.get("setup_state", trade_state)).replace("_", " ").title()
     setup_state_reason = str(authority.get("setup_state_reason", reason_line))
+    channel_state = format_ui_text(str(authority.get("channel_state", "")).replace("_", " ").title(), fallback="Not available")
+    channel_activation_state = format_ui_text(authority.get("channel_activation_state"), fallback="Waiting")
     trigger_type = str(authority.get("trigger_type", "NONE")).replace("_", " ").title()
     trigger_state = str(authority.get("trigger_state", "UNAVAILABLE")).replace("_", " ").title()
     trigger_reason = str(authority.get("trigger_reason", ""))
@@ -14164,137 +13837,136 @@ def render_operator_play_card(
     best_contract_rr = _to_float_or_none((preferred_contract_row or {}).get("rr_ratio"))
     best_contract_basis = str(authority.get("execution_action_reason", "") or reason_line)
 
-    _t1_str = f" · T1 {format_price(target_1_spx)}" if target_1_spx is not None else ""
-    _t2_str = f" · T2 {format_price(target_2_spx)}" if target_2_spx is not None else ""
-    badge_bits = [
-        f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
-        f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
-        f"<span class=\"spx-chip {_chip_class(effective_confidence_label if (effective_confidence_label := str(intelligence.get('prediction_confidence', ''))) else 'LOW')} \">{escape(projection_confidence)}</span>",
-        f"<span class=\"spx-chip scenario-neutral\">{escape(event_risk_label)}</span>",
-        f"<span class=\"spx-chip scenario-neutral\">{escape(budget_execution_status or selected_budget_status or 'Unknown')}</span>",
+    unified_state = resolve_unified_decision_state(authority, play.get("direction"))
+    primary_reason = format_ui_text(reason_line if decision == "NO TRADE" else decision_sentence, fallback="Waiting for a cleaner setup.")
+    zone_status = format_ui_text(authority.get("entry_zone_status", intelligence.get("entry_zone_status")), fallback="Not available")
+    checklist_labels = [
+        ("Structure", bool(authority.get("checklist_structure_valid"))),
+        ("Zone", bool(authority.get("checklist_entry_zone_valid"))),
+        ("Stop", bool(authority.get("checklist_stop_valid"))),
+        ("RR", bool(authority.get("checklist_rr_valid"))),
+        ("Budget", bool(authority.get("checklist_budget_valid"))),
+        ("Trigger", bool(authority.get("checklist_trigger_ready"))),
     ]
-    st.markdown(
-        f"""
-        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
-            <div class="spx-play-topline">
-                <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
-                <div class="spx-play-topline-note">Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(setup_state)}</span></div>
-            </div>
-            <div class="spx-decision-banner {_decision_class(decision)}">
-                <div>
-                    <div class="spx-decision-main">{escape(presentation_state['headline'])}</div>
-                    <div class="spx-decision-sub">{escape(direction_display['bias'])} | {escape(execution_display)}</div>
-                </div>
-                <div class="spx-play-context">
-                    <div class="spx-play-context-label">{escape(trigger_state)}</div>
-                    <div class="spx-play-context-value">{confidence}%</div>
-                </div>
-            </div>
-            <div class="spx-badge-row">{''.join(badge_bits)}</div>
-            <div class="spx-entry-grid">
-                <div class="spx-entry-card">
-                    <div class="spx-entry-card-label">Planned Entry</div>
-                    <div class="spx-entry-card-value">{format_price(locked_entry_value)} SPX</div>
-                    <div class="spx-entry-card-note">Stop {format_price(stop_price) if stop_price is not None else 'Unavailable'}{_t1_str}{_t2_str}</div>
-                </div>
-                <div class="spx-entry-card">
-                    <div class="spx-entry-card-label">Current Mark</div>
-                    <div class="spx-entry-card-value">{format_price(current_mark) if current_mark is not None else '-'}</div>
-                    <div class="spx-entry-card-note">Risk {escape(risk_class)}</div>
-                </div>
-            </div>
-            <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">At Entry</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else '-'}</div></div>
-                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else "-"}</div></div>' if show_calibrated else ''}
-                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Fill</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>' if show_expected_fill else ''}
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate</div><div class="spx-metric-value">{escape(projection_confidence)}</div></div>
-            </div>
-            <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Budget</div><div class="spx-metric-value">{escape(budget_execution_status or selected_budget_status or '-')}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get('entry_zone_status', '-')))}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else '-'}</div></div>
-            </div>
-            <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>
-            </div>
-            <div class="spx-play-note">{escape(reason_line if decision == 'NO TRADE' else decision_sentence)}</div>
-            {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if binding_error:
-        st.error("Contract binding error")
+    checklist_summary = " | ".join(f"{label} {'OK' if passed else 'Block'}" for label, passed in checklist_labels)
+    card_header = f"{title} | {direction_display['bias'].title()}"
 
-    # Best Contract — premium styled card, only actionable contract data
-    if best_contract_symbol_for_box:
-        _bc_pred = (preferred_contract_row or {}).get("projected_mark_at_entry") or best_contract_pred
-        _bc_fill = (preferred_contract_row or {}).get("projected_fill_at_entry") or best_contract_fill
-        _bc_header = "Best candidate · informational only" if decision == "NO TRADE" else "Best Contract"
-        _bc_border = "#ffd740" if decision == "NO TRADE" else "#00e676"
-        _bc_budget = budget_execution_status or selected_budget_status or "-"
-        _bc_budget_col = "#ef5350" if "over" in _bc_budget.lower() else ("#ffd740" if "tight" in _bc_budget.lower() else "#00e676")
-        st.markdown(
-            f'<div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);'
-            f'border-left:3px solid {_bc_border};border-radius:8px;padding:12px 16px;margin:10px 0;">'
-            f'<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:#8eb8d4;margin-bottom:6px;">{escape(_bc_header)}</div>'
-            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;color:#e0eeff;margin-bottom:8px;">{escape(best_contract_symbol_for_box)}</div>'
-            f'<div style="display:flex;gap:14px;flex-wrap:wrap;">'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">At Entry</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Fill Est.</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
-            f'</div>'
-            f'<div style="margin-top:8px;font-size:0.62rem;color:#5a7a94;">{escape(strike_profile)} · {escape(projection_reason or best_contract_basis or "-")} · {escape(preferred_contract_mode)}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    with st.container(border=True):
+        header_left, header_right = st.columns([3.1, 1.1], gap="large")
+        with header_left:
+            st.caption(card_header)
+            st.markdown(f"### {unified_state['primary']}")
+            st.caption(f"{setup_state} | {unified_state['modifier'].title()}")
+            st.caption(f"{channel_state} | {channel_activation_state}")
+            st.write(primary_reason)
+            if transition_note and developer_mode:
+                st.caption(format_ui_text(transition_note, fallback="Structure changed"))
+        with header_right:
+            st.metric("Confidence", f"{confidence}%")
+            st.caption(f"Risk: {format_ui_text(risk_class, fallback='Not available')}")
 
-    # Contract selection status (brief single line)
+        if binding_error:
+            st.error("Contract binding error")
+
+        plan_col1, plan_col2, plan_col3, plan_col4, plan_col5 = st.columns(5)
+        plan_col1.metric("Planned Entry", f"{format_ui_price(locked_entry_value)} SPX")
+        plan_col2.metric("Strike", str(displayed_strike if displayed_strike is not None else "Not available"))
+        plan_col3.metric("Stop", format_ui_price(authoritative_stop_spx, fallback="Not available"))
+        plan_col4.metric("Target 1", format_ui_price(target_1_spx, fallback="Not available"))
+        plan_col5.metric("Target 2", format_ui_price(target_2_spx, fallback="Not available"))
+
+        if show_calibrated:
+            live_col1, live_col2, live_col3, live_col4, live_col5 = st.columns(5)
+            live_col1.metric("Current Mark", format_ui_price(current_mark))
+            live_col2.metric("At Entry", format_ui_estimate(projected_entry_value))
+            live_col3.metric("Calibrated", format_ui_estimate(calibrated_value))
+            live_col4.metric("Expected Fill", format_ui_estimate(projected_fill_at_entry))
+            live_col5.metric("Zone", zone_status)
+        else:
+            live_col1, live_col2, live_col3, live_col4 = st.columns(4)
+            live_col1.metric("Current Mark", format_ui_price(current_mark))
+            live_col2.metric("At Entry", format_ui_estimate(projected_entry_value))
+            live_col3.metric("Expected Fill", format_ui_estimate(projected_fill_at_entry))
+            live_col4.metric("Zone", zone_status)
+
+        status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+        status_col1.metric("Plan", format_ui_text(plan_validity, fallback="Not available"))
+        status_col2.metric("Timing", format_ui_text(timing_bucket, fallback="Not available"))
+        status_col3.metric("Action", format_ui_text(execution_action, fallback="WAIT"))
+        status_col4.metric("Checklist", format_ui_text(checklist_status, fallback="WAIT"))
+
+        utility_bits = [
+            f"RR: {rr_value if rr_value is not None else 'Not available'}",
+            f"Move: {format_ui_percent(move_completion)}",
+            f"Budget: {format_ui_text(budget_execution_status or selected_budget_status, fallback='Unknown')}",
+            f"Estimate quality: {format_estimate_quality(projection_confidence)}",
+        ]
+        st.caption(" | ".join(utility_bits))
+        st.caption(format_ui_text(trigger_line or condition_required, fallback="Trigger details not available"))
+        st.caption(checklist_summary)
+
+        if best_contract_symbol_for_box:
+            with st.container(border=True):
+                st.markdown("**Best current candidate, not approved for execution**" if decision == "NO TRADE" else "**Selected Contract**")
+                st.markdown(f"`{format_ui_text(best_contract_symbol_for_box, fallback='Contract unavailable')}`")
+                st.caption(
+                    " | ".join(
+                        [
+                            f"Current {format_ui_price(best_contract_mark)}",
+                            f"At Entry {format_ui_estimate((preferred_contract_row or {}).get('projected_mark_at_entry') if (preferred_contract_row or {}).get('projected_mark_at_entry') is not None else best_contract_pred)}",
+                            f"Expected Fill {format_ui_estimate((preferred_contract_row or {}).get('projected_fill_at_entry') if (preferred_contract_row or {}).get('projected_fill_at_entry') is not None else best_contract_fill)}",
+                            f"RR {best_contract_rr if best_contract_rr is not None else 'Not available'}",
+                        ]
+                    )
+                )
+                st.caption(format_ui_text(projection_reason or best_contract_basis, fallback="Reason not available"))
+    selection_bits = [f"System Recommended: {recommended_contract_symbol or displayed_contract_symbol or '-'}"]
     if manual_override_active:
-        _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
-        st.caption(f"Manual override · Strike {format_price(selected_strike) if selected_strike is not None else '-'} · Mark {format_price(_sel_mark) if _sel_mark is not None else '-'}")
+        selection_bits.append(f"Selected by You: {selected_symbol or displayed_contract_symbol or '-'}")
     elif auto_execution_shift:
-        _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
-        st.caption(f"Auto-selected: {selected_symbol or '-'} · {_shift_reason}")
-    elif recommended_contract_symbol:
-        st.caption(f"System recommended: {recommended_contract_symbol}")
-
-    # Condition gate — only shown for CONDITIONAL BUY
-    if decision == "CONDITIONAL BUY" and condition_required:
-        st.warning(condition_required)
-
-    # Cost summary (budget is critical for 0DTE sizing)
-    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
-        _cost_parts: list[str] = []
-        if selected_estimated_entry_cost is not None:
-            _cost_parts.append(f"Est cost {format_price(selected_estimated_entry_cost)}")
-        if selected_estimated_fill_cost is not None:
-            _cost_parts.append(f"Fill cost {format_price(selected_estimated_fill_cost)}")
-        if max_affordable_fill is not None:
-            _cost_parts.append(f"Max fill {format_price(max_affordable_fill)}")
-        st.caption(" · ".join(_cost_parts))
-
-    # Projection warning (risk flag — always show if present)
-    if projection_warning and projection_warning not in {reason_line, decision_sentence}:
-        st.caption(projection_warning)
-
-    # Developer-only diagnostics
-    if developer_mode:
-        if retest_summary:
-            st.caption(f"Retest: {retest_summary}")
-        if top_reason_summary:
-            st.caption(f"Top reasons: {top_reason_summary}")
-        if display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
-            st.caption(
-                f"Bid/Ask {format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'}"
-                f" / {format_price(selected_contract.get('ask')) if selected_contract.get('ask') is not None else '-'}"
+        selection_bits.append(f"Selected for Entry: {selected_symbol or displayed_contract_symbol or '-'}")
+    st.caption(" | ".join(format_ui_text(bit, fallback="-") for bit in selection_bits))
+    if manual_override_active:
+        st.caption("Operator-selected contract is active.")
+    elif auto_execution_shift:
+        shift_reason = format_ui_text(option_display_state.get("selected_for_entry_reason"), fallback="Best budget fit")
+        st.caption(f"Selected for entry: {format_ui_text(selected_symbol, fallback='Not available')} | {shift_reason}")
+    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None or selected_budget_status:
+        st.caption(
+            " | ".join(
+                [
+                    f"Est Entry Cost {format_ui_price(selected_estimated_entry_cost)}",
+                    f"Est Fill Cost {format_ui_estimate(selected_estimated_fill_cost)}",
+                    f"Max Fill {format_ui_estimate(max_affordable_fill)}",
+                    format_ui_text(budget_execution_status or selected_budget_status, fallback='Budget unknown'),
+                ]
             )
+        )
+    if projected_entry_value is not None or projected_fill_at_entry is not None:
+        st.caption(
+            f"If price returns to entry, premium expected near {format_ui_estimate(projected_entry_value)}"
+            f" and likely fill near {format_ui_estimate(projected_fill_at_entry)}."
+        )
+    elif not developer_mode:
+        st.caption("Insufficient data for reliable estimate")
+    elif projection_warning and projection_warning not in {reason_line, decision_sentence}:
+        st.caption(format_ui_text(projection_warning, fallback="Projection warning"))
+    if retest_summary:
+        st.caption(format_ui_text(retest_summary, fallback="Retest summary unavailable"))
+    if top_reason_summary and developer_mode:
+        st.caption(f"Top reasons: {top_reason_summary}")
+    if should_render_card_no_trade_reason(decision, developer_mode=developer_mode):
+        st.info(f"Why no trade: {format_ui_text(reason_line, fallback='No valid setup at current price')}")
+    elif invalidation_message:
+        st.caption(format_ui_text(invalidation_message, fallback="Structure invalid"))
+    elif expiry_reason:
+        st.caption(format_ui_text(expiry_reason, fallback="Setup expired"))
+    if developer_mode and display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
+        st.caption(
+            "Bid/Ask "
+            f"{format_ui_price(selected_contract.get('bid'))} / "
+            f"{format_ui_price(selected_contract.get('ask'))}"
+        )
 
     button_key = f"use_play_{title.lower().replace(' ', '_')}"
     override_intent_key = f"{button_key}_override_intent"
@@ -14326,14 +13998,12 @@ def render_operator_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning(f"Operator override enabled | State: {setup_state}")
-        _clr_col2, _ovr_col2 = st.columns(2)
-        if _clr_col2.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
-            st.session_state.pop(override_intent_key, None)
-            st.session_state.pop(override_reason_key, None)
-            st.rerun()
+        if developer_mode:
+            st.warning(f"Trade guard active | State: {setup_state}")
+        else:
+            st.caption("Trade guard active. Override controls are available below if you need to journal an exception.")
         if not st.session_state.get(override_intent_key, False):
-            if _ovr_col2.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if st.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
@@ -14469,11 +14139,12 @@ def render_live_mode_shell(
     settings: dict[str, Any],
     options_provider: Any,
     options_provider_status: dict[str, Any],
+    es_candles: pd.DataFrame | None = None,
 ) -> None:
     """Render the live operator workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    live_signal_tab, live_asian_tab = st.tabs(["⚡  SIGNAL & LEVELS", "🌙  ASIAN SESSION"])
+    live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
 
     with live_signal_tab:
         if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
@@ -14515,6 +14186,8 @@ def render_live_mode_shell(
                 open_price=inputs["open_reference"],
                 scenario_origin=str(signal_package["scenario"].get("scenario_name", "")),
                 state_key=f"{inputs['next_trading_date'].isoformat()}|live_state",
+                es_candles=es_candles,
+                next_trading_date=inputs["next_trading_date"],
                 confirmation_confirmed=bool(confirmation.get("confirmed", False)),
             )
             if signal_package is not None
@@ -14768,7 +14441,9 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
-        safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
+        safe_render_section("Market Context", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
+        if developer_mode:
+            safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
             render_trade_decision_summary(
                 display_signal_package,
@@ -14780,8 +14455,7 @@ def render_live_mode_shell(
                 active_play_label=hero_active_play,
                 live_context=live_context,
             )
-        # Only warn when SPX is actually invalid — not based on developer_mode
-        if not is_valid_price_input(live_current_spx) and not is_valid_price_input(inputs.get("current_spx_price")):
+        elif display_signal_package is None:
             st.warning("Current SPX price is unavailable or invalid. Enter it manually to enable Tab 1 trade decisions. Projected structure remains available below.")
         action_col1, action_col2 = st.columns(2)
         with action_col1:
@@ -14884,42 +14558,79 @@ def render_live_mode_shell(
                     "option_display_state": alternate_option_display,
                 },
             ]
-            # Determine if alternate was promoted because primary was invalidated
-            _primary_invalidated = str(primary_authority.get("setup_state", "")).upper() in {"INVALIDATED", "EXPIRED", "NO_TRADE"} and primary_authority.get("decision") == "NO TRADE"
-            _alternate_promoted = hero_active_play == "Alternate" and _primary_invalidated
-            if _alternate_promoted:
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;margin-bottom:8px;'
-                    f'background:rgba(255,215,64,0.07);border:1px solid rgba(255,215,64,0.2);border-radius:8px;">'
-                    f'<span style="font-size:0.9rem;">⇑</span>'
-                    f'<span style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#ffd740;">Alternate promoted — Primary trade invalidated</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            decision_col1, decision_col2 = st.columns(2, gap="large")
-            with decision_col1:
+            active_label = hero_active_play if hero_active_play in {"Primary", "Alternate"} else None
+            if not developer_mode and active_label is not None:
+                active_spec = next((spec for spec in play_specs if spec["label"] == active_label), play_specs[0])
+                secondary_specs = [spec for spec in play_specs if spec["label"] != active_spec["label"]]
                 safe_render_section(
-                    "Primary Trade",
-                    lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
+                    active_spec["title"],
+                    lambda spec=active_spec: render_operator_play_card(
+                        spec["title"],
+                        spec["play"],
+                        final_projected_lines,
+                        final_projected_lines_es,
+                        spec["lead_quote"],
+                        compact=True,
+                        effective_offset=effective_offset,
+                        offset_diagnostics=offset_diagnostics,
+                        developer_mode=developer_mode,
+                        final_status=spec["status"],
+                        status_breakdown=spec["status_breakdown"],
+                        current_spx_price=live_current_spx,
+                        planned_anchor_key=spec["planned_anchor_key"],
+                        session_plan=spec["session_plan"],
+                        calibration_preview=spec["calibration_preview"],
+                        adaptive_overlay=spec["adaptive_overlay"],
+                        authority=spec["authority"],
+                        live_context=live_context,
+                        selected_contract_quote=spec["selected_quote"],
+                        option_display_state=spec["option_display_state"],
+                    ),
                     developer_mode=developer_mode,
                 )
-            with decision_col2:
-                safe_render_section(
-                    "Alternate Trade",
-                    lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
-                    developer_mode=developer_mode,
-                )
+                for spec in secondary_specs:
+                    with st.expander(f"{spec['title']} Snapshot", expanded=False):
+                        safe_render_section(
+                            spec["title"],
+                            lambda spec=spec: render_operator_play_card(
+                                spec["title"],
+                                spec["play"],
+                                final_projected_lines,
+                                final_projected_lines_es,
+                                spec["lead_quote"],
+                                compact=True,
+                                effective_offset=effective_offset,
+                                offset_diagnostics=offset_diagnostics,
+                                developer_mode=developer_mode,
+                                final_status=spec["status"],
+                                status_breakdown=spec["status_breakdown"],
+                                current_spx_price=live_current_spx,
+                                planned_anchor_key=spec["planned_anchor_key"],
+                                session_plan=spec["session_plan"],
+                                calibration_preview=spec["calibration_preview"],
+                                adaptive_overlay=spec["adaptive_overlay"],
+                                authority=spec["authority"],
+                                live_context=live_context,
+                                selected_contract_quote=spec["selected_quote"],
+                                option_display_state=spec["option_display_state"],
+                            ),
+                            developer_mode=developer_mode,
+                        )
+            else:
+                decision_col1, decision_col2 = st.columns(2, gap="large")
+                with decision_col1:
+                    safe_render_section(
+                        "Primary Trade",
+                        lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
+                        developer_mode=developer_mode,
+                    )
+                with decision_col2:
+                    safe_render_section(
+                        "Alternate Trade",
+                        lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
+                        developer_mode=developer_mode,
+                    )
 
-        safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
-
-        if developer_mode:
-            with st.expander("Structure Details", expanded=False):
-                if display_signal_package is not None:
-                    render_scenario_section(display_signal_package["scenario"])
-                    render_sit_out_section(display_signal_package["sit_out"])
-                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
-            with st.expander("Verification", expanded=False):
-                render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
         safe_render_section(
             "Strike Selection",
             lambda: render_options_provider_preview(
@@ -14930,41 +14641,38 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
+        safe_render_section("Structure Map", lambda: render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES"), developer_mode=developer_mode)
+        safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
+
+        if developer_mode:
+            with st.expander("Structure Details", expanded=False):
+                if display_signal_package is not None:
+                    render_scenario_section(display_signal_package["scenario"])
+                    render_sit_out_section(display_signal_package["sit_out"])
+                render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
+            with st.expander("Verification", expanded=False):
+                render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
         st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
-        render_divider()
-        safe_render_section("Market Intelligence", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
 
     with live_asian_tab:
         st.markdown(
-            '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 18px 24px;margin-bottom:18px;'
-            'background:linear-gradient(135deg,rgba(4,10,28,0.98) 0%,rgba(8,16,40,0.97) 50%,rgba(2,6,20,0.99) 100%);'
-            'border:1px solid rgba(179,136,255,0.14);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
-            # Glow blob
-            '<div style="pointer-events:none;position:absolute;top:-20px;right:40px;width:200px;height:120px;'
-            'background:radial-gradient(ellipse,rgba(179,136,255,0.1) 0%,transparent 70%);"></div>'
-            '<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">'
-            # Icon bubble
-            '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
-            'font-size:1.4rem;background:linear-gradient(135deg,rgba(179,136,255,0.3),rgba(100,60,200,0.2));'
-            'box-shadow:0 0 20px rgba(179,136,255,0.25);border:1px solid rgba(179,136,255,0.2);">🌙</div>'
-            '<div style="flex:1;min-width:0;">'
-            '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
-            'text-transform:uppercase;color:rgba(179,136,255,0.6);margin-bottom:4px;">Asian Session Console</div>'
-            '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
-            'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Evening ES Monitoring</div>'
-            '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
-            'Compare checkpoints, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.'
-            '</div>'
-            '</div>'
-            '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
-            'background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);flex-shrink:0;">'
-            '<div style="width:6px;height:6px;border-radius:50%;background:#00e676;'
-            'box-shadow:0 0 8px #00e676,0 0 16px rgba(0,230,118,0.4);"></div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;'
-            'letter-spacing:0.1em;color:#00e676;">OBSERVE</span>'
-            '</div>'
-            '</div>'
-            '</div>',
+            """
+            <div class="spx-hero">
+                <div class="spx-hero-top">
+                    <div>
+                        <div class="spx-hero-kicker">Asian Session Console</div>
+                        <div class="spx-hero-title">Evening ES Monitoring</div>
+                        <div class="spx-hero-subtitle">
+                            Compare checkpoints quickly, monitor delayed touches, and use the line-location engine as a reference framework rather than a forced timing model.
+                        </div>
+                    </div>
+                    <div class="spx-hero-status">
+                        <div class="spx-hero-status-label">Framework</div>
+                        <div class="spx-status-chip good"><span>◉</span><span>Observation First</span></div>
+                    </div>
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
         if not checkpoint_views:
@@ -15262,7 +14970,7 @@ def render_historical_projection_mode(
     """Render the historical analysis workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    projection_tab, review_tab, backtest_tab = st.tabs(["📈  Historical Projection", "🔍  Historical Review", "🧪  Backtest"])
+    projection_tab, review_tab, backtest_tab = st.tabs(["Historical Projection", "Historical Review", "Backtest"])
     synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
 
     with projection_tab:
@@ -15296,6 +15004,7 @@ def render_historical_projection_mode(
         else:
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
+        render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
         if developer_mode:
             with st.expander("Historical Structure Details", expanded=False):
@@ -15336,15 +15045,20 @@ def main() -> None:
     """Run the current Streamlit integration."""
 
     render_startup_diagnostics()
-    st.set_page_config(page_title=f"{APP_TITLE} {APP_VERSION}", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title=APP_TITLE, layout="wide")
     initialize_app_state()
     inject_app_styles()
     settings, settings_message = load_settings()
-    if settings_message:
-        st.warning(settings_message)
 
     inputs = get_inputs(settings)
     validation = validate_app_inputs(inputs)
+    render_app_header(
+        visibility_mode=str(inputs.get("visibility_mode", "Production Mode")),
+        operating_mode=str(inputs.get("operating_mode", "Live Mode")),
+        next_trading_date=inputs["next_trading_date"],
+    )
+    if settings_message:
+        st.warning(settings_message)
     for warning in validation["warnings"]:
         st.warning(warning)
     if validation["errors"]:
@@ -15466,15 +15180,7 @@ def main() -> None:
         st.error(f"Unable to build Asian session checkpoints: {exc}")
         checkpoint_views = []
 
-    try:
-        render_command_bar(
-            visibility_mode=inputs.get("visibility_mode", "Production Mode"),
-            next_trading_date=inputs.get("next_trading_date"),
-        )
-    except Exception:
-        pass
-
-    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
+    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["LIVE MODE", "HISTORICAL MODE", "TRADE LOG"])
 
     with top_live_tab:
         if inputs["operating_mode"] == "Live Mode":
@@ -15494,12 +15200,10 @@ def main() -> None:
                 settings=settings,
                 options_provider=options_provider,
                 options_provider_status=options_provider_status,
+                es_candles=es_candles,
             )
         else:
-            st.info("Switch back to Live Mode to use the current-session operator workflow.")
-            if st.button("Switch to Live Mode", use_container_width=True, key="switch_to_live_tab"):
-                st.session_state["sidebar_operating_mode"] = "Live Mode"
-                st.rerun()
+            st.info("Historical Mode is active in the sidebar. Switch back to Live Mode to use the current-session operator workflow.")
 
     with top_historical_tab:
         if inputs["operating_mode"] == "Historical Mode":
@@ -15517,10 +15221,7 @@ def main() -> None:
                 es_candles=es_candles,
             )
         else:
-            st.info("Switch to Historical Mode to inspect prior sessions, review historical outcomes, and run backtests.")
-            if st.button("Switch to Historical Mode", use_container_width=True, key="switch_to_historical_tab"):
-                st.session_state["sidebar_operating_mode"] = "Historical Mode"
-                st.rerun()
+            st.info("Live Mode is active in the sidebar. Switch to Historical Mode to inspect prior sessions, review historical outcomes, and run backtests.")
 
     with top_trade_log_tab:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
