@@ -13676,103 +13676,161 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
     headlines = list(context.get("headlines", []) or [])[:NEWS_FEED_MAX_ITEMS]
     source_status = str(context.get("source_status", ""))
 
-    # Risk level → badge class + icon
-    level_cfg = {
-        "quiet":    ("spx-risk-quiet",    "🟢", "All Clear"),
-        "elevated": ("spx-risk-elevated", "🟡", "Elevated"),
-        "major":    ("spx-risk-major",    "🟠", "Major Event"),
-        "extreme":  ("spx-risk-extreme",  "🔴", "Extreme Risk"),
-        "high":     ("spx-risk-major",    "🟠", "High Risk"),
+    # Inline style maps — no CSS class dependency
+    _risk_styles = {
+        "quiet":    {"bg": "rgba(0,230,118,0.12)",  "border": "rgba(0,230,118,0.35)",  "color": "#00e676", "icon": "🟢", "label": "All Clear",    "glow": "rgba(0,230,118,0.15)"},
+        "elevated": {"bg": "rgba(255,215,64,0.12)",  "border": "rgba(255,215,64,0.35)",  "color": "#ffd740", "icon": "🟡", "label": "Elevated",     "glow": "rgba(255,215,64,0.12)"},
+        "high":     {"bg": "rgba(255,109,64,0.13)",  "border": "rgba(255,109,64,0.38)",  "color": "#ff7043", "icon": "🟠", "label": "High Risk",     "glow": "rgba(255,109,64,0.15)"},
+        "major":    {"bg": "rgba(255,109,64,0.13)",  "border": "rgba(255,109,64,0.38)",  "color": "#ff7043", "icon": "🟠", "label": "Major Event",   "glow": "rgba(255,109,64,0.15)"},
+        "extreme":  {"bg": "rgba(239,83,80,0.16)",   "border": "rgba(239,83,80,0.45)",   "color": "#ef5350", "icon": "🔴", "label": "Extreme Risk",  "glow": "rgba(239,83,80,0.25)"},
     }
-    badge_cls, risk_icon, risk_label = level_cfg.get(level, ("spx-risk-elevated", "⚪", status))
+    _cat_styles = {
+        "macro":    {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.10)", "icon": "📊", "label": "Macro"},
+        "markets":  {"accent": "#00e676", "bg": "rgba(0,230,118,0.10)",  "icon": "📈", "label": "Markets"},
+        "politics": {"accent": "#ff7043", "bg": "rgba(255,112,67,0.10)", "icon": "🏛",  "label": "Politics"},
+        "fed":      {"accent": "#b39ddb", "bg": "rgba(179,157,219,0.10)","icon": "🏦",  "label": "Fed"},
+    }
+    _default_cat = {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.08)", "icon": "📰", "label": "News"}
 
-    # Mode badge
-    mode_icon = "✅" if mode.lower() == "normal" else "⚠️"
-    mode_cls = "spx-risk-quiet" if mode.lower() == "normal" else "spx-risk-elevated"
+    rs = _risk_styles.get(level, {"bg": "rgba(255,215,64,0.12)", "border": "rgba(255,215,64,0.35)", "color": "#ffd740", "icon": "⚪", "label": status, "glow": "rgba(255,215,64,0.10)"})
+    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.65rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:3px 10px;border-radius:20px;'
+    _risk_bs   = f'{_badge_s}background:{rs["bg"]};border:1px solid {rs["border"]};color:{rs["color"]};'
+    _mode_bs   = f'{_badge_s}background:rgba(0,230,118,0.10);border:1px solid rgba(0,230,118,0.28);color:#00e676;' if mode.lower() == "normal" else f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
+    _window_bs = f'{_badge_s}background:rgba(255,109,64,0.13);border:1px solid rgba(255,109,64,0.35);color:#ff7043;'
+    _tuntil_bs = f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
+    _mode_icon = "✅" if mode.lower() == "normal" else "⚠️"
 
-    # Window active badge
-    window_html = '<span class="spx-risk-badge spx-risk-major">⏱ Window Active</span>' if window_active else ""
-    tuntil_html = f'<span class="spx-risk-badge spx-risk-elevated">T-{int(time_until)} min</span>' if time_until is not None else ""
+    # Badge row HTML
+    badges_html = f'<span style="{_risk_bs}">{rs["icon"]} {escape(rs["label"])}</span>'
+    badges_html += f'<span style="{_mode_bs}">{_mode_icon} {escape(mode)}</span>'
+    if window_active:
+        badges_html += f'<span style="{_window_bs}">⏱ Window Active</span>'
+    if time_until is not None:
+        badges_html += f'<span style="{_tuntil_bs}">T‑{int(time_until)} min</span>'
 
-    # Next event strip
-    next_html = ""
+    # Status strip (reason + next event)
+    status_parts = ""
+    if reason:
+        status_parts += (
+            f'<div style="font-size:0.82rem;color:rgba(224,238,255,0.72);line-height:1.55;'
+            f'padding:12px 20px;border-bottom:1px solid rgba(0,212,255,0.07);">'
+            f'{escape(reason)}</div>'
+        )
     if next_event:
-        next_html = (
-            f'<div class="spx-intel-next">'
-            f'<span class="spx-intel-next-icon">📅</span>'
-            f'<span><strong>Next event:</strong> {escape(next_event)}</span>'
+        status_parts += (
+            f'<div style="display:flex;align-items:center;gap:8px;padding:10px 20px;'
+            f'border-bottom:1px solid rgba(0,212,255,0.07);background:rgba(0,212,255,0.03);">'
+            f'<span style="font-size:0.9rem;">📅</span>'
+            f'<span style="font-size:0.78rem;color:rgba(224,238,255,0.55);">Next event:</span>'
+            f'<span style="font-size:0.78rem;font-weight:600;color:#e0eeff;">{escape(next_event)}</span>'
             f'</div>'
         )
 
-    # Reason line
-    reason_html = f'<div class="spx-intel-reason">{escape(reason)}</div>' if reason else ""
-
-    # News cards grid
-    cat_map = {
-        "macro": ("cat-macro", "📊"),
-        "markets": ("cat-markets", "📈"),
-        "politics": ("cat-politics", "🏛"),
-        "fed": ("cat-fed", "🏦"),
-    }
+    # News cards — 100% inline, flexbox two-column
+    from datetime import timezone as _tz
     cards_html = ""
     for item in headlines:
-        title = str(item.get("title", "")).strip()
-        if not title:
+        _title = str(item.get("title", "")).strip()
+        if not _title:
             continue
-        link = str(item.get("link", "")).strip()
-        cat_key = str(item.get("category", "markets")).lower()
-        cat_cls, cat_icon = cat_map.get(cat_key, ("cat-markets", "📰"))
-        pub = str(item.get("published_at", "")).strip()
-        # Parse time only — strip date
-        time_str = ""
-        if pub:
-            from datetime import timezone as _tz
-            for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z"):
+        _link  = str(item.get("link", "")).strip()
+        _ckey  = str(item.get("category", "markets")).lower()
+        _cs    = _cat_styles.get(_ckey, _default_cat)
+        _pub   = str(item.get("published_at", "")).strip()
+        _tstr  = ""
+        if _pub:
+            for _fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z"):
                 try:
-                    dt = datetime.strptime(pub, fmt)
-                    if dt.tzinfo:
-                        dt = dt.astimezone(_tz.utc)
-                    time_str = dt.strftime("%H:%M UTC")
+                    _dt = datetime.strptime(_pub, _fmt)
+                    if _dt.tzinfo:
+                        _dt = _dt.astimezone(_tz.utc)
+                    _tstr = _dt.strftime("%H:%M UTC")
                     break
                 except Exception:
                     pass
-        top_html = (
-            f'<div class="spx-news-card-top">'
-            f'<span class="spx-news-badge {cat_cls}">{cat_icon} {escape(cat_key.title())}</span>'
-            f'<span class="spx-news-time">{escape(time_str)}</span>'
+
+        _card_inner = (
+            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px;">'
+            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.6rem;font-weight:700;'
+            f'letter-spacing:0.08em;text-transform:uppercase;padding:2px 8px;border-radius:20px;'
+            f'background:{_cs["bg"]};color:{_cs["accent"]};">{_cs["icon"]} {escape(_cs["label"])}</span>'
+            f'<span style="font-size:0.6rem;color:rgba(224,238,255,0.3);flex-shrink:0;">{escape(_tstr)}</span>'
             f'</div>'
+            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.88);line-height:1.48;font-weight:500;">'
+            f'{escape(_title)}</div>'
         )
-        headline_html = f'<div class="spx-news-headline">{escape(title)}</div>'
-        if link:
-            cards_html += f'<a href="{escape(link)}" target="_blank" class="spx-news-card {cat_cls}">{top_html}{headline_html}</a>'
+        _card_style = (
+            f'flex:1;min-width:240px;padding:12px 14px;'
+            f'background:rgba(255,255,255,0.025);'
+            f'border:1px solid rgba(255,255,255,0.06);'
+            f'border-left:3px solid {_cs["accent"]};'
+            f'border-radius:8px;'
+            f'text-decoration:none;display:block;'
+            f'transition:background 0.15s ease;'
+        )
+        if _link:
+            cards_html += f'<a href="{escape(_link)}" target="_blank" style="{_card_style}color:inherit;">{_card_inner}</a>'
         else:
-            cards_html += f'<div class="spx-news-card {cat_cls}">{top_html}{headline_html}</div>'
+            cards_html += f'<div style="{_card_style}">{_card_inner}</div>'
 
     if cards_html:
-        feed_html = f'<div class="spx-news-grid">{cards_html}</div>'
+        feed_html = (
+            f'<div style="display:flex;flex-wrap:wrap;gap:10px;padding:16px 18px;">'
+            f'{cards_html}'
+            f'</div>'
+        )
     elif source_status == "unavailable":
-        feed_html = '<div class="spx-intel-empty">📡 Live news feed unavailable — check network or use manual event risk override</div>'
+        feed_html = (
+            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
+            f'color:rgba(224,238,255,0.3);font-style:italic;">'
+            f'📡 Live news feed unavailable — check network or use manual event risk override</div>'
+        )
     else:
-        feed_html = '<div class="spx-intel-empty">No market-moving headlines at this time</div>'
+        feed_html = (
+            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
+            f'color:rgba(224,238,255,0.3);font-style:italic;">'
+            f'No market-moving headlines at this time</div>'
+        )
 
     st.markdown(
-        f'<div class="spx-intel-wrap">'
-        f'<div class="spx-intel-header">'
-        f'<div class="spx-intel-icon">📡</div>'
-        f'<div class="spx-intel-meta">'
-        f'<div class="spx-intel-title">Market Intelligence</div>'
-        f'<div class="spx-intel-sub">0DTE event risk · economic data · breaking headlines</div>'
+        # Outer container
+        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.13);'
+        f'box-shadow:0 4px 32px rgba(0,0,0,0.35);margin-bottom:6px;">'
+
+        # Header
+        f'<div style="display:flex;align-items:center;gap:14px;padding:16px 20px;'
+        f'background:linear-gradient(135deg,rgba(0,30,60,0.98) 0%,rgba(4,8,20,0.98) 100%);'
+        f'border-bottom:1px solid rgba(0,212,255,0.1);">'
+
+        # Icon bubble
+        f'<div style="flex-shrink:0;width:42px;height:42px;border-radius:10px;'
+        f'background:linear-gradient(135deg,#0077b6,#023e8a);'
+        f'box-shadow:0 0 18px rgba(0,119,182,0.4);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1.25rem;">📡</div>'
+
+        # Title + subtitle
+        f'<div style="flex:1;min-width:0;">'
+        f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;'
+        f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">Market Intelligence</div>'
+        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;letter-spacing:0.04em;">'
+        f'0DTE event risk · economic data · breaking headlines</div>'
         f'</div>'
-        f'<div class="spx-intel-badges">'
-        f'<span class="spx-risk-badge {badge_cls}">{risk_icon} {escape(risk_label)}</span>'
-        f'<span class="spx-risk-badge {mode_cls}">{mode_icon} {escape(mode)}</span>'
-        f'{window_html}{tuntil_html}'
+
+        # Badges
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">'
+        f'{badges_html}'
         f'</div>'
+        f'</div>'  # end header
+
+        # Status strip
+        f'{status_parts}'
+
+        # News feed
+        f'<div style="background:rgba(4,8,20,0.97);">'
+        f'{feed_html}'
         f'</div>'
-        f'<div class="spx-intel-body">'
-        f'{reason_html}{next_html}{feed_html}'
-        f'</div>'
-        f'</div>',
+
+        f'</div>',  # end outer container
         unsafe_allow_html=True,
     )
 
