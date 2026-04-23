@@ -4,3 +4,4 @@ pytz
 numpy
 streamlit
 plotly
+tastytrade

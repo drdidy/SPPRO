@@ -89,8 +89,8 @@ def _select_pivot_context_candles(window: "pd.DataFrame", pivot_index: int) -> d
     """
 
     pivot_row = window.iloc[pivot_index]
-    previous_row = window.iloc[pivot_index - 1]
-    next_row = window.iloc[pivot_index + 1]
+    previous_row = window.iloc[max(pivot_index - 1, 0)]
+    next_row = window.iloc[min(pivot_index + 1, len(window) - 1)]
     return select_pivot_context(previous_row, pivot_row, next_row)
 
 
@@ -187,12 +187,7 @@ def _find_last_pivot(window: "pd.DataFrame", pivot_type: str) -> dict[str, Any]:
 
 
 def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
-    """Find the full-session highest wick (HW) and lowest wick (LW) anchors.
-
-    No color filter is applied. HW is the highest wick across all candles
-    in the 8:30 AM–4:00 PM CT window (source point B). LW is the lowest wick
-    across all candles in the same window (source point D).
-    """
+    """Find the full-session highest and lowest wick anchors."""
 
     all_candles = [row_to_candle_metadata(row) for _, row in window.iterrows()]
     if not all_candles:
@@ -209,8 +204,8 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": hw_source,
             "direction": "ascending",
             "label": "HW",
-            "description": "Highest wick across all candles in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "session_high_wick",
+            "description": "Highest wick of the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_high",
         },
         "lw_anchor": {
             "price": float(lw_source["low"]),
@@ -219,65 +214,63 @@ def _find_session_extremes(window: "pd.DataFrame") -> dict[str, Any]:
             "source": lw_source,
             "direction": "descending",
             "label": "LW",
-            "description": "Lowest wick across all candles in the 8:30 AM-4:00 PM NY session",
-            "anchor_basis": "session_low_wick",
+            "description": "Lowest wick of the 8:30 AM-4:00 PM NY session",
+            "anchor_basis": "session_low",
         },
     }
 
 
 def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Resolve the four channel anchors from the detected pivots.
+    """Resolve the four channel anchors from the detected pivots."""
 
-    Both ASC Ceiling and DESC Ceiling share the same raw anchor: the highest wick
-    of the final high pivot (source point A). Both ASC Floor and DESC Floor share
-    the same raw anchor: the lowest wick of the final low pivot (source point C).
-    """
-
-    high_extreme = pivot_high["pivot_extreme"]
-    low_extreme = pivot_low["pivot_extreme"]
-
-    high_price = float(high_extreme["high"])
-    high_ts = to_central_time(high_extreme["timestamp"])
-    low_price = float(low_extreme["low"])
-    low_ts = to_central_time(low_extreme["timestamp"])
+    pivot_high_time = to_central_time(pivot_high["pivot_time"])
+    pivot_low_time = to_central_time(pivot_low["pivot_time"])
+    pivot_high_extreme = pivot_high["pivot_extreme"]
+    pivot_low_extreme = pivot_low["pivot_extreme"]
+    pivot_high_extreme_price = float(pivot_high_extreme["high"])
+    pivot_low_extreme_price = float(pivot_low_extreme["low"])
 
     return {
         "asc_ceiling_anchor": {
-            "price": high_price,
-            "timestamp": high_ts,
-            "projection_start_time": high_ts,
-            "source": high_extreme,
-            "pivot_extreme": high_extreme,
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
+            "projection_start_time": pivot_high_time,
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["red_candle"],
+            "pivot_extreme": pivot_high_extreme,
             "anchor_basis": "pivot_high_extreme",
             "direction": "ascending",
             "label": "ASC Ceiling",
         },
         "desc_ceiling_anchor": {
-            "price": high_price,
-            "timestamp": high_ts,
-            "projection_start_time": high_ts,
-            "source": high_extreme,
-            "pivot_extreme": high_extreme,
+            "price": pivot_high_extreme_price,
+            "timestamp": to_central_time(pivot_high_extreme["timestamp"]),
+            "projection_start_time": pivot_high_time,
+            "source": pivot_high_extreme,
+            "associated_context_candle": pivot_high["green_candle"],
+            "pivot_extreme": pivot_high_extreme,
             "anchor_basis": "pivot_high_extreme",
             "direction": "descending",
             "label": "DESC Ceiling",
         },
         "asc_floor_anchor": {
-            "price": low_price,
-            "timestamp": low_ts,
-            "projection_start_time": low_ts,
-            "source": low_extreme,
-            "pivot_extreme": low_extreme,
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
+            "projection_start_time": pivot_low_time,
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["red_candle"],
+            "pivot_extreme": pivot_low_extreme,
             "anchor_basis": "pivot_low_extreme",
             "direction": "ascending",
             "label": "ASC Floor",
         },
         "desc_floor_anchor": {
-            "price": low_price,
-            "timestamp": low_ts,
-            "projection_start_time": low_ts,
-            "source": low_extreme,
-            "pivot_extreme": low_extreme,
+            "price": pivot_low_extreme_price,
+            "timestamp": to_central_time(pivot_low_extreme["timestamp"]),
+            "projection_start_time": pivot_low_time,
+            "source": pivot_low_extreme,
+            "associated_context_candle": pivot_low["green_candle"],
+            "pivot_extreme": pivot_low_extreme,
             "anchor_basis": "pivot_low_extreme",
             "direction": "descending",
             "label": "DESC Floor",
@@ -304,7 +297,7 @@ def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[s
         )
     ny_session_window = filter_time_range(
         normalized,
-        start_time=at_central(session_date, 8, 30),
+        start_time=at_central(session_date, 8, 0),
         end_time=at_central(session_date, 16, 0),
     )
 

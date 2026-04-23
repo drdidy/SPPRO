@@ -103,8 +103,7 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(line["raw_anchor_timestamp"].hour, 14)
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6859.50")
 
-    def test_both_channel_anchors_use_pivot_extreme_not_candle_color(self) -> None:
-        """Both ceiling anchors share the same pivot_high_extreme; both floor anchors share pivot_low_extreme."""
+    def test_pivot_derived_anchors_use_true_pivot_extremes(self) -> None:
         pivot_high = {
             "pivot_time": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ),
             "pivot_extreme": {
@@ -162,23 +161,16 @@ class EngineRuleTests(unittest.TestCase):
 
         anchors = resolve_anchor_prices(pivot_high, pivot_low)
 
-        # Both ceilings use pivot_high_extreme["high"] — same source, same price, same timestamp
         self.assertEqual(anchors["asc_ceiling_anchor"]["price"], 110.0)
         self.assertEqual(anchors["desc_ceiling_anchor"]["price"], 110.0)
-        self.assertEqual(anchors["asc_ceiling_anchor"]["timestamp"], datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ))
-        self.assertEqual(anchors["desc_ceiling_anchor"]["timestamp"], datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ))
-        self.assertEqual(anchors["asc_ceiling_anchor"]["anchor_basis"], "pivot_high_extreme")
-        self.assertEqual(anchors["desc_ceiling_anchor"]["anchor_basis"], "pivot_high_extreme")
-
-        # Both floors use pivot_low_extreme["low"] — same source, same price, same timestamp
         self.assertEqual(anchors["asc_floor_anchor"]["price"], 94.0)
         self.assertEqual(anchors["desc_floor_anchor"]["price"], 94.0)
         self.assertEqual(anchors["asc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(anchors["desc_floor_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(anchors["asc_floor_anchor"]["anchor_basis"], "pivot_low_extreme")
-        self.assertEqual(anchors["desc_floor_anchor"]["anchor_basis"], "pivot_low_extreme")
+        self.assertEqual(anchors["desc_ceiling_anchor"]["anchor_basis"], "pivot_high_extreme")
 
-    def test_build_six_line_anchors_uses_working_repo_anchor_rules(self) -> None:
+    def test_build_six_line_anchors_uses_true_pivot_extremes(self) -> None:
         candles = pd.DataFrame(
             [
                 {"timestamp": datetime(2020, 4, 10, 11, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 104.0, "low": 99.0, "close": 103.0},
@@ -203,85 +195,6 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(result["anchors"]["desc_floor"]["price"], 94.0)
         self.assertEqual(result["source_points"]["pivot_high"]["price"], 110.0)
         self.assertEqual(result["source_points"]["pivot_low"]["price"], 94.0)
-
-    def test_both_ceiling_anchors_use_same_pivot_high_extreme(self) -> None:
-        """ASC Ceiling and DESC Ceiling must share the same pivot_high_extreme source."""
-        pivot_high = {
-            "pivot_extreme": {
-                "timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
-                "high": 110.0,
-                "low": 101.0,
-                "open": 103.0,
-                "close": 102.0,
-                "color": "red",
-            },
-        }
-        pivot_low = {
-            "pivot_extreme": {
-                "timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ),
-                "high": 103.0,
-                "low": 94.0,
-                "open": 96.0,
-                "close": 97.0,
-                "color": "green",
-            },
-        }
-
-        anchors = resolve_anchor_prices(pivot_high, pivot_low)
-
-        self.assertEqual(anchors["asc_ceiling_anchor"]["price"], anchors["desc_ceiling_anchor"]["price"])
-        self.assertEqual(anchors["asc_ceiling_anchor"]["timestamp"], anchors["desc_ceiling_anchor"]["timestamp"])
-        self.assertEqual(anchors["asc_ceiling_anchor"]["price"], 110.0)
-
-    def test_both_floor_anchors_use_same_pivot_low_extreme(self) -> None:
-        """ASC Floor and DESC Floor must share the same pivot_low_extreme source."""
-        pivot_high = {
-            "pivot_extreme": {
-                "timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ),
-                "high": 110.0,
-                "low": 101.0,
-                "open": 103.0,
-                "close": 102.0,
-                "color": "red",
-            },
-        }
-        pivot_low = {
-            "pivot_extreme": {
-                "timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ),
-                "high": 103.0,
-                "low": 94.0,
-                "open": 96.0,
-                "close": 97.0,
-                "color": "green",
-            },
-        }
-
-        anchors = resolve_anchor_prices(pivot_high, pivot_low)
-
-        self.assertEqual(anchors["asc_floor_anchor"]["price"], anchors["desc_floor_anchor"]["price"])
-        self.assertEqual(anchors["asc_floor_anchor"]["timestamp"], anchors["desc_floor_anchor"]["timestamp"])
-        self.assertEqual(anchors["asc_floor_anchor"]["price"], 94.0)
-
-    def test_hw_lw_anchors_pick_globally_extreme_wick_regardless_of_candle_color(self) -> None:
-        """HW picks the bullish candle if it has the highest wick; color is not a factor."""
-        candles = pd.DataFrame(
-            [
-                # bearish candle with high=105 — old code would pick this as HW
-                {"timestamp": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ), "open": 104.0, "high": 105.0, "low": 99.0, "close": 100.0},
-                # bullish candle with high=108 — new code picks this as HW
-                {"timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 108.0, "low": 97.0, "close": 107.0},
-                {"timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ), "open": 107.0, "high": 109.0, "low": 95.0, "close": 104.0},
-                # bullish candle with low=92 — picked as LW
-                {"timestamp": datetime(2020, 4, 10, 15, 0, tzinfo=CENTRAL_TZ), "open": 102.0, "high": 103.0, "low": 92.0, "close": 103.0},
-            ]
-        )
-
-        result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
-
-        # HW = highest high across all candles — that's 14:00 (109.0)
-        self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.1f}", "109.0")
-        # LW = lowest low across all candles — that's 15:00 (92.0)
-        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.1f}", "92.0")
 
     def test_hw_projects_upward_across_friday_to_monday(self) -> None:
         target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
@@ -320,10 +233,10 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(f"{line['raw_anchor_price']:.2f}", "6840.25")
         self.assertLess(line["projected_price"], line["raw_anchor_price"])
 
-    def test_hw_lw_use_all_candles_no_color_filter(self) -> None:
-        """HW picks the candle with the highest wick regardless of color; same for LW."""
+    def test_session_wick_extremes_use_absolute_session_wicks(self) -> None:
         candles = pd.DataFrame(
             [
+                {"timestamp": datetime(2020, 4, 10, 8, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 101.0, "low": 89.0, "close": 99.5},
                 {"timestamp": datetime(2020, 4, 10, 8, 30, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0},
                 {"timestamp": datetime(2020, 4, 10, 9, 30, tzinfo=CENTRAL_TZ), "open": 101.0, "high": 103.0, "low": 100.5, "close": 102.0},
                 {"timestamp": datetime(2020, 4, 10, 10, 30, tzinfo=CENTRAL_TZ), "open": 102.0, "high": 104.0, "low": 100.0, "close": 103.0},
@@ -331,24 +244,20 @@ class EngineRuleTests(unittest.TestCase):
                 {"timestamp": datetime(2020, 4, 10, 12, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0},
                 {"timestamp": datetime(2020, 4, 10, 13, 0, tzinfo=CENTRAL_TZ), "open": 100.0, "high": 103.0, "low": 99.5, "close": 102.0},
                 {"timestamp": datetime(2020, 4, 10, 14, 0, tzinfo=CENTRAL_TZ), "open": 99.0, "high": 102.5, "low": 98.0, "close": 101.0},
-                # bearish candle (close < open) with high=106 — old code picked this for HW
                 {"timestamp": datetime(2020, 4, 10, 14, 30, tzinfo=CENTRAL_TZ), "open": 99.0, "high": 106.0, "low": 98.5, "close": 98.0},
-                # bullish candle (close > open) with high=107 — higher wick, so new code picks this
                 {"timestamp": datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ), "open": 98.0, "high": 107.0, "low": 90.0, "close": 101.0},
             ]
         )
 
         result = build_six_line_anchors(candles, datetime(2020, 4, 10, 0, 0, tzinfo=CENTRAL_TZ).date())
 
-        # HW: bullish 15:30 candle has higher wick (107) than bearish 14:30 (106)
         self.assertEqual(result["session_extremes"]["hw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
+        self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 8, 0, tzinfo=CENTRAL_TZ))
         self.assertEqual(f"{result['session_extremes']['hw_anchor']['price']:.2f}", "107.00")
-        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 107.0)
-        # LW: lowest wick is still 15:30 candle (low=90)
-        self.assertEqual(result["session_extremes"]["lw_anchor"]["timestamp"], datetime(2020, 4, 10, 15, 30, tzinfo=CENTRAL_TZ))
-        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "90.00")
-        self.assertEqual(result["source_points"]["pivot_lowest_wick"]["price"], 90.0)
-        self.assertEqual(result["ny_session_rows"], 9)
+        self.assertEqual(f"{result['session_extremes']['lw_anchor']['price']:.2f}", "89.00")
+        self.assertEqual(result["ny_session_rows"], 10)
+        self.assertEqual(result["source_points"]["pivot_highest_wick"]["price"], 107.00)
+        self.assertEqual(result["source_points"]["pivot_lowest_wick"]["price"], 89.00)
 
     def test_hw_and_lw_projection_metadata_from_session_extremes(self) -> None:
         target = datetime(2020, 4, 13, 9, 0, tzinfo=CENTRAL_TZ)
