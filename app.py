@@ -900,8 +900,7 @@ def inject_app_styles() -> None:
         [data-testid="stSidebar"] .stNumberInput,
         [data-testid="stSidebar"] .stTextInput,
         [data-testid="stSidebar"] .stRadio,
-        [data-testid="stSidebar"] .stCheckbox,
-        [data-testid="stSidebar"] .stExpander {
+        [data-testid="stSidebar"] .stCheckbox {
             margin-bottom: 0.35rem !important;
         }
         [data-testid="stMetric"] {
@@ -1978,11 +1977,6 @@ def inject_app_styles() -> None:
         [data-testid="stSidebar"] .stRadio label {
             font-family: var(--spx-font-body) !important;
         }
-        [data-testid="stSidebar"] [data-testid="stExpander"] {
-            background: rgba(255,255,255,0.02) !important;
-            border-color: rgba(255,255,255,0.05) !important;
-        }
-
         /* ── FORM IMPROVEMENTS ───────────────────────────────────────── */
         div[data-testid="stForm"] {
             border: 1px solid rgba(255,255,255,0.07) !important;
@@ -2621,11 +2615,6 @@ def inject_app_styles() -> None:
             background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 10px;
             border: 1px solid rgba(255,255,255,0.05);
         }
-        section[data-testid="stSidebar"] [data-testid="stExpander"] {
-            border: 1px solid rgba(0,212,255,0.1) !important;
-            border-radius: 10px !important;
-            background: rgba(0,212,255,0.02) !important;
-        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -2665,28 +2654,68 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
     if next_trading_date is not None:
         try:
             next_date_html = (
-                f'<div class="cmd-metric">'
-                f'<span class="cmd-metric-label">Next Session</span>'
-                f'<span class="cmd-metric-value">{escape(str(next_trading_date))}</span>'
+                f'<div style="text-align:right;">'
+                f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Next Session</div>'
+                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{escape(str(next_trading_date))}</div>'
                 f'</div>'
             )
         except Exception:
             next_date_html = ""
+
+    # Status pill inline styles
+    _status_styles = {
+        "status-open": ("background:rgba(0,230,118,0.14);border:1px solid rgba(0,230,118,0.32)", "background:#00e676;box-shadow:0 0 8px #00e676"),
+        "status-premarket": ("background:rgba(255,212,64,0.12);border:1px solid rgba(255,212,64,0.28)", "background:#ffd740"),
+        "status-afterhours": ("background:rgba(179,136,255,0.12);border:1px solid rgba(179,136,255,0.28)", "background:#b388ff"),
+        "status-closed": ("background:rgba(142,161,188,0.1);border:1px solid rgba(142,161,188,0.22)", "background:#8ea1bc"),
+    }
+    _status_style, _dot_style = _status_styles.get(session["cls"], _status_styles["status-closed"])
+    _mode_style = (
+        "background:rgba(179,136,255,0.14);border:1px solid rgba(179,136,255,0.3);color:#c8a8ff"
+        if visibility_mode == "Edge Lab"
+        else "background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.26);color:#6ae6ff"
+    )
+
     st.markdown(
-        f'<div class="spx-cmdbar">'
-        f'<div class="cmd-brand">'
-        f'<div class="cmd-logo">📊</div>'
-        f'<div class="cmd-title-wrap">'
-        f'<div class="cmd-title">{escape(APP_TITLE)}<span class="cmd-title-version">{escape(APP_VERSION)}</span></div>'
-        f'<div class="cmd-subtitle">ES Structure · Options Intelligence · 0DTE</div>'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;'
+        f'padding:14px 20px;margin-bottom:14px;'
+        f'background:linear-gradient(135deg,rgba(2,8,22,0.98),rgba(4,12,32,0.95),rgba(0,6,20,0.98));'
+        f'border:1px solid rgba(0,212,255,0.14);border-radius:16px;'
+        f'box-shadow:0 4px 28px rgba(0,0,0,0.45);">'
+        # Brand section
+        f'<div style="display:flex;align-items:center;gap:12px;">'
+        f'<div style="width:42px;height:42px;border-radius:12px;flex-shrink:0;'
+        f'background:linear-gradient(135deg,#00d4ff,#0077b6);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1.3rem;'
+        f'box-shadow:0 0 20px rgba(0,212,255,0.35);">📊</div>'
+        f'<div>'
+        f'<div style="font-family:Outfit,sans-serif;font-size:1.05rem;font-weight:800;color:#f4f7ff;line-height:1.15;">'
+        f'{escape(APP_TITLE)}&nbsp;'
+        f'<span style="font-size:0.6rem;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.2);'
+        f'color:#6ae6ff;padding:2px 7px;border-radius:6px;font-weight:700;">{escape(APP_VERSION)}</span>'
+        f'</div>'
+        f'<div style="font-size:0.62rem;letter-spacing:0.12em;text-transform:uppercase;'
+        f'color:rgba(142,161,188,0.6);margin-top:2px;">ES Structure &middot; Options Intelligence &middot; 0DTE</div>'
         f'</div>'
         f'</div>'
-        f'<div class="cmd-metrics">'
-        f'<div class="cmd-metric"><span class="cmd-metric-label">New York</span><span class="cmd-metric-value">{clock} ET</span></div>'
-        f'<div class="cmd-metric"><span class="cmd-metric-label">Date</span><span class="cmd-metric-value">{date_str}</span></div>'
+        # Right metrics
+        f'<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+        f'<div style="text-align:right;">'
+        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">New York</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{clock}&nbsp;ET</div>'
+        f'</div>'
+        f'<div style="text-align:right;">'
+        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Date</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{date_str}</div>'
+        f'</div>'
         f'{next_date_html}'
-        f'<span class="cmd-status {session["cls"]}"><span class="cmd-status-dot"></span>{session["label"]}</span>'
-        f'<span class="cmd-mode-pill {mode_cls}">{mode_icon} {escape(visibility_mode)}</span>'
+        f'<div style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;{_status_style}">'
+        f'<div style="width:7px;height:7px;border-radius:50%;{_dot_style}"></div>'
+        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">{escape(session["label"])}</span>'
+        f'</div>'
+        f'<div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;{_mode_style}">'
+        f'<span style="font-size:0.68rem;font-weight:800;letter-spacing:0.11em;text-transform:uppercase;">{mode_icon}&nbsp;{escape(visibility_mode)}</span>'
+        f'</div>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -4493,24 +4522,25 @@ def render_key_levels_card(
     if current_price is not None and not current_inserted:
         rows.append({"type": "current", "price": current_price})
 
-    price_badge = ""
-    if current_price is not None:
-        price_badge += f'<span class="spx-badge spx-badge-price">ES&nbsp;<strong>{format_price(current_price)}</strong></span>'
-    if not compact:
-        price_badge += f'<span class="spx-badge spx-badge-offset">Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
-
-    rows_html = ""
+    rows_html_inline = ""
     for row in rows:
         if row["type"] == "current":
             cp = row["price"]
             pct = _bar_pct(cp)
-            rows_html += (
-                f'<div class="spx-level-row level-current">'
-                f'<span class="spx-level-dir">&#9654;</span>'
-                f'<span class="spx-level-name">Current ES</span>'
-                f'<span class="spx-level-price">{escape(format_price(cp))}</span>'
-                f'<span class="spx-level-bar-wrap"><span class="spx-level-bar bar-current" style="width:{pct:.1f}%"></span></span>'
-                f'<span class="spx-level-dist">—</span>'
+            rows_html_inline += (
+                f'<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;'
+                f'border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid rgba(0,212,255,0.55);'
+                f'background:rgba(0,212,255,0.05);">'
+                f'<div style="width:18px;font-size:0.75rem;color:#6ae6ff;text-align:center;">&#9654;</div>'
+                f'<div style="flex:0 0 110px;font-size:0.74rem;color:#6ae6ff;font-weight:600;">Current ES</div>'
+                f'<div style="flex:0 0 80px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;'
+                f'color:#6ae6ff;text-align:right;">{escape(format_price(cp))}</div>'
+                f'<div style="flex:1;padding:0 10px;">'
+                f'<div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
+                f'<div style="height:100%;width:{pct:.1f}%;background:rgba(0,212,255,0.6);border-radius:2px;"></div>'
+                f'</div></div>'
+                f'<div style="width:48px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
+                f'color:rgba(244,247,255,0.3);text-align:right;">&mdash;</div>'
                 f'</div>'
             )
         else:
@@ -4519,28 +4549,62 @@ def render_key_levels_card(
             pct = _bar_pct(price)
             d_str, d_cls = _dist(price)
             if current_price is None:
-                pos_cls, arrow, bar_cls = "level-bottom", "&#9660;", "bar-neutral"
+                border_col = "rgba(142,161,188,0.3)"
+                arrow = "&#9660;"
+                bar_col = "rgba(142,161,188,0.3)"
+                dist_col = "rgba(244,247,255,0.3)"
             elif price > current_price:
-                pos_cls, arrow, bar_cls = "level-top", "&#9650;", "bar-above"
+                border_col = "rgba(239,83,80,0.4)"
+                arrow = "&#9650;"
+                bar_col = "rgba(239,83,80,0.55)"
+                dist_col = "rgba(239,83,80,0.8)"
             else:
-                pos_cls, arrow, bar_cls = "level-bottom", "&#9660;", "bar-below"
-            rows_html += (
-                f'<div class="spx-level-row {pos_cls}">'
-                f'<span class="spx-level-dir">{arrow}</span>'
-                f'<span class="spx-level-name">{lbl}</span>'
-                f'<span class="spx-level-price">{escape(format_price(price))}</span>'
-                f'<span class="spx-level-bar-wrap"><span class="spx-level-bar {bar_cls}" style="width:{pct:.1f}%"></span></span>'
-                f'<span class="spx-level-dist {d_cls}">{escape(d_str)}</span>'
+                border_col = "rgba(0,230,118,0.4)"
+                arrow = "&#9660;"
+                bar_col = "rgba(0,230,118,0.55)"
+                dist_col = "rgba(0,230,118,0.8)"
+            rows_html_inline += (
+                f'<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;'
+                f'border-bottom:1px solid rgba(255,255,255,0.04);border-left:3px solid {border_col};">'
+                f'<div style="width:18px;font-size:0.75rem;color:{border_col};text-align:center;">{arrow}</div>'
+                f'<div style="flex:0 0 110px;font-size:0.74rem;color:rgba(244,247,255,0.55);font-weight:500;">{lbl}</div>'
+                f'<div style="flex:0 0 80px;font-family:\'JetBrains Mono\',monospace;font-size:0.82rem;'
+                f'color:#ddeeff;text-align:right;">{escape(format_price(price))}</div>'
+                f'<div style="flex:1;padding:0 10px;">'
+                f'<div style="height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
+                f'<div style="height:100%;width:{pct:.1f}%;background:{bar_col};border-radius:2px;"></div>'
+                f'</div></div>'
+                f'<div style="width:48px;font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
+                f'color:{dist_col};text-align:right;">{escape(d_str)}</div>'
                 f'</div>'
             )
 
+    # Header badges inline
+    price_badge_html = ""
+    if current_price is not None:
+        price_badge_html += (
+            f'<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.16);color:#6ae6ff;">'
+            f'ES&nbsp;<strong>{format_price(current_price)}</strong></span>'
+        )
+    if not compact:
+        price_badge_html += (
+            f'&nbsp;<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(244,247,255,0.5);">'
+            f'Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
+        )
+
     st.markdown(
-        f'<div class="spx-levels-wrap">'
-        f'<div class="spx-levels-header">'
-        f'<span class="spx-levels-title">&#128208; Key Levels &mdash; ES Structure</span>'
-        f'<span class="spx-levels-badges">{price_badge}</span>'
+        f'<div style="background:rgba(3,7,18,0.96);border-radius:16px;'
+        f'border:1px solid rgba(255,255,255,0.07);overflow:hidden;margin-bottom:14px;">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'padding:12px 18px;background:rgba(255,255,255,0.018);'
+        f'border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;gap:8px;">'
+        f'<span style="font-size:0.78rem;font-weight:700;color:rgba(244,247,255,0.6);'
+        f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Key Levels &mdash; ES Structure</span>'
+        f'<div>{price_badge_html}</div>'
         f'</div>'
-        f'<div class="spx-levels-body">{rows_html}</div>'
+        f'{rows_html_inline}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -13400,16 +13464,28 @@ def render_live_decision_center(
     _scenario_changed_flag = " · ⚡ SCENARIO SHIFTED" if scenario_changed else ""
     _lock_display = f"Plan: {escape(lock_label)}{_scenario_changed_flag}"
 
+    # Unified state — one authoritative display, no contradictions
+    _is_no_trade = str(decision).upper() == "NO TRADE" or str(hero_action_label).upper() in {"SKIP TRADE", "UNTRADEABLE"}
+    if _is_no_trade:
+        _badge_cls = "action-skip"
+        _badge_icon = "🚫"
+        _display_headline = str(presentation_state.get("headline") or "NO TRADE")
+        _display_badge = "NO TRADE"
+    else:
+        # Already set by the existing action badge resolution block
+        _display_headline = top_line
+        _display_badge = hero_action_label
+
     st.markdown(
         f"""
 <div class="spx-cockpit">
 
   <!-- HEADER -->
-  <div class="cockpit-kicker">⚡ DECISION COCKPIT · {escape(str(active_play_label).upper())} PLAY</div>
+  <div class="cockpit-kicker">⚡ DECISION COCKPIT{f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""}</div>
 
   <div class="cockpit-header-row">
-    <div class="cockpit-headline">{escape(top_line)}</div>
-    <span class="cockpit-action-badge {_badge_cls}">{_badge_icon} {escape(hero_action_label)}</span>
+    <div class="cockpit-headline">{escape(_display_headline)}</div>
+    <span class="cockpit-action-badge {_badge_cls}">{_badge_icon} {escape(_display_badge)}</span>
   </div>
 
   <div class="cockpit-subline">{escape(subline)}</div>
