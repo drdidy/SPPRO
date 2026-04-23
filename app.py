@@ -204,25 +204,20 @@ FORWARD_PRICING_MAX_LIQUIDITY_PENALTY = 0.35
 FORWARD_PRICING_MAX_SPREAD_PENALTY = 0.45
 EVENT_BUFFER_MINUTES = 45
 POST_EVENT_STABILIZATION_MINUTES = 30
-NEWS_FEED_TIMEOUT_SECONDS = 3.0
-NEWS_FEED_MAX_ITEMS = 6
+NEWS_FEED_TIMEOUT_SECONDS = 4.0
+NEWS_FEED_MAX_ITEMS = 8
 PREMIUM_CONFIDENCE_LEVELS = ("high", "medium", "low", "speculative")
 MARKET_HEADLINE_FEEDS = [
-    {
-        "name": "macro",
-        "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve OR CPI OR PPI OR NFP OR GDP OR jobs OR rates OR S&P 500"),
-        "category": "macro",
-    },
-    {
-        "name": "markets",
-        "url": "https://news.google.com/rss/search?q=" + quote_plus("S&P 500 futures OR stock market breaking OR equity futures"),
-        "category": "markets",
-    },
-    {
-        "name": "politics",
-        "url": "https://news.google.com/rss/search?q=" + quote_plus("Trump Truth Social markets OR tariffs OR stock futures"),
-        "category": "politics",
-    },
+    # Reuters — fastest macro breaking news
+    {"name": "reuters_markets", "url": "https://feeds.reuters.com/reuters/businessNews", "category": "markets"},
+    # MarketWatch — intraday equity / options flow
+    {"name": "marketwatch", "url": "https://feeds.marketwatch.com/marketwatch/topstories/", "category": "markets"},
+    # CNBC Top News — breaking alerts
+    {"name": "cnbc_top", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "category": "markets"},
+    # Google News — Fed / rate / macro terms
+    {"name": "macro_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve FOMC CPI PPI NFP GDP inflation OR interest rates 0dte options"), "category": "macro"},
+    # Google News — political / tariff shock
+    {"name": "politics_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Trump tariffs OR truth social OR S&P 500 futures OR stock market selloff"), "category": "politics"},
 ]
 
 SCENARIO_TRANSITIONS = {
@@ -2242,38 +2237,101 @@ def inject_app_styles() -> None:
             0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
             50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
         }
-        .spx-news-feed { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-        .spx-news-item {
-            display: flex; align-items: flex-start; gap: 8px;
-            padding: 9px 12px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 8px;
-            text-decoration: none;
-            transition: background 0.15s, border-color 0.15s;
-        }
-        a.spx-news-item:hover { background: rgba(0,212,255,0.06); border-color: rgba(0,212,255,0.18); }
-        .spx-news-cat { flex-shrink: 0; font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 20px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2); color: #6ae6ff; margin-top: 2px; }
-        .spx-news-title { font-size: 0.8rem; color: rgba(244,247,255,0.82); line-height: 1.45; }
-        a.spx-news-item .spx-news-title { color: #c8e8ff; }
+        /* ── Alert panel ── */
         .spx-alert-slot { flex: 1; min-width: 0; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
         .spx-alert-label { font-size: 0.67rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px; }
         .spx-alert-msg { font-size: 0.81rem; color: rgba(244,247,255,0.72); line-height: 1.5; margin-top: 8px; }
+        /* ── Market Intel section ── */
+        .spx-intel-wrap { border-radius: 18px; overflow: hidden; border: 1px solid rgba(0,212,255,0.12); margin-bottom: 16px; }
+        .spx-intel-header {
+            background: linear-gradient(135deg, rgba(0,10,28,0.98) 0%, rgba(0,18,48,0.98) 50%, rgba(0,30,60,0.95) 100%);
+            padding: 20px 24px 16px;
+            border-bottom: 1px solid rgba(0,212,255,0.1);
+            display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+        }
+        .spx-intel-icon {
+            width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+            background: linear-gradient(135deg, #00d4ff 0%, #6ae6ff 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.4rem; box-shadow: 0 0 24px rgba(0,212,255,0.35);
+        }
+        .spx-intel-meta { flex: 1; min-width: 0; }
+        .spx-intel-title { font-family: var(--spx-font-sans); font-size: 1.05rem; font-weight: 700; color: #f4f7ff; letter-spacing: 0.02em; }
+        .spx-intel-sub { font-size: 0.75rem; color: rgba(106,230,255,0.65); margin-top: 2px; }
+        .spx-intel-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .spx-risk-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 5px 12px; border-radius: 20px; font-size: 0.72rem;
+            font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+        }
+        .spx-risk-quiet { background: rgba(0,230,118,0.14); border: 1px solid rgba(0,230,118,0.3); color: #00e676; }
+        .spx-risk-elevated { background: rgba(255,212,64,0.14); border: 1px solid rgba(255,212,64,0.3); color: #ffd740; }
+        .spx-risk-major { background: rgba(255,109,64,0.16); border: 1px solid rgba(255,109,64,0.35); color: #ff7043; }
+        .spx-risk-extreme { background: rgba(229,57,53,0.18); border: 1px solid rgba(229,57,53,0.4); color: #ef5350; box-shadow: 0 0 12px rgba(229,57,53,0.2); }
+        @keyframes spxPulse { 0%,100% { box-shadow: 0 0 8px rgba(229,57,53,0.3); } 50% { box-shadow: 0 0 20px rgba(229,57,53,0.6); } }
+        .spx-risk-extreme { animation: spxPulse 2s ease-in-out infinite; }
+        .spx-intel-body { background: rgba(4,8,20,0.97); padding: 18px 24px; }
+        .spx-intel-reason { font-size: 0.84rem; color: rgba(244,247,255,0.65); line-height: 1.55; margin-bottom: 14px; }
+        .spx-intel-next {
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
+            background: rgba(255,212,64,0.06); border: 1px solid rgba(255,212,64,0.15);
+            font-size: 0.8rem; color: #ffd740;
+        }
+        .spx-intel-next-icon { font-size: 1rem; }
+        /* News grid */
+        .spx-news-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        @media (max-width: 640px) { .spx-news-grid { grid-template-columns: 1fr; } }
+        .spx-news-card {
+            display: flex; flex-direction: column; gap: 8px;
+            padding: 12px 14px; border-radius: 12px;
+            background: rgba(255,255,255,0.028);
+            border-left: 3px solid rgba(0,212,255,0.3);
+            border-top: 1px solid rgba(255,255,255,0.06);
+            border-right: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            text-decoration: none;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+        }
+        .spx-news-card:hover { background: rgba(0,212,255,0.06); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,255,0.1); }
+        .spx-news-card.cat-macro { border-left-color: #6ae6ff; }
+        .spx-news-card.cat-markets { border-left-color: #00e676; }
+        .spx-news-card.cat-politics { border-left-color: #ff7043; }
+        .spx-news-card.cat-fed { border-left-color: #b39ddb; }
+        .spx-news-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .spx-news-badge { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
+        .spx-news-badge.cat-macro { background: rgba(106,230,255,0.12); color: #6ae6ff; }
+        .spx-news-badge.cat-markets { background: rgba(0,230,118,0.12); color: #00e676; }
+        .spx-news-badge.cat-politics { background: rgba(255,112,67,0.12); color: #ff7043; }
+        .spx-news-badge.cat-fed { background: rgba(179,157,219,0.12); color: #b39ddb; }
+        .spx-news-time { font-size: 0.6rem; color: rgba(244,247,255,0.3); flex-shrink: 0; }
+        .spx-news-headline { font-size: 0.79rem; color: rgba(244,247,255,0.85); line-height: 1.45; font-weight: 500; }
+        a.spx-news-card .spx-news-headline { color: #c8e8ff; }
+        .spx-intel-empty { text-align: center; padding: 24px; font-size: 0.8rem; color: rgba(244,247,255,0.3); font-style: italic; }
+        /* Section icon bubble */
+        .spx-section-icon-bubble {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 34px; height: 34px; border-radius: 10px; margin-right: 10px;
+            font-size: 1.05rem; vertical-align: middle; flex-shrink: 0;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_section_header(title: str, subtitle: str | None = None, icon: str = "") -> None:
+def render_section_header(title: str, subtitle: str | None = None, icon: str = "", icon_gradient: str = "linear-gradient(135deg,#00d4ff,#6ae6ff)") -> None:
     """Render a compact styled section header."""
 
     subtitle_html = f'<div class="spx-section-subtitle">{subtitle}</div>' if subtitle else ""
-    icon_html = f'<span style="margin-right:0.5rem;opacity:0.7;">{icon}</span>' if icon else ""
+    icon_html = (
+        f'<span class="spx-section-icon-bubble" style="background:{icon_gradient};box-shadow:0 0 14px rgba(0,212,255,0.25)">{icon}</span>'
+        if icon else ""
+    )
     st.markdown(
         f"""
         <div class="spx-shell">
-            <div class="spx-section-title">{icon_html}{title}</div>
+            <div class="spx-section-title" style="display:flex;align-items:center">{icon_html}{title}</div>
             {subtitle_html}
         </div>
         """,
@@ -11578,7 +11636,7 @@ def render_trade_log_tab(
     log_tab, review_tab, analytics_tab = journal_tabs
 
     with log_tab:
-        render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.")
+        render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.", icon="📝", icon_gradient="linear-gradient(135deg,#00b4d8,#0077b6)")
         with st.container(border=True):
             summary_cols = st.columns(5)
             summary_cols[0].metric("Decision", str(prefill.get("final_authority_decision") or prefill.get("final_decision") or "Unspecified"))
@@ -11814,7 +11872,7 @@ def render_trade_log_tab(
         max_trade_date = current_central_time().date()
 
     with review_tab:
-        render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.")
+        render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.", icon="🔍", icon_gradient="linear-gradient(135deg,#7b2ff7,#b39ddb)")
         with st.container(border=True):
             filter_col1, filter_col2, filter_col3 = st.columns(3)
             with filter_col1:
@@ -11885,7 +11943,7 @@ def render_trade_log_tab(
     analytics_low_data = build_low_data_state(filtered_trades, minimum=5, label="reviewed trades")
 
     with review_tab:
-        render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.")
+        render_section_header("Outcome Review", "Compare the locked plan and decision snapshot to what actually happened.", icon="📊", icon_gradient="linear-gradient(135deg,#7b2ff7,#b39ddb)")
         if outcome_review_df.empty:
             st.info(review_low_data["message"] or "No reviewed trade outcomes are available yet.")
         else:
@@ -12021,8 +12079,8 @@ def render_trade_log_tab(
                     st.bar_chart(result_counts)
 
     with analytics_tab:
-        render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.")
-        render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.")
+        render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.", icon="⚡", icon_gradient="linear-gradient(135deg,#ffd740,#ff9100)")
+        render_section_header("Performance Dashboard", "Fast pulse check on the filtered trade set.", icon="📈", icon_gradient="linear-gradient(135deg,#00e676,#00b0ff)")
         stats = compute_trade_statistics(filtered_trades)
         stat1, stat2, stat3 = st.columns(3)
         stat1.metric("Total Trades", str(stats["total_trades"]))
@@ -12036,7 +12094,7 @@ def render_trade_log_tab(
         if not analytics_low_data["enough"]:
             st.info(analytics_low_data["message"])
 
-        render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.")
+        render_section_header("Learning Loop", "Measure prediction quality, decision quality, and plan integrity against actual execution.", icon="🔬", icon_gradient="linear-gradient(135deg,#7b2ff7,#00d4ff)")
         learn_col1, learn_col2, learn_col3 = st.columns(3)
         learn_col1.metric("Avg Prediction Error", format_price(learning_metrics["avg_prediction_error"]))
         learn_col2.metric("Median Prediction Error", format_price(learning_metrics["median_prediction_error"]))
@@ -12056,7 +12114,7 @@ def render_trade_log_tab(
         plan_col3.metric("Avg Move Completion Before Entry", f"{learning_metrics['avg_move_completion_before_entry']:.2f}%")
         plan_col4.metric("Avg Move Completion Missed", f"{learning_metrics['avg_move_completion_missed']:.2f}%")
 
-        render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.")
+        render_section_header("Calibration", "Use observed bias to surface corrected guidance without overwriting the raw prediction.", icon="🎯", icon_gradient="linear-gradient(135deg,#ff6f00,#ffd740)")
         calibration_col1, calibration_col2, calibration_col3, calibration_col4 = st.columns(4)
         derived_rows = [derive_outcome_tracking_fields(trade) for trade in filtered_trades]
         prediction_bias_values = [float(row["prediction_error_signed"]) for row in derived_rows if row.get("prediction_error_signed") is not None]
@@ -12108,7 +12166,7 @@ def render_trade_log_tab(
                 st.markdown("**By Chase Status**")
                 st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
 
-        render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.")
+        render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.", icon="🧠", icon_gradient="linear-gradient(135deg,#b39ddb,#7b2ff7)")
         st.caption("Analytics update live from the filtered trade set below.")
         breakdown_tabs = st.tabs(["By Scenario", "By Confluence", "By Session", "By Confirmation", "By Tag"])
         breakdown_dimensions = [
@@ -12126,7 +12184,7 @@ def render_trade_log_tab(
                 else:
                     st.dataframe(breakdown, use_container_width=True, hide_index=True)
 
-        render_section_header("Decision Filter Intelligence", "Review which filters and confirmations actually improve outcomes.")
+        render_section_header("Decision Filter Intelligence", "Review which filters and confirmations actually improve outcomes.", icon="🔦", icon_gradient="linear-gradient(135deg,#00b4d8,#7b2ff7)")
         best_worst = compute_best_worst_summary(filtered_trades)
         best_col1, best_col2, best_col3 = st.columns(3)
         best_col1.metric("Best Scenario by Win Rate", best_worst["best_scenario_win_rate"])
@@ -12192,7 +12250,7 @@ def render_trade_log_tab(
             else:
                 st.dataframe(session_confirmation, use_container_width=True, hide_index=True)
 
-        render_section_header("Expectancy", "See what happens when you trust the system repeatedly.")
+        render_section_header("Expectancy", "See what happens when you trust the system repeatedly.", icon="💎", icon_gradient="linear-gradient(135deg,#00e676,#00b0ff)")
         expectancy_tabs = st.tabs(["Expectancy", "Weekly", "Monthly", "Scenario Frequency", "Advanced Breakdowns"])
         with expectancy_tabs[0]:
             expectancy_col1, expectancy_col2 = st.columns(2)
@@ -12257,7 +12315,7 @@ def render_trade_log_tab(
                 else:
                     st.dataframe(session_confirmation_pnl, use_container_width=True, hide_index=True)
 
-        render_section_header("Setup Quality", "Spot the strongest and weakest edges in the filtered record set.")
+        render_section_header("Setup Quality", "Spot the strongest and weakest edges in the filtered record set.", icon="🏆", icon_gradient="linear-gradient(135deg,#ffd740,#ff6f00)")
         setup_quality = build_setup_quality_summary(filtered_trades)
         quality_col1, quality_col2, quality_col3 = st.columns(3)
         quality_col1.metric("Highest Expectancy Scenario", setup_quality["highest_expectancy_scenario"])
@@ -12971,58 +13029,115 @@ def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_conte
 
 
 def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
-    """Render one compact event/news risk card without clutter."""
+    """Premium market intelligence panel: event risk + live news feed for 0DTE."""
 
     context = event_risk_context or {}
     level = str(context.get("event_risk_level", "unknown")).lower()
     status = str(context.get("event_risk_status", "Unknown"))
-    reason = str(context.get("event_risk_reason", "News unavailable"))
+    reason = str(context.get("event_risk_reason", ""))
     mode = str(context.get("event_trading_mode", "normal")).title()
     next_event = str(context.get("next_known_event", "") or "")
     time_until = context.get("time_until_event")
     window_active = bool(context.get("event_window_active", False))
-    headlines = list(context.get("headlines", []) or [])[:5]
+    headlines = list(context.get("headlines", []) or [])[:NEWS_FEED_MAX_ITEMS]
     source_status = str(context.get("source_status", ""))
 
-    level_pill = {"quiet": "scenario-bullish", "elevated": "scenario-warning", "major": "scenario-bearish", "extreme": "scenario-bearish", "high": "scenario-bearish"}.get(level, "scenario-neutral")
-    mode_pill = "conf-high" if mode.lower() in {"normal", "Standard"} else "scenario-warning"
+    # Risk level → badge class + icon
+    level_cfg = {
+        "quiet":    ("spx-risk-quiet",    "🟢", "All Clear"),
+        "elevated": ("spx-risk-elevated", "🟡", "Elevated"),
+        "major":    ("spx-risk-major",    "🟠", "Major Event"),
+        "extreme":  ("spx-risk-extreme",  "🔴", "Extreme Risk"),
+        "high":     ("spx-risk-major",    "🟠", "High Risk"),
+    }
+    badge_cls, risk_icon, risk_label = level_cfg.get(level, ("spx-risk-elevated", "⚪", status))
 
-    badges = f'<span class="spx-pill {level_pill}">{escape(status)}</span><span class="spx-pill {mode_pill}">{escape(mode)}</span>'
-    if window_active:
-        badges += '<span class="spx-pill scenario-warning">Window Active</span>'
-    if time_until is not None:
-        badges += f'<span class="spx-pill scenario-neutral">T-{int(time_until)} min</span>'
+    # Mode badge
+    mode_icon = "✅" if mode.lower() == "normal" else "⚠️"
+    mode_cls = "spx-risk-quiet" if mode.lower() == "normal" else "spx-risk-elevated"
 
-    next_html = f'<div style="font-size:0.78rem;color:rgba(244,247,255,0.5);margin-top:6px">Next: {escape(next_event)}</div>' if next_event else ""
+    # Window active badge
+    window_html = '<span class="spx-risk-badge spx-risk-major">⏱ Window Active</span>' if window_active else ""
+    tuntil_html = f'<span class="spx-risk-badge spx-risk-elevated">T-{int(time_until)} min</span>' if time_until is not None else ""
 
-    feed_html = ""
-    if headlines:
-        items = ""
-        for item in headlines:
-            title = str(item.get("title", "")).strip()
-            if not title:
-                continue
-            link = str(item.get("link", "")).strip()
-            cat = str(item.get("category", "news")).title()
-            cat_span = f'<span class="spx-news-cat">{escape(cat)}</span>'
-            title_span = f'<span class="spx-news-title">{escape(title)}</span>'
-            if link:
-                items += f'<a href="{escape(link)}" target="_blank" class="spx-news-item">{cat_span}{title_span}</a>'
-            else:
-                items += f'<div class="spx-news-item">{cat_span}{title_span}</div>'
-        if items:
-            feed_html = f'<div class="spx-news-feed">{items}</div>'
+    # Next event strip
+    next_html = ""
+    if next_event:
+        next_html = (
+            f'<div class="spx-intel-next">'
+            f'<span class="spx-intel-next-icon">📅</span>'
+            f'<span><strong>Next event:</strong> {escape(next_event)}</span>'
+            f'</div>'
+        )
+
+    # Reason line
+    reason_html = f'<div class="spx-intel-reason">{escape(reason)}</div>' if reason else ""
+
+    # News cards grid
+    cat_map = {
+        "macro": ("cat-macro", "📊"),
+        "markets": ("cat-markets", "📈"),
+        "politics": ("cat-politics", "🏛"),
+        "fed": ("cat-fed", "🏦"),
+    }
+    cards_html = ""
+    for item in headlines:
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        link = str(item.get("link", "")).strip()
+        cat_key = str(item.get("category", "markets")).lower()
+        cat_cls, cat_icon = cat_map.get(cat_key, ("cat-markets", "📰"))
+        pub = str(item.get("published_at", "")).strip()
+        # Parse time only — strip date
+        time_str = ""
+        if pub:
+            from datetime import timezone as _tz
+            for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z"):
+                try:
+                    dt = datetime.strptime(pub, fmt)
+                    if dt.tzinfo:
+                        dt = dt.astimezone(_tz.utc)
+                    time_str = dt.strftime("%H:%M UTC")
+                    break
+                except Exception:
+                    pass
+        top_html = (
+            f'<div class="spx-news-card-top">'
+            f'<span class="spx-news-badge {cat_cls}">{cat_icon} {escape(cat_key.title())}</span>'
+            f'<span class="spx-news-time">{escape(time_str)}</span>'
+            f'</div>'
+        )
+        headline_html = f'<div class="spx-news-headline">{escape(title)}</div>'
+        if link:
+            cards_html += f'<a href="{escape(link)}" target="_blank" class="spx-news-card {cat_cls}">{top_html}{headline_html}</a>'
+        else:
+            cards_html += f'<div class="spx-news-card {cat_cls}">{top_html}{headline_html}</div>'
+
+    if cards_html:
+        feed_html = f'<div class="spx-news-grid">{cards_html}</div>'
     elif source_status == "unavailable":
-        feed_html = '<div style="font-size:0.8rem;opacity:0.4;font-style:italic;margin-top:10px">Live news feed unavailable</div>'
+        feed_html = '<div class="spx-intel-empty">📡 Live news feed unavailable — check network or use manual event risk override</div>'
+    else:
+        feed_html = '<div class="spx-intel-empty">No market-moving headlines at this time</div>'
 
     st.markdown(
-        f'<div class="spx-card levels">'
-        f'<div class="spx-card-title" style="margin-bottom:10px">'
-        f'<div class="spx-card-heading">Event Risk</div>'
-        f'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">{badges}</div>'
+        f'<div class="spx-intel-wrap">'
+        f'<div class="spx-intel-header">'
+        f'<div class="spx-intel-icon">📡</div>'
+        f'<div class="spx-intel-meta">'
+        f'<div class="spx-intel-title">Market Intelligence</div>'
+        f'<div class="spx-intel-sub">0DTE event risk · economic data · breaking headlines</div>'
         f'</div>'
-        f'<div class="spx-card-copy">{escape(reason)}</div>'
-        f'{next_html}{feed_html}'
+        f'<div class="spx-intel-badges">'
+        f'<span class="spx-risk-badge {badge_cls}">{risk_icon} {escape(risk_label)}</span>'
+        f'<span class="spx-risk-badge {mode_cls}">{mode_icon} {escape(mode)}</span>'
+        f'{window_html}{tuntil_html}'
+        f'</div>'
+        f'</div>'
+        f'<div class="spx-intel-body">'
+        f'{reason_html}{next_html}{feed_html}'
+        f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -13828,7 +13943,6 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
-        safe_render_section("Event Risk", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
         safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
             render_trade_decision_summary(
@@ -14039,6 +14153,8 @@ def render_live_mode_shell(
             developer_mode=developer_mode,
         )
         st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
+        render_divider()
+        safe_render_section("Market Intelligence", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
 
     with live_asian_tab:
         st.markdown(
