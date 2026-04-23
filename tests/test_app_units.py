@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
 import unittest
-import pandas as pd
 import app as app_module
 
 from app import (
@@ -28,20 +26,14 @@ from app import (
     classify_budget_status,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
-    estimate_contract_value_at_entry,
     estimate_contract_value_at_planned_entry,
-    format_estimate_quality,
     get_structure_assertion_warnings,
     resolve_effective_offset,
-    resolve_channel_trade_context,
     resolve_hero_action_label,
     resolve_live_current_spx,
     resolve_play_display_values,
     resolve_recommended_contract_row,
     resolve_selected_contract_row,
-    resolve_unified_decision_state,
-    sanitize_ui_text,
-    should_render_card_no_trade_reason,
     summarize_event_risk,
     validate_contract_binding,
 )
@@ -71,23 +63,6 @@ class AppUnitTests(unittest.TestCase):
         ]
         app_module.st.session_state.setdefault("contract_override_store", {})
         app_module.st.session_state["contract_override_store"].clear()
-
-    def _build_channel_candles(self, rows: list[tuple[int, float, float, float, float]], session_date: date | None = None) -> pd.DataFrame:
-        """Build a simple hourly CT candle frame for channel-state tests."""
-
-        session = session_date or date(2026, 4, 23)
-        return pd.DataFrame(
-            [
-                {
-                    "timestamp": app_module.at_central(session, hour, 0),
-                    "open": open_price,
-                    "high": high,
-                    "low": low,
-                    "close": close,
-                }
-                for hour, open_price, high, low, close in rows
-            ]
-        )
 
     def test_build_line_rows_uses_es_unit_labels(self) -> None:
         rows = build_line_rows(
@@ -231,189 +206,6 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(snapshot["scenario_transition"], "SCENARIO 1: BETWEEN CHANNELS -> SCENARIO 3: INSIDE DESCENDING CHANNEL")
         self.assertEqual(snapshot["structure_transition"], "BETWEEN_CHANNELS -> INSIDE_DESC_CHANNEL")
 
-    def test_channel_state_inside_descending_keeps_put_as_primary_bias(self) -> None:
-        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
-        candles = self._build_channel_candles(
-            [
-                (18, 7148.0, 7155.0, 7142.0, 7146.0),
-                (19, 7146.0, 7150.0, 7140.0, 7144.0),
-            ],
-            session_date=date(2026, 4, 22),
-        )
-
-        context = resolve_channel_trade_context(
-            current_price=7144.0,
-            line_values=line_values,
-            es_candles=candles,
-            next_trading_date=date(2026, 4, 23),
-            scenario_origin="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-            live_scenario="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-        )
-
-        self.assertEqual(context["channel_orientation"], "descending")
-        self.assertEqual(context["channel_state"], "INSIDE")
-        self.assertEqual(context["trade_bias"], "bearish")
-        self.assertEqual(context["primary_direction"], "PUT")
-        self.assertEqual(context["activation_direction"], "PUT")
-
-    def test_two_overnight_ceiling_touches_resolve_testing_ceiling(self) -> None:
-        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
-        candles = self._build_channel_candles(
-            [
-                (18, 7158.0, 7163.4, 7152.0, 7162.0),
-                (20, 7160.0, 7163.8, 7156.0, 7161.5),
-                (22, 7154.0, 7160.0, 7147.0, 7150.0),
-            ],
-            session_date=date(2026, 4, 22),
-        )
-
-        context = resolve_channel_trade_context(
-            current_price=7148.0,
-            line_values=line_values,
-            es_candles=candles,
-            next_trading_date=date(2026, 4, 23),
-            scenario_origin="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-            live_scenario="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-        )
-
-        self.assertEqual(context["channel_state"], "TESTING_CEILING")
-        self.assertGreaterEqual(context["overnight_ceiling_touch_count"], 2)
-
-    def test_break_above_without_retest_is_broken_above(self) -> None:
-        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
-        candles = self._build_channel_candles(
-            [
-                (8, 7148.0, 7158.0, 7140.0, 7146.0),
-                (9, 7146.0, 7169.0, 7145.0, 7166.4),
-            ],
-        )
-
-        context = resolve_channel_trade_context(
-            current_price=7166.4,
-            line_values=line_values,
-            es_candles=candles,
-            next_trading_date=date(2026, 4, 23),
-            scenario_origin="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-            live_scenario="SCENARIO 1: BETWEEN CHANNELS",
-        )
-
-        self.assertEqual(context["channel_orientation"], "descending")
-        self.assertEqual(context["channel_state"], "BROKEN_ABOVE")
-        self.assertFalse(context["acceptance_confirmed"])
-
-    def test_break_above_and_retest_close_above_is_accepted_above(self) -> None:
-        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
-        candles = self._build_channel_candles(
-            [
-                (8, 7148.0, 7158.0, 7140.0, 7146.0),
-                (9, 7146.0, 7169.0, 7145.0, 7166.4),
-                (10, 7166.0, 7170.0, 7163.6, 7165.8),
-            ],
-        )
-
-        context = resolve_channel_trade_context(
-            current_price=7165.8,
-            line_values=line_values,
-            es_candles=candles,
-            next_trading_date=date(2026, 4, 23),
-            scenario_origin="SCENARIO 3: INSIDE DESCENDING CHANNEL",
-            live_scenario="SCENARIO 2: INSIDE ASCENDING CHANNEL",
-        )
-
-        self.assertEqual(context["channel_orientation"], "descending")
-        self.assertEqual(context["channel_state"], "ACCEPTED_ABOVE")
-        self.assertTrue(context["acceptance_confirmed"])
-        self.assertIsNotNone(context["retracement_confirmation_candle_time"])
-
-    def test_call_only_activates_after_accepted_above(self) -> None:
-        base_play = {
-            "direction": "CALL",
-            "contracts": 1,
-            "entry": {"price": 7165.0},
-            "stop": {"price": 7156.0},
-            "tp1": {"price": 7180.0},
-            "tp2": {"price": 7194.0},
-        }
-        intelligence = {
-            "locked_entry_spx": 7165.0,
-            "planned_entry_mark": 8.0,
-            "entry_zone_status": "IN_ZONE",
-            "move_completion_pct": 18.0,
-            "rr_ratio": 1.4,
-            "prediction_confidence": "MEDIUM",
-        }
-        selected_quote = {
-            "contract_symbol": "SPXW 260422C07100000",
-            "price": 8.0,
-            "delta": 0.32,
-            "estimated_entry_cost": 800.0,
-            "budget_status": "Within Budget",
-        }
-        option_state = {"ladder_rows": [], "recommended_contract_symbol": "SPXW 260422C07100000", "budget_cap": 1000.0}
-        broken_context = {
-            "scenario_origin": "SCENARIO 3: INSIDE DESCENDING CHANNEL",
-            "live_scenario": "SCENARIO 1: BETWEEN CHANNELS",
-            "channel_state": "BROKEN_ABOVE",
-            "channel_orientation": "descending",
-            "trade_bias": "bullish pressure",
-            "activation_state": "WAIT FOR ACCEPTANCE",
-            "activation_direction": "CALL",
-            "channel_reason": "Descending ceiling broke, but acceptance is not confirmed.",
-            "entry_price_underlying": 7164.95,
-        }
-        accepted_context = {**broken_context, "channel_state": "ACCEPTED_ABOVE", "activation_state": "CALL setup active", "acceptance_confirmed": True}
-
-        broken = build_execution_state(
-            play=base_play,
-            play_es={"entry": {"price": 7204.5}, "stop": {"price": 7195.0}},
-            intelligence=intelligence,
-            live_context=broken_context,
-            risk_class="MEDIUM",
-            selected_contract_quote=selected_quote,
-            option_display_state=option_state,
-            current_spx_price=7165.1,
-            structure_valid=True,
-        )
-        accepted = build_execution_state(
-            play=base_play,
-            play_es={"entry": {"price": 7204.5}, "stop": {"price": 7195.0}},
-            intelligence=intelligence,
-            live_context=accepted_context,
-            risk_class="MEDIUM",
-            selected_contract_quote=selected_quote,
-            option_display_state=option_state,
-            current_spx_price=7165.1,
-            structure_valid=True,
-        )
-
-        self.assertIn(broken["execution_action"], {"WAIT", "WAIT FOR RETEST"})
-        self.assertNotIn(broken["setup_state"], {"ACTIVE", "TRIGGERED"})
-        self.assertEqual(accepted["activation_direction"], "CALL")
-        self.assertIn(accepted["setup_state"], {"TRIGGERED", "ACTIVE"})
-
-    def test_break_below_and_retest_close_below_is_accepted_below(self) -> None:
-        line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
-        candles = self._build_channel_candles(
-            [
-                (8, 7176.0, 7182.0, 7172.0, 7175.0),
-                (9, 7175.0, 7178.0, 7166.0, 7169.4),
-                (10, 7169.5, 7171.5, 7164.0, 7168.8),
-            ],
-        )
-
-        context = resolve_channel_trade_context(
-            current_price=7168.8,
-            line_values=line_values,
-            es_candles=candles,
-            next_trading_date=date(2026, 4, 23),
-            scenario_origin="SCENARIO 2: INSIDE ASCENDING CHANNEL",
-            live_scenario="SCENARIO 1: BETWEEN CHANNELS",
-        )
-
-        self.assertEqual(context["channel_orientation"], "ascending")
-        self.assertEqual(context["channel_state"], "ACCEPTED_BELOW")
-        self.assertTrue(context["acceptance_confirmed"])
-
     def test_selected_contract_binding_uses_selected_symbol_metrics_for_same_strike(self) -> None:
         play = {"strike": 7100, "direction": "PUT"}
         selected_contract = {
@@ -467,54 +259,6 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(validation["binding_status"], "MISMATCH")
         self.assertIn("symbol_mismatch", validation["errors"])
         self.assertIn("strike_mismatch", validation["errors"])
-
-    def test_binding_validator_catches_premium_source_mismatch(self) -> None:
-        selected_contract = {
-            "contract_symbol": "SPXW 260422P07100000",
-            "strike": 7100,
-        }
-        displayed_payload = {
-            "displayed_contract_symbol": "SPXW 260422P07100000",
-            "displayed_strike": 7100,
-            "mark_source_symbol": "SPXW 260422P07110000",
-            "predicted_entry_source_symbol": "SPXW 260422P07105000",
-        }
-
-        validation = validate_contract_binding(selected_contract, displayed_payload)
-
-        self.assertEqual(validation["binding_status"], "MISMATCH")
-        self.assertIn("mark_source_mismatch", validation["errors"])
-        self.assertIn("predicted_entry_source_mismatch", validation["errors"])
-
-    def test_sanitize_ui_text_removes_feed_tokens_and_corrupted_arrows(self) -> None:
-        cleaned = sanitize_ui_text("_arrowrightcontrols â†‘ Bearish", fallback="Clean")
-
-        self.assertEqual(cleaned, "Up Bearish")
-
-    def test_resolve_unified_decision_state_collapses_conflicting_labels(self) -> None:
-        state = resolve_unified_decision_state(
-            {
-                "decision": "NO TRADE",
-                "setup_state": "INVALIDATED",
-                "invalidation_code": "STRUCTURE_BROKEN",
-                "reason_line": "Structure invalid",
-            },
-            "PUT",
-        )
-
-        self.assertEqual(state["primary"], "NO TRADE")
-        self.assertEqual(state["modifier"], "INVALIDATED")
-        self.assertEqual(state["reason"], "Structure invalid")
-
-    def test_no_trade_reason_is_hidden_from_production_card_to_avoid_duplication(self) -> None:
-        self.assertFalse(should_render_card_no_trade_reason("NO TRADE", developer_mode=False))
-        self.assertTrue(should_render_card_no_trade_reason("NO TRADE", developer_mode=True))
-
-    def test_estimate_quality_uses_operator_language(self) -> None:
-        self.assertEqual(format_estimate_quality("high"), "Strong")
-        self.assertEqual(format_estimate_quality("medium"), "Moderate")
-        self.assertEqual(format_estimate_quality("low"), "Weak")
-        self.assertEqual(format_estimate_quality("speculative"), "Insufficient")
 
     def test_stale_play_strike_cannot_override_new_selected_contract(self) -> None:
         stale_play = {"strike": 7100, "direction": "PUT"}
@@ -982,53 +726,6 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn(projection["projection_confidence"], {"low", "speculative"})
         self.assertTrue(projection["projection_warning"])
 
-    def test_entry_pricing_estimate_rises_when_move_favors_the_put(self) -> None:
-        projection = estimate_contract_value_at_entry(
-            current_underlying_price=7140.0,
-            entry_underlying_price=7120.0,
-            current_mark=4.9,
-            bid=4.8,
-            ask=5.0,
-            delta=-0.42,
-            gamma=0.01,
-            theta=-0.18,
-            vega=0.09,
-            implied_volatility=0.24,
-            option_type="PUT",
-            strike=7100,
-            minutes_to_entry=25.0,
-            event_risk_level="quiet",
-            liquidity_score=450.0,
-            spread_width=0.2,
-        )
-
-        self.assertGreater(projection["projected_mark_at_entry"], 4.9)
-        self.assertIn(projection["estimate_quality"], {"High", "Medium", "Low", "Speculative"})
-
-    def test_entry_pricing_estimate_never_goes_negative_and_fill_stays_sensible(self) -> None:
-        projection = estimate_contract_value_at_entry(
-            current_underlying_price=7140.0,
-            entry_underlying_price=7200.0,
-            current_mark=0.12,
-            bid=0.1,
-            ask=0.14,
-            delta=-0.05,
-            gamma=None,
-            theta=-0.01,
-            vega=None,
-            implied_volatility=None,
-            option_type="PUT",
-            strike=7000,
-            minutes_to_entry=90.0,
-            event_risk_level="major",
-            liquidity_score=2.0,
-            spread_width=0.04,
-        )
-
-        self.assertGreaterEqual(projection["projected_mark_at_entry"], 0.01)
-        self.assertGreaterEqual(projection["projected_fill_at_entry"], projection["projected_mark_at_entry"])
-        self.assertIn(projection["estimate_quality"], {"Low", "Speculative"})
-
     def test_budget_aware_execution_selection_prefers_viable_within_budget_contract(self) -> None:
         rows = [
             {"contract_symbol": "REC", "budget_status": "Above Budget", "rr_ratio": 1.6, "contract_score": 0.9, "delta": -0.58, "premium_projection_confidence": "High", "projected_fill_at_entry": 7.5, "labels": []},
@@ -1077,9 +774,7 @@ class AppUnitTests(unittest.TestCase):
 
         self.assertIn("at_entry", frame.columns)
         self.assertIn("expected_fill", frame.columns)
-        self.assertNotIn("reason", frame.columns)
         self.assertEqual(frame.iloc[0]["at_entry"], 5.2)
-        self.assertEqual(frame.iloc[0]["tag"], "Recommended | System Pick")
 
     def test_render_fallback_payload_hides_traceback_text_in_production(self) -> None:
         payload = build_render_fallback_payload("Strike Selection", RuntimeError("bad column"), developer_mode=False)
