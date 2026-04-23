@@ -2812,27 +2812,37 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
 
 
 def render_section_header(title: str, subtitle: str | None = None, icon: str = "", icon_gradient: str = "linear-gradient(135deg,#00d4ff,#6ae6ff)") -> None:
-    """Render a compact styled section header."""
+    """Render a premium bordered section header matching the MI design language."""
 
-    subtitle_html = f'<div class="spx-section-subtitle">{subtitle}</div>' if subtitle else ""
-    icon_html = (
-        f'<span class="spx-section-icon-bubble" style="background:{icon_gradient};box-shadow:0 0 14px rgba(0,212,255,0.25)">{icon}</span>'
-        if icon else ""
-    )
+    _icon_html = (
+        f'<div style="flex-shrink:0;width:38px;height:38px;border-radius:10px;'
+        f'background:{icon_gradient};'
+        f'box-shadow:0 0 16px rgba(0,212,255,0.28);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1.1rem;">{icon}</div>'
+    ) if icon else ""
+    _sub_html = (
+        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.55);margin-top:3px;letter-spacing:0.03em;">'
+        f'{subtitle}</div>'
+    ) if subtitle else ""
     st.markdown(
-        f"""
-        <div class="spx-shell">
-            <div class="spx-section-title" style="display:flex;align-items:center">{icon_html}{title}</div>
-            {subtitle_html}
-        </div>
-        """,
+        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.12);'
+        f'box-shadow:0 4px 24px rgba(0,0,0,0.32);margin-bottom:10px;">'
+        f'<div style="display:flex;align-items:center;gap:13px;padding:13px 18px;'
+        f'background:linear-gradient(135deg,rgba(0,25,55,0.98) 0%,rgba(4,8,20,0.98) 100%);">'
+        f'{_icon_html}'
+        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:700;'
+        f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">{escape(title)}</div>{_sub_html}</div>'
+        f'</div></div>',
         unsafe_allow_html=True,
     )
 
 
 def render_divider() -> None:
-    """Render a gradient accent divider."""
-    st.markdown('<hr class="spx-divider">', unsafe_allow_html=True)
+    """Render a gradient accent divider using inline styles."""
+    st.markdown(
+        '<div style="height:1px;margin:18px 0;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.18),transparent);"></div>',
+        unsafe_allow_html=True,
+    )
 
 def build_render_fallback_payload(section_title: str, exc: Exception | None = None, *, developer_mode: bool = False) -> dict[str, str]:
     """Build a production-safe fallback message for a failed section render."""
@@ -2851,13 +2861,20 @@ def build_render_fallback_payload(section_title: str, exc: Exception | None = No
 def render_section_fallback(payload: dict[str, str]) -> None:
     """Render one polished fallback card instead of exposing raw tracebacks."""
 
+    _title = escape(str(payload.get("title", "Section unavailable")))
+    _reason = escape(str(payload.get("reason", "Temporarily unavailable")))
     st.markdown(
-        f"""
-        <div class="spx-fallback-card">
-            <div class="spx-fallback-title">{escape(str(payload.get("title", "Section unavailable")))}</div>
-            <div class="spx-fallback-body">{escape(str(payload.get("reason", "Temporarily unavailable")))}</div>
-        </div>
-        """,
+        f'<div style="border-radius:12px;overflow:hidden;border:1px solid rgba(255,109,64,0.2);'
+        f'box-shadow:0 4px 20px rgba(0,0,0,0.3);margin-bottom:10px;">'
+        f'<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;'
+        f'background:linear-gradient(135deg,rgba(40,10,5,0.98),rgba(20,5,2,0.98));">'
+        f'<div style="flex-shrink:0;width:34px;height:34px;border-radius:8px;'
+        f'background:linear-gradient(135deg,#b71c1c,#7f0000);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1rem;">⚠️</div>'
+        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:0.88rem;font-weight:700;'
+        f'color:#ff7043;line-height:1.2;">{_title}</div>'
+        f'<div style="font-size:0.72rem;color:rgba(224,238,255,0.5);margin-top:2px;">{_reason}</div>'
+        f'</div></div></div>',
         unsafe_allow_html=True,
     )
 
@@ -13692,38 +13709,65 @@ def render_live_decision_center(
 
 
 def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_authority: dict[str, Any] | None) -> None:
-    """Render one compact alert strip for both live plays."""
+    """Render a premium inline-styled execution alert panel for both live plays."""
 
-    entries = [("Primary", primary_authority or {}), ("Alternate", alternate_authority or {})]
-    state_pill_map = {
-        "ACT_NOW": "conf-high", "READY": "conf-high",
-        "PREPARE": "scenario-warning", "WATCH": "conf-medium",
-        "INVALIDATED": "scenario-bearish", "EXPIRED": "scenario-bearish",
+    # State → (accent color, bg color, label)
+    _state_map = {
+        "ACT_NOW":    ("#00e676", "rgba(0,230,118,0.12)",  "ACT NOW"),
+        "READY":      ("#00e676", "rgba(0,230,118,0.12)",  "READY"),
+        "PREPARE":    ("#ffd740", "rgba(255,215,64,0.11)", "PREPARE"),
+        "WATCH":      ("#6ae6ff", "rgba(106,230,255,0.1)", "WATCH"),
+        "INVALIDATED":("#ef5350", "rgba(239,83,80,0.12)",  "INVALIDATED"),
+        "EXPIRED":    ("#ef5350", "rgba(239,83,80,0.12)",  "EXPIRED"),
+        "QUIET":      ("#8ea1bc", "rgba(142,161,188,0.08)","QUIET"),
     }
-    priority_pill_map = {"HIGH": "conf-high", "MEDIUM": "conf-medium", "LOW": "scenario-neutral"}
+    _priority_map = {
+        "HIGH":   ("#ef5350", "rgba(239,83,80,0.12)"),
+        "MEDIUM": ("#ffd740", "rgba(255,215,64,0.11)"),
+        "LOW":    ("#8ea1bc", "rgba(142,161,188,0.08)"),
+    }
+    _badge_base = "display:inline-flex;align-items:center;gap:4px;font-size:0.62rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:2px 9px;border-radius:20px;"
+
     slots_html = ""
-    for label, authority in entries:
-        alert_state = str(authority.get("alert_state", "QUIET"))
-        priority = str(authority.get("alert_priority", "LOW"))
-        message = str(authority.get("alert_message", "No live execution edge"))
-        sp = state_pill_map.get(alert_state, "scenario-neutral")
-        pp = priority_pill_map.get(priority, "scenario-neutral")
+    for label, auth_obj, icon in [("Primary", primary_authority or {}, "🎯"), ("Alternate", alternate_authority or {}, "🔄")]:
+        alert_state = str(auth_obj.get("alert_state", "QUIET"))
+        priority = str(auth_obj.get("alert_priority", "LOW"))
+        message = str(auth_obj.get("alert_message", "No live execution edge"))
+        sc, sb, sl = _state_map.get(alert_state, ("#8ea1bc", "rgba(142,161,188,0.08)", alert_state))
+        pc, pb = _priority_map.get(priority, ("#8ea1bc", "rgba(142,161,188,0.08)"))
         slots_html += (
-            f'<div class="spx-alert-slot">'
-            f'<div class="spx-alert-label">{escape(label)}</div>'
-            f'<div style="display:flex;gap:6px;flex-wrap:wrap">'
-            f'<span class="spx-pill {sp}">{escape(alert_state)}</span>'
-            f'<span class="spx-pill {pp}">{escape(priority)}</span>'
-            f'</div>'
-            f'<div class="spx-alert-msg">{escape(message)}</div>'
+            f'<div style="flex:1;min-width:220px;padding:14px 16px;'
+            f'background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);'
+            f'border-left:3px solid {sc};border-radius:10px;">'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">'
+            f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#8ea1bc;">'
+            f'{escape(label)}</div>'
+            f'<div style="display:flex;gap:5px;">'
+            f'<span style="{_badge_base}background:{sb};color:{sc};">{escape(sl)}</span>'
+            f'<span style="{_badge_base}background:{pb};color:{pc};">{escape(priority)}</span>'
+            f'</div></div>'
+            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.78);line-height:1.5;">'
+            f'{escape(message)}</div>'
             f'</div>'
         )
     st.markdown(
-        f'<div class="spx-card primary" style="margin-bottom:12px">'
-        f'<div class="spx-card-title" style="margin-bottom:12px">'
-        f'<div class="spx-card-heading">Execution Alerts</div></div>'
-        f'<div style="display:flex;gap:12px;flex-wrap:wrap">{slots_html}</div>'
-        f'</div>',
+        f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.13);'
+        f'box-shadow:0 4px 32px rgba(0,0,0,0.35);margin-bottom:14px;">'
+        f'<div style="display:flex;align-items:center;gap:14px;padding:14px 20px;'
+        f'background:linear-gradient(135deg,rgba(0,30,60,0.98) 0%,rgba(4,8,20,0.98) 100%);'
+        f'border-bottom:1px solid rgba(0,212,255,0.1);">'
+        f'<div style="flex-shrink:0;width:38px;height:38px;border-radius:10px;'
+        f'background:linear-gradient(135deg,#e65100,#bf360c);'
+        f'box-shadow:0 0 16px rgba(230,81,0,0.35);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1.15rem;">⚡</div>'
+        f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;color:#f4f7ff;">'
+        f'Execution Alerts</div>'
+        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;">'
+        f'Live operator action status for each play</div></div>'
+        f'</div>'
+        f'<div style="background:rgba(4,8,20,0.97);padding:14px 16px;">'
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{slots_html}</div>'
+        f'</div></div>',
         unsafe_allow_html=True,
     )
 
