@@ -2234,6 +2234,22 @@ def inject_app_styles() -> None:
             0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
             50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
         }
+        @keyframes spxBrandShimmer {
+            0%   { background-position: 0% center; }
+            100% { background-position: 300% center; }
+        }
+        @keyframes spxIconGlow {
+            0%,100% { box-shadow: 0 0 22px rgba(0,212,255,0.45), 0 0 44px rgba(0,150,255,0.18); }
+            50%      { box-shadow: 0 0 40px rgba(0,212,255,0.80), 0 0 80px rgba(0,150,255,0.35), 0 0 120px rgba(0,80,255,0.15); }
+        }
+        @keyframes spxBarTopLine {
+            0%,100% { opacity: 0.35; }
+            50%      { opacity: 1.0; }
+        }
+        @keyframes spxProphetGlow {
+            0%,100% { text-shadow: 0 0 18px rgba(0,212,255,0.25), 0 2px 8px rgba(0,0,0,0.6); }
+            50%      { text-shadow: 0 0 36px rgba(0,212,255,0.5), 0 0 70px rgba(0,150,255,0.2), 0 2px 8px rgba(0,0,0,0.6); }
+        }
         /* ══ Decision Cockpit ══ */
         .spx-cockpit {
             border-radius: 20px; overflow: hidden; margin-bottom: 18px;
@@ -2646,31 +2662,29 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
     """Render the premium top-of-app command bar with brand, clock, market status, mode."""
 
     now = current_central_time() if current_central_time else datetime.now()
-    # Convert CT → ET for display (ET = CT + 1h)
     et_now = now + timedelta(hours=1)
     clock = et_now.strftime("%H:%M:%S")
     date_str = et_now.strftime("%a %b %d")
     session = _resolve_market_session(now)
-    mode_cls = "mode-edgelab" if visibility_mode == "Edge Lab" else "mode-production"
     mode_icon = "🔬" if visibility_mode == "Edge Lab" else "◉"
+
     next_date_html = ""
     if next_trading_date is not None:
         try:
             next_date_html = (
                 f'<div style="text-align:right;">'
                 f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Next Session</div>'
-                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{escape(str(next_trading_date))}</div>'
+                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.9rem;color:rgba(244,247,255,0.85);">{escape(str(next_trading_date))}</div>'
                 f'</div>'
             )
         except Exception:
             next_date_html = ""
 
-    # Status pill inline styles
     _status_styles = {
-        "status-open": ("background:rgba(0,230,118,0.14);border:1px solid rgba(0,230,118,0.32)", "background:#00e676;box-shadow:0 0 8px #00e676"),
-        "status-premarket": ("background:rgba(255,212,64,0.12);border:1px solid rgba(255,212,64,0.28)", "background:#ffd740"),
+        "status-open":       ("background:rgba(0,230,118,0.14);border:1px solid rgba(0,230,118,0.32)", "background:#00e676;box-shadow:0 0 8px #00e676"),
+        "status-premarket":  ("background:rgba(255,212,64,0.12);border:1px solid rgba(255,212,64,0.28)", "background:#ffd740"),
         "status-afterhours": ("background:rgba(179,136,255,0.12);border:1px solid rgba(179,136,255,0.28)", "background:#b388ff"),
-        "status-closed": ("background:rgba(142,161,188,0.1);border:1px solid rgba(142,161,188,0.22)", "background:#8ea1bc"),
+        "status-closed":     ("background:rgba(142,161,188,0.1);border:1px solid rgba(142,161,188,0.22)", "background:#8ea1bc"),
     }
     _status_style, _dot_style = _status_styles.get(session["cls"], _status_styles["status-closed"])
     _mode_style = (
@@ -2680,47 +2694,100 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
     )
 
     st.markdown(
-        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;'
-        f'padding:14px 20px;margin-bottom:14px;'
-        f'background:linear-gradient(135deg,rgba(2,8,22,0.98),rgba(4,12,32,0.95),rgba(0,6,20,0.98));'
-        f'border:1px solid rgba(0,212,255,0.14);border-radius:16px;'
-        f'box-shadow:0 4px 28px rgba(0,0,0,0.45);">'
-        # Brand section
-        f'<div style="display:flex;align-items:center;gap:12px;">'
-        f'<div style="width:42px;height:42px;border-radius:12px;flex-shrink:0;'
-        f'background:linear-gradient(135deg,#00d4ff,#0077b6);'
-        f'display:flex;align-items:center;justify-content:center;font-size:1.3rem;'
-        f'box-shadow:0 0 20px rgba(0,212,255,0.35);">📊</div>'
-        f'<div>'
-        f'<div style="font-family:Outfit,sans-serif;font-size:1.5rem;font-weight:800;color:#f4f7ff;line-height:1.1;letter-spacing:-0.02em;">'
-        f'{escape(APP_TITLE)}&nbsp;'
-        f'<span style="font-size:0.58rem;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.24);'
-        f'color:#6ae6ff;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:0.04em;vertical-align:middle;">{escape(APP_VERSION)}</span>'
+        # ── Outer container ──────────────────────────────────────────────────
+        f'<div style="position:relative;overflow:hidden;'
+        f'padding:18px 24px 16px 24px;margin-bottom:16px;'
+        f'background:linear-gradient(135deg,rgba(1,6,20,0.99) 0%,rgba(3,10,28,0.98) 40%,rgba(0,8,24,0.99) 100%);'
+        f'border:1px solid rgba(0,212,255,0.16);border-radius:20px;'
+        f'box-shadow:0 8px 40px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.025) inset;">'
+
+        # Radial glow blobs (decorative background depth)
+        f'<div style="pointer-events:none;position:absolute;inset:0;">'
+        f'<div style="position:absolute;top:-30px;left:60px;width:280px;height:120px;'
+        f'background:radial-gradient(ellipse,rgba(0,212,255,0.08) 0%,transparent 70%);"></div>'
+        f'<div style="position:absolute;bottom:-20px;right:80px;width:220px;height:100px;'
+        f'background:radial-gradient(ellipse,rgba(0,80,255,0.07) 0%,transparent 70%);"></div>'
         f'</div>'
-        f'<div style="font-size:0.62rem;letter-spacing:0.12em;text-transform:uppercase;'
-        f'color:rgba(142,161,188,0.6);margin-top:2px;">ES Structure &middot; Options Intelligence &middot; 0DTE</div>'
+
+        # Animated top-edge glow line
+        f'<div style="position:absolute;top:0;left:0;right:0;height:2px;'
+        f'background:linear-gradient(90deg,transparent 0%,rgba(0,212,255,0.0) 10%,rgba(0,212,255,0.7) 40%,rgba(100,200,255,1) 50%,rgba(0,212,255,0.7) 60%,rgba(0,212,255,0.0) 90%,transparent 100%);'
+        f'animation:spxBarTopLine 3s ease-in-out infinite;"></div>'
+
+        # ── Brand block ──────────────────────────────────────────────────────
+        f'<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
+        f'<div style="display:flex;align-items:center;gap:16px;">'
+
+        # Icon bubble with pulsing glow
+        f'<div style="flex-shrink:0;width:54px;height:54px;border-radius:16px;'
+        f'background:linear-gradient(135deg,#0a3060 0%,#004080 50%,#00264d 100%);'
+        f'border:1px solid rgba(0,212,255,0.3);'
+        f'display:flex;align-items:center;justify-content:center;font-size:1.6rem;'
+        f'animation:spxIconGlow 3s ease-in-out infinite;">🔮</div>'
+
+        # Name + subtitle
+        f'<div style="display:flex;flex-direction:column;gap:3px;">'
+
+        # "SPX" — large animated gradient shimmer text
+        f'<div style="display:flex;align-items:baseline;gap:10px;line-height:1;">'
+        f'<span style="font-family:\'Outfit\',sans-serif;font-size:2.6rem;font-weight:900;'
+        f'letter-spacing:-0.04em;'
+        f'background:linear-gradient(90deg,#6ae6ff 0%,#00d4ff 20%,#e8f8ff 45%,#00d4ff 70%,#6ae6ff 100%);'
+        f'background-size:300% auto;'
+        f'-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
+        f'background-clip:text;'
+        f'animation:spxBrandShimmer 5s linear infinite;">SPX</span>'
+
+        # "PROPHET" — bold white with subtle pulse glow
+        f'<span style="font-family:\'Outfit\',sans-serif;font-size:2.6rem;font-weight:300;'
+        f'letter-spacing:0.12em;color:#e8f4ff;'
+        f'animation:spxProphetGlow 4s ease-in-out infinite;">PROPHET</span>'
+
+        # Version badge
+        f'<span style="font-size:0.58rem;font-weight:700;letter-spacing:0.06em;'
+        f'background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.28);'
+        f'color:#6ae6ff;padding:2px 8px;border-radius:6px;'
+        f'vertical-align:middle;align-self:center;">{escape(APP_VERSION)}</span>'
         f'</div>'
-        f'</div>'
-        # Right metrics
-        f'<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+
+        # Subtitle tagline
+        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.63rem;font-weight:600;'
+        f'letter-spacing:0.16em;text-transform:uppercase;'
+        f'color:rgba(106,230,255,0.5);">ES Structure &nbsp;·&nbsp; Options Intelligence &nbsp;·&nbsp; 0DTE</div>'
+        f'</div>'  # end name+subtitle
+        f'</div>'  # end brand left
+
+        # ── Right metrics ────────────────────────────────────────────────────
+        f'<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">'
+
+        # Clock
         f'<div style="text-align:right;">'
         f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">New York</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{clock}&nbsp;ET</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{clock}&nbsp;ET</div>'
         f'</div>'
+
+        # Date
         f'<div style="text-align:right;">'
         f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Date</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.88rem;color:rgba(244,247,255,0.85);">{date_str}</div>'
+        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{date_str}</div>'
         f'</div>'
+
         f'{next_date_html}'
-        f'<div style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;{_status_style}">'
+
+        # Market status pill
+        f'<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;{_status_style}">'
         f'<div style="width:7px;height:7px;border-radius:50%;{_dot_style}"></div>'
         f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">{escape(session["label"])}</div>'
         f'</div>'
-        f'<div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;{_mode_style}">'
+
+        # Mode pill
+        f'<div style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;{_mode_style}">'
         f'<div style="font-size:0.68rem;font-weight:800;letter-spacing:0.11em;text-transform:uppercase;">{mode_icon}&nbsp;{escape(visibility_mode)}</div>'
         f'</div>'
-        f'</div>'
-        f'</div>',
+
+        f'</div>'  # end right metrics
+        f'</div>'  # end inner flex
+        f'</div>',  # end outer container
         unsafe_allow_html=True,
     )
 
