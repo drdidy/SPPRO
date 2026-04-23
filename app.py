@@ -2242,6 +2242,23 @@ def inject_app_styles() -> None:
             0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
             50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
         }
+        .spx-news-feed { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+        .spx-news-item {
+            display: flex; align-items: flex-start; gap: 8px;
+            padding: 9px 12px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            text-decoration: none;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        a.spx-news-item:hover { background: rgba(0,212,255,0.06); border-color: rgba(0,212,255,0.18); }
+        .spx-news-cat { flex-shrink: 0; font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 20px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2); color: #6ae6ff; margin-top: 2px; }
+        .spx-news-title { font-size: 0.8rem; color: rgba(244,247,255,0.82); line-height: 1.45; }
+        a.spx-news-item .spx-news-title { color: #c8e8ff; }
+        .spx-alert-slot { flex: 1; min-width: 0; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
+        .spx-alert-label { font-size: 0.67rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px; }
+        .spx-alert-msg { font-size: 0.81rem; color: rgba(244,247,255,0.72); line-height: 1.5; margin-top: 8px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -10374,9 +10391,13 @@ def render_play_card(
     """Render a single structured play card."""
 
     if play_spx is None:
-        with st.container(border=True):
-            st.markdown(f"**{title}**")
-            st.caption("No setup.")
+        st.markdown(
+            f'<div class="spx-card alternate" style="padding:18px 22px">'
+            f'<div class="spx-card-heading" style="margin-bottom:4px">{escape(title)}</div>'
+            f'<div class="spx-card-copy" style="opacity:0.45">No setup available for this session.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     def _decision_class(value: str) -> str:
@@ -12893,17 +12914,37 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
     """Render one compact alert strip for both live plays."""
 
     entries = [("Primary", primary_authority or {}), ("Alternate", alternate_authority or {})]
-    with st.container(border=True):
-        st.caption("Execution Alerts")
-        col1, col2 = st.columns(2, gap="large")
-        for column, (label, authority) in zip((col1, col2), entries):
-            with column:
-                st.markdown(f"**{label}**")
-                st.caption(
-                    f"{authority.get('alert_state', 'QUIET')} | "
-                    f"{authority.get('alert_priority', 'LOW')}"
-                )
-                st.caption(str(authority.get("alert_message", "No live execution edge")))
+    state_pill_map = {
+        "ACT_NOW": "conf-high", "READY": "conf-high",
+        "PREPARE": "scenario-warning", "WATCH": "conf-medium",
+        "INVALIDATED": "scenario-bearish", "EXPIRED": "scenario-bearish",
+    }
+    priority_pill_map = {"HIGH": "conf-high", "MEDIUM": "conf-medium", "LOW": "scenario-neutral"}
+    slots_html = ""
+    for label, authority in entries:
+        alert_state = str(authority.get("alert_state", "QUIET"))
+        priority = str(authority.get("alert_priority", "LOW"))
+        message = str(authority.get("alert_message", "No live execution edge"))
+        sp = state_pill_map.get(alert_state, "scenario-neutral")
+        pp = priority_pill_map.get(priority, "scenario-neutral")
+        slots_html += (
+            f'<div class="spx-alert-slot">'
+            f'<div class="spx-alert-label">{escape(label)}</div>'
+            f'<div style="display:flex;gap:6px;flex-wrap:wrap">'
+            f'<span class="spx-pill {sp}">{escape(alert_state)}</span>'
+            f'<span class="spx-pill {pp}">{escape(priority)}</span>'
+            f'</div>'
+            f'<div class="spx-alert-msg">{escape(message)}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div class="spx-card primary" style="margin-bottom:12px">'
+        f'<div class="spx-card-title" style="margin-bottom:12px">'
+        f'<div class="spx-card-heading">Execution Alerts</div></div>'
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap">{slots_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_context: dict[str, Any] | None) -> str:
@@ -12933,36 +12974,58 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
     """Render one compact event/news risk card without clutter."""
 
     context = event_risk_context or {}
-    with st.container(border=True):
-        st.caption("Event Risk")
-        left_col, right_col = st.columns([2.2, 1.2], gap="large")
-        with left_col:
-            st.markdown(f"**{str(context.get('event_risk_status', 'Unknown'))}**")
-            st.caption(str(context.get("event_risk_reason", "News unavailable")))
-            next_event = str(context.get("next_known_event", "") or "")
-            if next_event:
-                st.caption(f"Next: {next_event}")
-        with right_col:
-            st.metric("Mode", str(context.get("event_trading_mode", "normal")).title())
-            time_until = context.get("time_until_event")
-            st.caption(f"Window: {'Active' if context.get('event_window_active') else 'Inactive'}")
-            if time_until is not None:
-                st.caption(f"T-{int(time_until)} min")
-        headlines = list(context.get("headlines", []) or [])[:5]
-        if headlines:
-            st.caption("Market-moving headlines")
-            for item in headlines:
-                title = str(item.get("title", "")).strip()
-                if not title:
-                    continue
-                link = str(item.get("link", "")).strip()
-                category = str(item.get("category", "news")).title()
-                if link:
-                    st.markdown(f"[{category}: {title}]({link})")
-                else:
-                    st.caption(f"{category}: {title}")
-        elif str(context.get("source_status", "")) == "unavailable":
-            st.caption("Live news feed unavailable")
+    level = str(context.get("event_risk_level", "unknown")).lower()
+    status = str(context.get("event_risk_status", "Unknown"))
+    reason = str(context.get("event_risk_reason", "News unavailable"))
+    mode = str(context.get("event_trading_mode", "normal")).title()
+    next_event = str(context.get("next_known_event", "") or "")
+    time_until = context.get("time_until_event")
+    window_active = bool(context.get("event_window_active", False))
+    headlines = list(context.get("headlines", []) or [])[:5]
+    source_status = str(context.get("source_status", ""))
+
+    level_pill = {"quiet": "scenario-bullish", "elevated": "scenario-warning", "major": "scenario-bearish", "extreme": "scenario-bearish", "high": "scenario-bearish"}.get(level, "scenario-neutral")
+    mode_pill = "conf-high" if mode.lower() in {"normal", "Standard"} else "scenario-warning"
+
+    badges = f'<span class="spx-pill {level_pill}">{escape(status)}</span><span class="spx-pill {mode_pill}">{escape(mode)}</span>'
+    if window_active:
+        badges += '<span class="spx-pill scenario-warning">Window Active</span>'
+    if time_until is not None:
+        badges += f'<span class="spx-pill scenario-neutral">T-{int(time_until)} min</span>'
+
+    next_html = f'<div style="font-size:0.78rem;color:rgba(244,247,255,0.5);margin-top:6px">Next: {escape(next_event)}</div>' if next_event else ""
+
+    feed_html = ""
+    if headlines:
+        items = ""
+        for item in headlines:
+            title = str(item.get("title", "")).strip()
+            if not title:
+                continue
+            link = str(item.get("link", "")).strip()
+            cat = str(item.get("category", "news")).title()
+            cat_span = f'<span class="spx-news-cat">{escape(cat)}</span>'
+            title_span = f'<span class="spx-news-title">{escape(title)}</span>'
+            if link:
+                items += f'<a href="{escape(link)}" target="_blank" class="spx-news-item">{cat_span}{title_span}</a>'
+            else:
+                items += f'<div class="spx-news-item">{cat_span}{title_span}</div>'
+        if items:
+            feed_html = f'<div class="spx-news-feed">{items}</div>'
+    elif source_status == "unavailable":
+        feed_html = '<div style="font-size:0.8rem;opacity:0.4;font-style:italic;margin-top:10px">Live news feed unavailable</div>'
+
+    st.markdown(
+        f'<div class="spx-card levels">'
+        f'<div class="spx-card-title" style="margin-bottom:10px">'
+        f'<div class="spx-card-heading">Event Risk</div>'
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">{badges}</div>'
+        f'</div>'
+        f'<div class="spx-card-copy">{escape(reason)}</div>'
+        f'{next_html}{feed_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_operator_play_card(
@@ -12991,9 +13054,13 @@ def render_operator_play_card(
     """Render a calmer operator-first play card for live mode."""
 
     if play_spx is None:
-        with st.container(border=True):
-            st.markdown(f"**{title}**")
-            st.caption("No setup.")
+        st.markdown(
+            f'<div class="spx-card alternate" style="padding:18px 22px">'
+            f'<div class="spx-card-heading" style="margin-bottom:4px">{escape(title)}</div>'
+            f'<div class="spx-card-copy" style="opacity:0.45">No setup available for this session.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     def _decision_class(value: str) -> str:
