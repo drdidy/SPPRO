@@ -2694,6 +2694,25 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
     )
 
     st.markdown(
+        # Keyframes must live in the same st.markdown block to reach this element
+        '<style>'
+        '@keyframes spxBrandShimmer{'
+        '0%{background-position:0% center}'
+        '100%{background-position:300% center}'
+        '}'
+        '@keyframes spxIconGlow{'
+        '0%,100%{box-shadow:0 0 22px rgba(0,212,255,.45),0 0 44px rgba(0,150,255,.18)}'
+        '50%{box-shadow:0 0 42px rgba(0,212,255,.85),0 0 84px rgba(0,150,255,.38),0 0 130px rgba(0,80,255,.18)}'
+        '}'
+        '@keyframes spxBarTopLine{'
+        '0%,100%{opacity:.3}'
+        '50%{opacity:1}'
+        '}'
+        '@keyframes spxProphetGlow{'
+        '0%,100%{text-shadow:0 0 18px rgba(0,212,255,.25),0 2px 8px rgba(0,0,0,.6)}'
+        '50%{text-shadow:0 0 40px rgba(0,212,255,.6),0 0 80px rgba(0,150,255,.25),0 2px 8px rgba(0,0,0,.6)}'
+        '}'
+        '</style>'
         # ── Outer container ──────────────────────────────────────────────────
         f'<div style="position:relative;overflow:hidden;'
         f'padding:18px 24px 16px 24px;margin-bottom:16px;'
