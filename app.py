@@ -2711,10 +2711,10 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
         f'{next_date_html}'
         f'<div style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;{_status_style}">'
         f'<div style="width:7px;height:7px;border-radius:50%;{_dot_style}"></div>'
-        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">{escape(session["label"])}</span>'
+        f'<div style="font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;">{escape(session["label"])}</div>'
         f'</div>'
         f'<div style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;{_mode_style}">'
-        f'<span style="font-size:0.68rem;font-weight:800;letter-spacing:0.11em;text-transform:uppercase;">{mode_icon}&nbsp;{escape(visibility_mode)}</span>'
+        f'<div style="font-size:0.68rem;font-weight:800;letter-spacing:0.11em;text-transform:uppercase;">{mode_icon}&nbsp;{escape(visibility_mode)}</div>'
         f'</div>'
         f'</div>'
         f'</div>',
@@ -13525,20 +13525,20 @@ def render_live_decision_center(
   <!-- CHIPS ROW -->
   <div class="cockpit-chips-row">
     <div class="cockpit-chip">
-      <span class="cockpit-chip-label">Setup</span>
-      <span class="cockpit-chip-value">{escape(setup_state)}</span>
+      <div class="cockpit-chip-label">Setup</div>
+      <div class="cockpit-chip-value">{escape(setup_state)}</div>
     </div>
     <div class="cockpit-chip">
-      <span class="cockpit-chip-label">Risk Class</span>
-      <span class="cockpit-chip-value">{escape(risk_class)}</span>
+      <div class="cockpit-chip-label">Risk Class</div>
+      <div class="cockpit-chip-value">{escape(risk_class)}</div>
     </div>
     <div class="cockpit-chip">
-      <span class="cockpit-chip-label">Timing</span>
-      <span class="cockpit-chip-value">{escape(timing_bucket)}</span>
+      <div class="cockpit-chip-label">Timing</div>
+      <div class="cockpit-chip-value">{escape(timing_bucket)}</div>
     </div>
     <div class="cockpit-chip">
-      <span class="cockpit-chip-label">Event Risk</span>
-      <span class="cockpit-chip-value">{_event_risk_status}</span>
+      <div class="cockpit-chip-label">Event Risk</div>
+      <div class="cockpit-chip-value">{_event_risk_status}</div>
     </div>
   </div>
 
