@@ -1935,12 +1935,15 @@ def inject_app_styles() -> None:
         }
         div[data-testid="stExpander"] > details > summary {
             padding: 0.7rem 0.9rem !important;
-            font-family: var(--spx-font-body) !important;
             font-size: 0.82rem !important;
             font-weight: 700 !important;
             letter-spacing: 0.04em;
             color: var(--spx-text) !important;
             background: rgba(255,255,255,0.01) !important;
+        }
+        div[data-testid="stExpander"] > details > summary > p,
+        div[data-testid="stExpander"] > details > summary span[data-testid="stExpanderToggleLabel"] {
+            font-family: var(--spx-font-body) !important;
         }
         div[data-testid="stExpander"] > details > summary:hover {
             background: rgba(0,212,255,0.04) !important;
@@ -14720,13 +14723,27 @@ def render_live_mode_shell(
                 },
             ]
             active_label = hero_active_play if hero_active_play in {"Primary", "Alternate"} else None
+            # Determine if alternate was promoted because primary was invalidated
+            _primary_invalidated = str(primary_authority.get("setup_state", "")).upper() in {"INVALIDATED", "EXPIRED", "NO_TRADE"} and primary_authority.get("decision") == "NO TRADE"
+            _alternate_promoted = active_label == "Alternate" and _primary_invalidated
             if not developer_mode and active_label is not None:
                 active_spec = next((spec for spec in play_specs if spec["label"] == active_label), play_specs[0])
                 secondary_specs = [spec for spec in play_specs if spec["label"] != active_spec["label"]]
+                # Show a promotion notice when alternate has been elevated
+                if _alternate_promoted:
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;margin-bottom:8px;'
+                        f'background:rgba(255,215,64,0.07);border:1px solid rgba(255,215,64,0.2);border-radius:8px;">'
+                        f'<span style="font-size:0.9rem;">⇑</span>'
+                        f'<span style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#ffd740;">Alternate promoted — Primary trade invalidated</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                _display_title = "Active Trade" if _alternate_promoted else active_spec["title"]
                 safe_render_section(
-                    active_spec["title"],
-                    lambda spec=active_spec: render_operator_play_card(
-                        spec["title"],
+                    _display_title,
+                    lambda spec=active_spec, dt=_display_title: render_operator_play_card(
+                        dt,
                         spec["play"],
                         final_projected_lines,
                         final_projected_lines_es,
@@ -14750,7 +14767,12 @@ def render_live_mode_shell(
                     developer_mode=developer_mode,
                 )
                 for spec in secondary_specs:
-                    with st.expander(f"{spec['title']} Snapshot", expanded=False):
+                    # Label the collapsed secondary trade clearly
+                    _sec_state = str(spec["authority"].get("setup_state", "")).upper() if spec.get("authority") else ""
+                    _sec_decision = str(spec["authority"].get("decision", "")) if spec.get("authority") else ""
+                    _sec_suffix = " — Invalidated" if _sec_state in {"INVALIDATED", "EXPIRED"} else (" — No Trade" if _sec_decision == "NO TRADE" else "")
+                    _sec_label = f"{spec['title']}{_sec_suffix}"
+                    with st.expander(_sec_label, expanded=False):
                         safe_render_section(
                             spec["title"],
                             lambda spec=spec: render_operator_play_card(
