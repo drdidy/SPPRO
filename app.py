@@ -13921,6 +13921,8 @@ def render_operator_play_card(
     best_contract_rr = _to_float_or_none((preferred_contract_row or {}).get("rr_ratio"))
     best_contract_basis = str(authority.get("execution_action_reason", "") or reason_line)
 
+    _t1_str = f" · T1 {format_price(target_1_spx)}" if target_1_spx is not None else ""
+    _t2_str = f" · T2 {format_price(target_2_spx)}" if target_2_spx is not None else ""
     badge_bits = [
         f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
@@ -13950,7 +13952,7 @@ def render_operator_play_card(
                 <div class="spx-entry-card">
                     <div class="spx-entry-card-label">Planned Entry</div>
                     <div class="spx-entry-card-value">{format_price(locked_entry_value)} SPX</div>
-                    <div class="spx-entry-card-note">Stop {format_price(stop_price) if stop_price is not None else 'Unavailable'}</div>
+                    <div class="spx-entry-card-note">Stop {format_price(stop_price) if stop_price is not None else 'Unavailable'}{_t1_str}{_t2_str}</div>
                 </div>
                 <div class="spx-entry-card">
                     <div class="spx-entry-card-label">Current Mark</div>
@@ -13984,111 +13986,72 @@ def render_operator_play_card(
     )
     if binding_error:
         st.error("Contract binding error")
-    plan_col1, plan_col2, plan_col3, plan_col4, plan_col5 = st.columns(5)
-    plan_col1.metric("Locked Entry", f"{format_price(locked_entry_value)} SPX" if locked_entry_value is not None else "-")
-    plan_col2.metric("Stop", format_price(authoritative_stop_spx) if authoritative_stop_spx is not None else "Unavailable")
-    plan_col3.metric("Target 1", format_price(target_1_spx) if target_1_spx is not None else "-")
-    plan_col4.metric("Target 2", format_price(target_2_spx) if target_2_spx is not None else "-")
-    plan_col5.metric("Strike", str(displayed_strike if displayed_strike is not None else "-"))
 
-    live_col1, live_col2, live_col3, live_col4, live_col5 = st.columns(5)
-    live_col1.metric("Current Mark", format_price(current_mark) if current_mark is not None else "-")
-    live_col2.metric("At Entry", format_price(projected_entry_value) if projected_entry_value is not None else "-")
-    live_col3.metric("Calibrated", format_price(calibrated_value) if show_calibrated and calibrated_value is not None else "-")
-    live_col4.metric("Expected Fill", format_price(projected_fill_at_entry) if show_expected_fill and projected_fill_at_entry is not None else "-")
-    live_col5.metric("Zone", str(authority.get("entry_zone_status", intelligence.get("entry_zone_status", "-"))))
-
-    trigger_col1, trigger_col2, trigger_col3, trigger_col4 = st.columns(4)
-    trigger_col1.metric("Plan", plan_validity)
-    trigger_col2.metric("Timing", timing_bucket)
-    trigger_col3.metric("Action", execution_action)
-    trigger_col4.metric("Checklist", checklist_status)
-    st.caption(trigger_line)
-
-    checklist_labels = [
-        ("Structure valid", bool(authority.get("checklist_structure_valid"))),
-        ("Entry zone", bool(authority.get("checklist_entry_zone_valid"))),
-        ("Stop valid", bool(authority.get("checklist_stop_valid"))),
-        ("RR valid", bool(authority.get("checklist_rr_valid"))),
-        ("Budget ok", bool(authority.get("checklist_budget_valid"))),
-        ("Trigger ready", bool(authority.get("checklist_trigger_ready"))),
-        ("Timing ok", bool(authority.get("checklist_timing_ok"))),
-        ("Evidence ok", bool(authority.get("checklist_evidence_ok"))),
-    ]
-    checklist_summary = " | ".join(f"{label}: {'Yes' if passed else 'No'}" for label, passed in checklist_labels[:6])
-    st.caption(checklist_summary)
-    if decision == "CONDITIONAL BUY" and condition_required:
-        st.caption(condition_required)
+    # Best Contract — premium styled card, only actionable contract data
     if best_contract_symbol_for_box:
-        with st.container(border=True):
-            st.markdown("**Best current candidate, not approved for execution**" if decision == "NO TRADE" else "**Best Contract**")
-            st.markdown(f"`{best_contract_symbol_for_box}`")
-            st.caption(
-                " | ".join(
-                    [
-                        f"Mark {format_price(best_contract_mark) if best_contract_mark is not None else '-'}",
-                        f"At Entry {format_price((preferred_contract_row or {}).get('projected_mark_at_entry')) if (preferred_contract_row or {}).get('projected_mark_at_entry') is not None else format_price(best_contract_pred) if best_contract_pred is not None else '-'}",
-                        f"Cal {format_price(best_contract_cal) if best_contract_cal is not None else '-'}",
-                        f"Fill {format_price((preferred_contract_row or {}).get('projected_fill_at_entry')) if (preferred_contract_row or {}).get('projected_fill_at_entry') is not None else format_price(best_contract_fill) if best_contract_fill is not None else '-'}",
-                        f"RR {best_contract_rr if best_contract_rr is not None else '-'}",
-                    ]
-                )
-            )
-            st.caption(
-                f"Profile: {strike_profile} | Basis: {projection_reason or best_contract_basis or '-'} | Mode: {preferred_contract_mode}"
-                + (" | Informational only" if execution_action == "SKIP TRADE" else "")
-            )
-    selection_bits = [f"System Recommended: {recommended_contract_symbol or displayed_contract_symbol or '-'}"]
+        _bc_pred = (preferred_contract_row or {}).get("projected_mark_at_entry") or best_contract_pred
+        _bc_fill = (preferred_contract_row or {}).get("projected_fill_at_entry") or best_contract_fill
+        _bc_header = "Best candidate · informational only" if decision == "NO TRADE" else "Best Contract"
+        _bc_border = "#ffd740" if decision == "NO TRADE" else "#00e676"
+        _bc_budget = budget_execution_status or selected_budget_status or "-"
+        _bc_budget_col = "#ef5350" if "over" in _bc_budget.lower() else ("#ffd740" if "tight" in _bc_budget.lower() else "#00e676")
+        st.markdown(
+            f'<div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);'
+            f'border-left:3px solid {_bc_border};border-radius:8px;padding:12px 16px;margin:10px 0;">'
+            f'<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:#8eb8d4;margin-bottom:6px;">{escape(_bc_header)}</div>'
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;color:#e0eeff;margin-bottom:8px;">{escape(best_contract_symbol_for_box)}</div>'
+            f'<div style="display:flex;gap:14px;flex-wrap:wrap;">'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">At Entry</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Fill Est.</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
+            f'</div>'
+            f'<div style="margin-top:8px;font-size:0.62rem;color:#5a7a94;">{escape(strike_profile)} · {escape(projection_reason or best_contract_basis or "-")} · {escape(preferred_contract_mode)}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Contract selection status (brief single line)
     if manual_override_active:
-        selection_bits.append(f"Selected by You: {selected_symbol or displayed_contract_symbol or '-'}")
+        _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
+        st.caption(f"Manual override · Strike {format_price(selected_strike) if selected_strike is not None else '-'} · Mark {format_price(_sel_mark) if _sel_mark is not None else '-'}")
     elif auto_execution_shift:
-        selection_bits.append(f"Selected for Entry: {selected_symbol or displayed_contract_symbol or '-'}")
-    st.caption(" | ".join(selection_bits))
-    if manual_override_active:
-        selected_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
-        st.caption(
-            f"Manual override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
-            f" | Mark {format_price(selected_mark) if selected_mark is not None else '-'}"
-        )
-    elif auto_execution_shift:
-        shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
-        st.caption(f"Selected for entry: {selected_symbol or '-'} | {shift_reason}")
-    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None or selected_budget_status:
-        st.caption(
-            " | ".join(
-                [
-                    f"Est Entry Cost {format_price(selected_estimated_entry_cost) if selected_estimated_entry_cost is not None else '-'}",
-                    f"Est Fill Cost {format_price(selected_estimated_fill_cost) if selected_estimated_fill_cost is not None else '-'}",
-                    f"Max Fill {format_price(max_affordable_fill) if max_affordable_fill is not None else '-'}",
-                    budget_execution_status or selected_budget_status or "Budget Unknown",
-                ]
-            )
-        )
-    if projected_entry_value is not None or projected_fill_at_entry is not None:
-        st.caption(
-            f"If price returns to entry, estimated premium is {format_price(projected_entry_value) if projected_entry_value is not None else '-'}"
-            f" and likely fill is {format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else '-'}."
-        )
-    if (not show_expected_fill) and not developer_mode and decision != "NO TRADE":
-        st.caption("Expected fill unavailable")
-    elif projection_warning and projection_warning not in {reason_line, decision_sentence}:
+        _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
+        st.caption(f"Auto-selected: {selected_symbol or '-'} · {_shift_reason}")
+    elif recommended_contract_symbol:
+        st.caption(f"System recommended: {recommended_contract_symbol}")
+
+    # Condition gate — only shown for CONDITIONAL BUY
+    if decision == "CONDITIONAL BUY" and condition_required:
+        st.warning(condition_required)
+
+    # Cost summary (budget is critical for 0DTE sizing)
+    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
+        _cost_parts: list[str] = []
+        if selected_estimated_entry_cost is not None:
+            _cost_parts.append(f"Est cost {format_price(selected_estimated_entry_cost)}")
+        if selected_estimated_fill_cost is not None:
+            _cost_parts.append(f"Fill cost {format_price(selected_estimated_fill_cost)}")
+        if max_affordable_fill is not None:
+            _cost_parts.append(f"Max fill {format_price(max_affordable_fill)}")
+        st.caption(" · ".join(_cost_parts))
+
+    # Projection warning (risk flag — always show if present)
+    if projection_warning and projection_warning not in {reason_line, decision_sentence}:
         st.caption(projection_warning)
-    if retest_summary:
-        st.caption(retest_summary)
-    if top_reason_summary and developer_mode:
-        st.caption(f"Top reasons: {top_reason_summary}")
-    if decision == "NO TRADE":
-        st.info(f"Why no trade: {reason_line}")
-    elif invalidation_message:
-        st.caption(invalidation_message)
-    elif expiry_reason:
-        st.caption(expiry_reason)
-    if developer_mode and display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
-        st.caption(
-            "Bid/Ask "
-            f"{format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'} / "
-            f"{format_price(selected_contract.get('ask')) if selected_contract.get('ask') is not None else '-'}"
-        )
+
+    # Developer-only diagnostics
+    if developer_mode:
+        if retest_summary:
+            st.caption(f"Retest: {retest_summary}")
+        if top_reason_summary:
+            st.caption(f"Top reasons: {top_reason_summary}")
+        if display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
+            st.caption(
+                f"Bid/Ask {format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'}"
+                f" / {format_price(selected_contract.get('ask')) if selected_contract.get('ask') is not None else '-'}"
+            )
 
     button_key = f"use_play_{title.lower().replace(' ', '_')}"
     override_intent_key = f"{button_key}_override_intent"
