@@ -9,6 +9,8 @@ from app import (
     _non_negative_option_price,
     align_play_conversion_to_effective_offset,
     apply_event_risk_to_execution_guidance,
+    build_ladder_display_dataframe,
+    build_render_fallback_payload,
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
@@ -752,6 +754,58 @@ class AppUnitTests(unittest.TestCase):
     def test_event_risk_summary_stays_compact_when_news_unavailable(self) -> None:
         summary = summarize_event_risk({"event_risk_status": "Unknown", "event_risk_reason": "News unavailable"})
         self.assertEqual(summary, "Event Risk: Unknown | News unavailable")
+
+    def test_ladder_display_dataframe_handles_missing_optional_projection_columns(self) -> None:
+        frame = build_ladder_display_dataframe(
+            [
+                {
+                    "labels": ["Recommended"],
+                    "selection_reason": "System Pick",
+                    "strike": 7100,
+                    "current_mark": 4.9,
+                    "predicted_entry_price": 5.2,
+                    "delta": -0.42,
+                    "rr_ratio": 1.3,
+                    "budget_status": "Within Budget",
+                }
+            ],
+            developer_mode=False,
+        )
+
+        self.assertIn("at_entry", frame.columns)
+        self.assertIn("expected_fill", frame.columns)
+        self.assertEqual(frame.iloc[0]["at_entry"], 5.2)
+
+    def test_render_fallback_payload_hides_traceback_text_in_production(self) -> None:
+        payload = build_render_fallback_payload("Strike Selection", RuntimeError("bad column"), developer_mode=False)
+        debug_payload = build_render_fallback_payload("Strike Selection", RuntimeError("bad column"), developer_mode=True)
+
+        self.assertEqual(payload["title"], "Strike Selection")
+        self.assertEqual(payload["reason"], "Temporarily unavailable")
+        self.assertIn("RuntimeError", debug_payload["reason"])
+
+    def test_option_display_state_keeps_selected_execution_quote_bound_to_projected_fields(self) -> None:
+        signal_package = {"scenario": {"scenario_name": "SCENARIO 3: INSIDE DESCENDING CHANNEL", "confidence_level": "High"}}
+        play_spx = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}}
+        display_state = build_option_display_state(
+            play_role="primary",
+            candidates=self.option_candidates,
+            play_spx=play_spx,
+            play_es={"entry": {"price": 7159.5}},
+            next_trading_date=app_module.current_central_time().date(),
+            session_plan={"session_plan_locked": True, "contract_symbol": "SPXW 260422P07100000", "planned_strike": 7100, "option_type": "PUT", "expiration": "2026-04-22"},
+            signal_package=signal_package,
+            trades=[],
+            current_spx_price=7132.0,
+            planned_anchor_key="primary:test",
+            budget_cap=500.0,
+            live_context={"live_scenario": "SCENARIO 3: INSIDE DESCENDING CHANNEL"},
+            event_risk_context={"event_risk_level": "quiet", "event_window_active": False, "headline_shock_risk": False},
+        )
+
+        self.assertIsNotNone(display_state["selected_quote"])
+        self.assertIn("projected_mark_at_entry", display_state["selected_quote"])
+        self.assertIn("premium_projection_confidence", display_state["selected_quote"])
 
 
 if __name__ == "__main__":

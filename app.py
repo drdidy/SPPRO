@@ -1786,6 +1786,184 @@ def inject_app_styles() -> None:
                 grid-template-columns: 1fr;
             }
         }
+        :root {
+            --spx-bg: #030614;
+            --spx-bg-soft: #081021;
+            --spx-card: rgba(12, 18, 34, 0.74);
+            --spx-card-strong: rgba(14, 21, 38, 0.92);
+            --spx-border: rgba(167, 191, 255, 0.12);
+            --spx-text: #f3f8ff;
+            --spx-muted: #95a8c8;
+            --spx-muted-2: #677997;
+            --spx-cyan: #6ae6ff;
+            --spx-green: #43f3a3;
+            --spx-red: #ff6d8b;
+            --spx-gold: #ffcc73;
+            --spx-purple: #8f7dff;
+        }
+        .stApp {
+            background:
+                radial-gradient(circle at 8% 4%, rgba(106,230,255,0.11), transparent 24%),
+                radial-gradient(circle at 88% 8%, rgba(143,125,255,0.10), transparent 22%),
+                radial-gradient(circle at 50% 100%, rgba(67,243,163,0.05), transparent 24%),
+                linear-gradient(180deg, #030614 0%, #07111f 54%, #040813 100%);
+        }
+        .main .block-container {
+            padding-top: 0.7rem;
+            padding-bottom: 2rem;
+            max-width: 1320px;
+        }
+        .spx-shell {
+            border: 1px solid rgba(167,191,255,0.10);
+            background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+            border-radius: 22px;
+            padding: 0.85rem 1rem;
+            margin-bottom: 0.8rem;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 20px 44px rgba(0,0,0,0.14);
+        }
+        .spx-section-title {
+            font-size: 0.9rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-weight: 800;
+            color: #bfe8ff;
+            margin-bottom: 0.18rem;
+        }
+        .spx-section-subtitle {
+            color: #99aecb;
+            font-size: 0.86rem;
+            line-height: 1.45;
+        }
+        .spx-hero,
+        .spx-play-shell,
+        .spx-banner,
+        .spx-summary {
+            backdrop-filter: blur(16px);
+        }
+        .spx-hero {
+            border-radius: 30px;
+            padding: 1.25rem 1.28rem 1rem 1.28rem;
+            background:
+                linear-gradient(145deg, rgba(12,21,41,0.95), rgba(8,13,25,0.98)),
+                radial-gradient(circle at 18% 16%, rgba(106,230,255,0.16), transparent 22%),
+                radial-gradient(circle at 85% 0%, rgba(143,125,255,0.14), transparent 20%);
+            border: 1px solid rgba(140,175,255,0.14);
+            box-shadow: 0 26px 70px rgba(1,4,14,0.42), 0 0 0 1px rgba(255,255,255,0.02) inset;
+        }
+        .spx-hero::before {
+            content: "";
+            position: absolute;
+            inset: -30% auto auto -12%;
+            width: 44%;
+            height: 70%;
+            background: radial-gradient(circle, rgba(106,230,255,0.10), transparent 65%);
+            animation: spxHeroShimmer 10s ease-in-out infinite;
+            pointer-events: none;
+        }
+        .spx-hero-title,
+        .spx-decision-action {
+            letter-spacing: -0.02em;
+            text-shadow: 0 0 28px rgba(106,230,255,0.10);
+        }
+        .spx-status-chip,
+        .spx-chip {
+            border-radius: 999px !important;
+            border: 1px solid rgba(167,191,255,0.12) !important;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        .spx-play-shell {
+            border-radius: 26px;
+            border-color: rgba(140,175,255,0.12);
+            background:
+                radial-gradient(circle at top right, rgba(106,230,255,0.09), transparent 28%),
+                linear-gradient(180deg, rgba(12,18,33,0.95), rgba(8,12,24,0.98));
+            box-shadow: 0 24px 56px rgba(0, 0, 0, 0.22);
+        }
+        .spx-play-shell.filtered {
+            background:
+                radial-gradient(circle at top right, rgba(255,109,139,0.08), transparent 26%),
+                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(11,10,18,0.98));
+            border-color: rgba(255,109,139,0.16);
+        }
+        .spx-decision-banner {
+            border-radius: 20px;
+            padding: 0.92rem 1rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        .spx-entry-card,
+        .spx-metric-block,
+        .spx-decision-strip,
+        .spx-best-contract,
+        div[data-testid="stMetric"] {
+            border-radius: 18px;
+            border-color: rgba(167,191,255,0.10);
+            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+            backdrop-filter: blur(18px);
+        }
+        .spx-entry-card-value,
+        .spx-metric-value,
+        .spx-decision-strip-value,
+        .spx-best-contract-symbol {
+            color: #f6fbff;
+        }
+        .spx-play-note {
+            color: #d8e6f7;
+            line-height: 1.5;
+        }
+        div[data-testid="stButton"] > button,
+        div[data-testid="stDownloadButton"] > button {
+            border-radius: 16px !important;
+            border: 1px solid rgba(140,175,255,0.18) !important;
+            background: linear-gradient(135deg, rgba(106,230,255,0.18), rgba(143,125,255,0.14)) !important;
+            color: #f5fbff !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.01em;
+            min-height: 2.8rem;
+            box-shadow: 0 16px 34px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.06);
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
+        }
+        div[data-testid="stButton"] > button:hover,
+        div[data-testid="stDownloadButton"] > button:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.04);
+            box-shadow: 0 20px 38px rgba(0,0,0,0.22), 0 0 22px rgba(106,230,255,0.10);
+            border-color: rgba(106,230,255,0.26) !important;
+        }
+        .spx-fallback-card {
+            border: 1px solid rgba(255,109,139,0.16);
+            background:
+                linear-gradient(180deg, rgba(28,18,28,0.92), rgba(16,12,20,0.96)),
+                radial-gradient(circle at top right, rgba(255,109,139,0.10), transparent 28%);
+            border-radius: 22px;
+            padding: 1rem 1.05rem;
+            margin-bottom: 0.8rem;
+            box-shadow: 0 20px 44px rgba(0,0,0,0.18);
+        }
+        .spx-fallback-title {
+            color: #ffd8df;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 0.78rem;
+            margin-bottom: 0.25rem;
+        }
+        .spx-fallback-body {
+            color: #f4f7ff;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        div[data-testid="stExpander"] {
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+        }
+        div[data-testid="stDataFrame"] [role="row"]:hover {
+            background: rgba(106,230,255,0.06);
+        }
+        @keyframes spxHeroShimmer {
+            0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.8; }
+            50% { transform: translate3d(12px, 8px, 0) scale(1.08); opacity: 1; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1805,6 +1983,50 @@ def render_section_header(title: str, subtitle: str | None = None) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def build_render_fallback_payload(section_title: str, exc: Exception | None = None, *, developer_mode: bool = False) -> dict[str, str]:
+    """Build a production-safe fallback message for a failed section render."""
+
+    reason = "Section unavailable"
+    if exc is not None and developer_mode:
+        reason = f"{exc.__class__.__name__}: {exc}"
+    elif exc is not None:
+        reason = "Temporarily unavailable"
+    return {
+        "title": section_title,
+        "reason": reason,
+    }
+
+
+def render_section_fallback(payload: dict[str, str]) -> None:
+    """Render one polished fallback card instead of exposing raw tracebacks."""
+
+    st.markdown(
+        f"""
+        <div class="spx-fallback-card">
+            <div class="spx-fallback-title">{escape(str(payload.get("title", "Section unavailable")))}</div>
+            <div class="spx-fallback-body">{escape(str(payload.get("reason", "Temporarily unavailable")))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def safe_render_section(
+    section_title: str,
+    render_callback,
+    *,
+    developer_mode: bool = False,
+) -> None:
+    """Render a section safely so Production Mode never exposes raw tracebacks."""
+
+    try:
+        render_callback()
+    except Exception as exc:
+        render_section_fallback(build_render_fallback_payload(section_title, exc, developer_mode=developer_mode))
+        if developer_mode:
+            st.exception(exc)
 
 
 def render_release_hygiene() -> None:
@@ -7902,6 +8124,60 @@ def attach_option_lookup_context(
     return enriched
 
 
+def build_ladder_display_dataframe(
+    ladder_rows: list[dict[str, Any]] | None,
+    *,
+    developer_mode: bool = False,
+) -> pd.DataFrame:
+    """Build a production-safe nearby-strike table even when optional fields are missing."""
+
+    ladder_rows = ladder_rows or []
+    records = [
+        {
+            "labels": " | ".join(row.get("labels", [])),
+            "selection_reason": row.get("selection_reason", ""),
+            "strike": int(row["strike"]) if row.get("strike") is not None else "",
+            "contract_symbol": row.get("contract_symbol", ""),
+            "option_type": row.get("option_type", ""),
+            "expiration": row.get("expiration", ""),
+            "mark": row.get("current_mark", ""),
+            "projected_mark_at_entry": row.get("projected_mark_at_entry", ""),
+            "predicted_entry_price": row.get("predicted_entry_price", ""),
+            "calibrated_entry_mark": row.get("calibrated_entry_mark", ""),
+            "expected_fill_mark": row.get("projected_fill_at_entry", row.get("expected_fill_mark", "")),
+            "delta": row.get("delta", ""),
+            "rr_ratio": row.get("rr_ratio", ""),
+            "contract_score": row.get("contract_score", ""),
+            "estimated_entry_cost": row.get("estimated_entry_cost", ""),
+            "estimated_fill_cost": row.get("estimated_fill_cost", ""),
+            "budget_status": row.get("budget_status", ""),
+            "confidence": row.get("premium_projection_confidence", ""),
+        }
+        for row in ladder_rows
+    ]
+    frame = pd.DataFrame(records)
+    if frame.empty:
+        return frame
+    if not developer_mode:
+        at_entry_column = "projected_mark_at_entry" if frame.get("projected_mark_at_entry", pd.Series(dtype=object)).replace("", pd.NA).notna().any() else "predicted_entry_price"
+        display_columns = ["labels", "selection_reason", "strike", "mark", at_entry_column, "expected_fill_mark", "delta", "rr_ratio", "budget_status"]
+        frame = frame[[column for column in display_columns if column in frame.columns]].rename(
+            columns={
+                "labels": "tag",
+                "selection_reason": "reason",
+                "mark": "current_mark",
+                "projected_mark_at_entry": "at_entry",
+                "predicted_entry_price": "at_entry",
+                "expected_fill_mark": "expected_fill",
+                "rr_ratio": "rr",
+                "budget_status": "budget",
+            }
+        )
+    else:
+        frame = frame.rename(columns={"projected_mark_at_entry": "at_entry", "expected_fill_mark": "expected_fill"})
+    return frame
+
+
 def render_options_provider_preview(
     provider: Any,
     provider_status: dict[str, Any],
@@ -8017,62 +8293,7 @@ def render_options_provider_preview(
 
             if ladder_rows:
                 st.markdown("**Nearby Strike Ladder**")
-                ladder_df = pd.DataFrame(
-                    [
-                        {
-                            "labels": " | ".join(row.get("labels", [])),
-                            "selection_reason": row.get("selection_reason", ""),
-                            "strike": int(row["strike"]) if row.get("strike") is not None else "",
-                            "contract_symbol": row.get("contract_symbol", ""),
-                            "option_type": row.get("option_type", ""),
-                            "expiration": row.get("expiration", ""),
-                            "mark": row.get("current_mark", ""),
-                            "projected_mark_at_entry": row.get("projected_mark_at_entry", ""),
-                            "predicted_entry_price": row.get("predicted_entry_price", ""),
-                            "calibrated_entry_mark": row.get("calibrated_entry_mark", ""),
-                            "expected_fill_mark": row.get("projected_fill_at_entry", row.get("expected_fill_mark", "")),
-                            "delta": row.get("delta", ""),
-                            "rr_ratio": row.get("rr_ratio", ""),
-                            "contract_score": row.get("contract_score", ""),
-                            "estimated_entry_cost": row.get("estimated_entry_cost", ""),
-                            "estimated_fill_cost": row.get("estimated_fill_cost", ""),
-                            "budget_status": row.get("budget_status", ""),
-                            "confidence": row.get("premium_projection_confidence", ""),
-                        }
-                        for row in ladder_rows
-                    ]
-                )
-                if not developer_mode:
-                    display_columns = [
-                        "labels",
-                        "selection_reason",
-                        "strike",
-                        "mark",
-                        "projected_mark_at_entry",
-                        "expected_fill_mark",
-                        "delta",
-                        "rr_ratio",
-                        "budget_status",
-                    ]
-                    if ladder_df["projected_mark_at_entry"].replace("", np.nan).notna().any():
-                        display_columns[4] = "projected_mark_at_entry"
-                    else:
-                        display_columns[4] = "predicted_entry_price"
-                    ladder_df = ladder_df[display_columns].rename(
-                        columns={
-                            "labels": "tag",
-                            "selection_reason": "reason",
-                            "mark": "current_mark",
-                            "projected_mark_at_entry": "at_entry",
-                            "predicted_entry_price": "at_entry",
-                            "expected_fill_mark": "expected_fill",
-                            "delta": "delta",
-                            "rr_ratio": "rr",
-                            "budget_status": "budget",
-                        }
-                    )
-                else:
-                    ladder_df = ladder_df.rename(columns={"projected_mark_at_entry": "at_entry", "expected_fill_mark": "expected_fill"})
+                ladder_df = build_ladder_display_dataframe(ladder_rows, developer_mode=developer_mode)
 
                 def _highlight_ladder(row):
                     row_text = " ".join(str(value) for value in row.values)
@@ -12435,7 +12656,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
             st.caption(f"Window: {'Active' if context.get('event_window_active') else 'Inactive'}")
             if time_until is not None:
                 st.caption(f"T-{int(time_until)} min")
-        headlines = list(context.get("headlines", []) or [])[:3]
+        headlines = list(context.get("headlines", []) or [])[:5]
         if headlines:
             st.caption("Market-moving headlines")
             for item in headlines:
@@ -12449,7 +12670,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
                 else:
                     st.caption(f"{category}: {title}")
         elif str(context.get("source_status", "")) == "unavailable":
-            st.caption("News unavailable")
+            st.caption("Live news feed unavailable")
 
 
 def render_operator_play_card(
@@ -12712,7 +12933,7 @@ def render_operator_play_card(
         st.caption(condition_required)
     if best_contract_symbol_for_box:
         with st.container(border=True):
-            st.markdown("**Best Contract**")
+            st.markdown("**Best current candidate, not approved for execution**" if decision == "NO TRADE" else "**Best Contract**")
             st.markdown(f"`{best_contract_symbol_for_box}`")
             st.caption(
                 " | ".join(
@@ -12755,6 +12976,11 @@ def render_operator_play_card(
                 ]
             )
         )
+    if projected_entry_value is not None or projected_fill_at_entry is not None:
+        st.caption(
+            f"If price returns to entry, estimated premium is {format_price(projected_entry_value) if projected_entry_value is not None else '-'}"
+            f" and likely fill is {format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else '-'}."
+        )
     if (not show_expected_fill) and not developer_mode and decision != "NO TRADE":
         st.caption("Expected fill unavailable")
     elif projection_warning and projection_warning not in {reason_line, decision_sentence}:
@@ -12769,7 +12995,7 @@ def render_operator_play_card(
         st.caption(invalidation_message)
     elif expiry_reason:
         st.caption(expiry_reason)
-    if display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
+    if developer_mode and display_contract_quote and (display_contract_quote.get("bid") is not None or display_contract_quote.get("ask") is not None):
         st.caption(
             "Bid/Ask "
             f"{format_price(selected_contract.get('bid')) if selected_contract.get('bid') is not None else '-'} / "
@@ -13225,22 +13451,26 @@ def render_live_mode_shell(
             event_risk_context=event_risk_context,
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
-        render_live_decision_center(
-            display_signal_package,
-            live_current_spx,
-            inputs["current_es_price"],
-            effective_offset,
-            intelligence_summary=final_status_breakdown.get("intelligence"),
-            adaptive_overlay=primary_adaptive_overlay,
-            hero_authority=hero_authority,
-            active_play_label=hero_active_play,
-            live_context=live_context,
-            event_risk_context=event_risk_context,
-            active_contract_quote=primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote if hero_active_play == "Alternate" else primary_selected_contract_quote or alternate_selected_contract_quote,
-            active_option_display=primary_option_display if hero_active_play == "Primary" else alternate_option_display if hero_active_play == "Alternate" else primary_option_display or alternate_option_display,
+        safe_render_section(
+            "Decision Center",
+            lambda: render_live_decision_center(
+                display_signal_package,
+                live_current_spx,
+                inputs["current_es_price"],
+                effective_offset,
+                intelligence_summary=final_status_breakdown.get("intelligence"),
+                adaptive_overlay=primary_adaptive_overlay,
+                hero_authority=hero_authority,
+                active_play_label=hero_active_play,
+                live_context=live_context,
+                event_risk_context=event_risk_context,
+                active_contract_quote=primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote if hero_active_play == "Alternate" else primary_selected_contract_quote or alternate_selected_contract_quote,
+                active_option_display=primary_option_display if hero_active_play == "Primary" else alternate_option_display if hero_active_play == "Alternate" else primary_option_display or alternate_option_display,
+            ),
+            developer_mode=developer_mode,
         )
-        render_event_risk_panel(event_risk_context)
-        render_alert_panel(primary_authority, alternate_authority)
+        safe_render_section("Event Risk", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
+        safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
             render_trade_decision_summary(
                 display_signal_package,
@@ -13359,61 +13589,77 @@ def render_live_mode_shell(
             if not developer_mode and active_label is not None:
                 active_spec = next((spec for spec in play_specs if spec["label"] == active_label), play_specs[0])
                 secondary_specs = [spec for spec in play_specs if spec["label"] != active_spec["label"]]
-                render_operator_play_card(
+                safe_render_section(
                     active_spec["title"],
-                    active_spec["play"],
-                    final_projected_lines,
-                    final_projected_lines_es,
-                    active_spec["lead_quote"],
-                    compact=True,
-                    effective_offset=effective_offset,
-                    offset_diagnostics=offset_diagnostics,
+                    lambda spec=active_spec: render_operator_play_card(
+                        spec["title"],
+                        spec["play"],
+                        final_projected_lines,
+                        final_projected_lines_es,
+                        spec["lead_quote"],
+                        compact=True,
+                        effective_offset=effective_offset,
+                        offset_diagnostics=offset_diagnostics,
+                        developer_mode=developer_mode,
+                        final_status=spec["status"],
+                        status_breakdown=spec["status_breakdown"],
+                        current_spx_price=live_current_spx,
+                        planned_anchor_key=spec["planned_anchor_key"],
+                        session_plan=spec["session_plan"],
+                        calibration_preview=spec["calibration_preview"],
+                        adaptive_overlay=spec["adaptive_overlay"],
+                        authority=spec["authority"],
+                        live_context=live_context,
+                        selected_contract_quote=spec["selected_quote"],
+                        option_display_state=spec["option_display_state"],
+                    ),
                     developer_mode=developer_mode,
-                    final_status=active_spec["status"],
-                    status_breakdown=active_spec["status_breakdown"],
-                    current_spx_price=live_current_spx,
-                    planned_anchor_key=active_spec["planned_anchor_key"],
-                    session_plan=active_spec["session_plan"],
-                    calibration_preview=active_spec["calibration_preview"],
-                    adaptive_overlay=active_spec["adaptive_overlay"],
-                    authority=active_spec["authority"],
-                    live_context=live_context,
-                    selected_contract_quote=active_spec["selected_quote"],
-                    option_display_state=active_spec["option_display_state"],
                 )
                 for spec in secondary_specs:
                     with st.expander(f"{spec['title']} Snapshot", expanded=False):
-                        render_operator_play_card(
+                        safe_render_section(
                             spec["title"],
-                            spec["play"],
-                            final_projected_lines,
-                            final_projected_lines_es,
-                            spec["lead_quote"],
-                            compact=True,
-                            effective_offset=effective_offset,
-                            offset_diagnostics=offset_diagnostics,
+                            lambda spec=spec: render_operator_play_card(
+                                spec["title"],
+                                spec["play"],
+                                final_projected_lines,
+                                final_projected_lines_es,
+                                spec["lead_quote"],
+                                compact=True,
+                                effective_offset=effective_offset,
+                                offset_diagnostics=offset_diagnostics,
+                                developer_mode=developer_mode,
+                                final_status=spec["status"],
+                                status_breakdown=spec["status_breakdown"],
+                                current_spx_price=live_current_spx,
+                                planned_anchor_key=spec["planned_anchor_key"],
+                                session_plan=spec["session_plan"],
+                                calibration_preview=spec["calibration_preview"],
+                                adaptive_overlay=spec["adaptive_overlay"],
+                                authority=spec["authority"],
+                                live_context=live_context,
+                                selected_contract_quote=spec["selected_quote"],
+                                option_display_state=spec["option_display_state"],
+                            ),
                             developer_mode=developer_mode,
-                            final_status=spec["status"],
-                            status_breakdown=spec["status_breakdown"],
-                            current_spx_price=live_current_spx,
-                            planned_anchor_key=spec["planned_anchor_key"],
-                            session_plan=spec["session_plan"],
-                            calibration_preview=spec["calibration_preview"],
-                            adaptive_overlay=spec["adaptive_overlay"],
-                            authority=spec["authority"],
-                            live_context=live_context,
-                            selected_contract_quote=spec["selected_quote"],
-                            option_display_state=spec["option_display_state"],
                         )
             else:
                 decision_col1, decision_col2 = st.columns(2, gap="large")
                 with decision_col1:
-                    render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display)
+                    safe_render_section(
+                        "Primary Trade",
+                        lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
+                        developer_mode=developer_mode,
+                    )
                 with decision_col2:
-                    render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display)
+                    safe_render_section(
+                        "Alternate Trade",
+                        lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
+                        developer_mode=developer_mode,
+                    )
 
-        render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
-        render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
+        safe_render_section("Structure Map", lambda: render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES"), developer_mode=developer_mode)
+        safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
 
         if developer_mode:
             with st.expander("Structure Details", expanded=False):
@@ -13423,10 +13669,14 @@ def render_live_mode_shell(
                 render_six_lines_panel(projected_es_9, final_projected_lines_es, override_result["decisions"], "ES")
             with st.expander("Verification", expanded=False):
                 render_projection_verification(anchor_bundle, final_projected_lines, final_projected_lines_es, final_projected_lines_es, "ES")
-        render_options_provider_preview(
-            options_provider,
-            options_provider_status,
-            option_sections,
+        safe_render_section(
+            "Strike Selection",
+            lambda: render_options_provider_preview(
+                options_provider,
+                options_provider_status,
+                option_sections,
+                developer_mode=developer_mode,
+            ),
             developer_mode=developer_mode,
         )
         st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
