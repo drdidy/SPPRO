@@ -1811,37 +1811,39 @@ def inject_app_styles() -> None:
         /* ── SIDEBAR RADIO ───────────────────────────────────────────── */
         [data-testid="stSidebar"] div[role="radiogroup"] {
             display: flex !important;
-            flex-direction: row !important;
-            gap: 6px !important;
-            flex-wrap: wrap;
+            flex-direction: column !important;
+            gap: 4px !important;
         }
         [data-testid="stSidebar"] div[role="radiogroup"] label {
-            flex: 1 !important;
-            min-width: 0 !important;
+            width: 100% !important;
             display: flex !important;
             align-items: center !important;
-            justify-content: center !important;
-            padding: 6px 8px !important;
+            justify-content: flex-start !important;
+            padding: 7px 12px !important;
             border-radius: 8px !important;
-            border: 1px solid rgba(0,212,255,0.12) !important;
+            border: 1px solid rgba(0,212,255,0.10) !important;
+            border-left: 3px solid transparent !important;
             background: rgba(255,255,255,0.02) !important;
             cursor: pointer !important;
             transition: all 0.14s ease !important;
             text-transform: none !important;
             letter-spacing: 0 !important;
-            font-size: 0.75rem !important;
-            font-weight: 600 !important;
-            color: rgba(180,210,240,0.65) !important;
+            font-size: 0.78rem !important;
+            font-weight: 500 !important;
+            color: rgba(180,210,240,0.60) !important;
+            white-space: nowrap !important;
         }
         [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-            background: rgba(0,212,255,0.12) !important;
-            border-color: rgba(0,212,255,0.38) !important;
+            background: rgba(0,212,255,0.08) !important;
+            border-color: rgba(0,212,255,0.20) !important;
+            border-left-color: #00d4ff !important;
             color: #6ae6ff !important;
-            box-shadow: 0 0 10px rgba(0,212,255,0.12) !important;
+            font-weight: 600 !important;
         }
         [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-            background: rgba(0,212,255,0.06) !important;
-            border-color: rgba(0,212,255,0.22) !important;
+            background: rgba(0,212,255,0.05) !important;
+            border-left-color: rgba(0,212,255,0.40) !important;
+            color: rgba(180,210,240,0.85) !important;
         }
         [data-testid="stSidebar"] div[role="radiogroup"] input[type="radio"] {
             display: none !important;
