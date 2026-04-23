@@ -880,10 +880,12 @@ def inject_app_styles() -> None:
         [data-testid="stSidebar"] label,
         [data-testid="stSidebar"] input,
         [data-testid="stSidebar"] textarea,
-        [data-testid="stSidebar"] button,
         [data-testid="stSidebar"] [data-baseweb="select"],
         [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+            font-family: var(--spx-font-sans) !important;
+        }
+        [data-testid="stSidebar"] button:not([data-testid="collapsedControl"]) {
             font-family: var(--spx-font-sans) !important;
         }
         [data-testid="stSidebar"] .block-container {
@@ -1783,7 +1785,9 @@ def inject_app_styles() -> None:
         }
 
         /* ── INTER BODY FONT ─────────────────────────────────────────── */
-        p, li, span, td, th, caption,
+        p, li,
+        span:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-symbols-sharp),
+        td, th, caption,
         div[data-testid="stMarkdownContainer"] p,
         div[data-testid="stMarkdownContainer"] li,
         .spx-card-copy, .spx-banner-text, .spx-banner-meta,
@@ -1792,6 +1796,16 @@ def inject_app_styles() -> None:
             font-family: var(--spx-font-body) !important;
         }
         .stCaption, .stCaption p { font-family: var(--spx-font-body) !important; }
+        /* ── MATERIAL SYMBOLS ICON PROTECTION ───────────────────────── */
+        /* Must come after all font-family rules to win the cascade     */
+        span.material-symbols-rounded,
+        span.material-symbols-outlined,
+        span.material-symbols-sharp {
+            font-family: "Material Symbols Rounded" !important;
+            font-style: normal !important;
+            font-weight: normal !important;
+            font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24 !important;
+        }
 
         /* ── CUSTOM SCROLLBAR ────────────────────────────────────────── */
         * { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,0.25) rgba(255,255,255,0.04); }
