@@ -2488,8 +2488,207 @@ def inject_app_styles() -> None:
             width: 34px; height: 34px; border-radius: 10px; margin-right: 10px;
             font-size: 1.05rem; vertical-align: middle; flex-shrink: 0;
         }
+        /* ══ Premium Command Bar (top of app) ══ */
+        .spx-cmdbar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 16px; flex-wrap: wrap;
+            padding: 14px 22px; margin-bottom: 14px;
+            background: linear-gradient(135deg, rgba(2,8,22,0.98) 0%, rgba(4,12,32,0.95) 50%, rgba(0,6,20,0.98) 100%);
+            border: 1px solid rgba(0,212,255,0.14);
+            border-radius: 16px;
+            box-shadow: 0 4px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.03) inset;
+            position: relative; overflow: hidden;
+        }
+        .spx-cmdbar::before {
+            content: ""; position: absolute; inset: 0;
+            background: radial-gradient(circle at 15% 50%, rgba(0,212,255,0.08), transparent 45%),
+                        radial-gradient(circle at 85% 50%, rgba(179,136,255,0.06), transparent 45%);
+            pointer-events: none;
+        }
+        .cmd-brand { display: flex; align-items: center; gap: 14px; z-index: 1; }
+        .cmd-logo {
+            width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+            background: linear-gradient(135deg,#00d4ff 0%,#0077b6 50%,#6ae6ff 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.35rem; box-shadow: 0 0 22px rgba(0,212,255,0.35), 0 2px 8px rgba(0,0,0,0.4);
+            position: relative;
+        }
+        .cmd-logo::after {
+            content: ""; position: absolute; inset: 2px; border-radius: 10px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 60%);
+            pointer-events: none;
+        }
+        .cmd-title-wrap { display: flex; flex-direction: column; }
+        .cmd-title {
+            font-family: var(--spx-font-sans); font-size: 1.06rem; font-weight: 800;
+            color: #f4f7ff; letter-spacing: -0.01em; line-height: 1;
+        }
+        .cmd-title-version {
+            display: inline-block; margin-left: 8px; font-size: 0.62rem;
+            font-weight: 700; color: #6ae6ff; padding: 2px 7px; border-radius: 6px;
+            background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
+            letter-spacing: 0.04em; vertical-align: middle;
+        }
+        .cmd-subtitle {
+            font-size: 0.64rem; letter-spacing: 0.13em; text-transform: uppercase;
+            color: rgba(142,161,188,0.65); margin-top: 3px; font-weight: 600;
+        }
+        .cmd-metrics { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; z-index: 1; }
+        .cmd-metric {
+            display: flex; flex-direction: column; gap: 2px; text-align: right;
+        }
+        .cmd-metric-label {
+            font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase;
+            color: rgba(142,161,188,0.5); font-weight: 600;
+        }
+        .cmd-metric-value {
+            font-family: var(--spx-font-mono); font-size: 0.9rem; font-weight: 500;
+            color: rgba(244,247,255,0.85);
+        }
+        .cmd-status {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 6px 14px; border-radius: 20px;
+            font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .status-open {
+            background: linear-gradient(135deg, rgba(0,230,118,0.18), rgba(0,180,90,0.08));
+            border: 1px solid rgba(0,230,118,0.35); color: #00e676;
+        }
+        .status-premarket {
+            background: rgba(255,212,64,0.12); border: 1px solid rgba(255,212,64,0.28); color: #ffd740;
+        }
+        .status-afterhours {
+            background: rgba(179,136,255,0.12); border: 1px solid rgba(179,136,255,0.28); color: #b388ff;
+        }
+        .status-closed {
+            background: rgba(142,161,188,0.1); border: 1px solid rgba(142,161,188,0.24); color: #8ea1bc;
+        }
+        .cmd-status-dot {
+            width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+        }
+        .status-open .cmd-status-dot {
+            background: #00e676; box-shadow: 0 0 10px #00e676, 0 0 18px rgba(0,230,118,0.5);
+            animation: cmdPulse 1.8s ease-in-out infinite;
+        }
+        .status-premarket .cmd-status-dot { background: #ffd740; box-shadow: 0 0 8px #ffd740; }
+        .status-afterhours .cmd-status-dot { background: #b388ff; box-shadow: 0 0 8px #b388ff; }
+        .status-closed .cmd-status-dot { background: #8ea1bc; }
+        @keyframes cmdPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
+        .cmd-mode-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 20px; font-size: 0.66rem;
+            font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase;
+        }
+        .mode-production {
+            background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,119,182,0.08));
+            border: 1px solid rgba(0,212,255,0.3); color: #6ae6ff;
+        }
+        .mode-edgelab {
+            background: linear-gradient(135deg, rgba(179,136,255,0.18), rgba(123,47,247,0.08));
+            border: 1px solid rgba(179,136,255,0.32); color: #c8a8ff;
+        }
+        /* ══ Confidence Gauge ══ */
+        .spx-gauge {
+            height: 4px; width: 100%; margin-top: 6px;
+            background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;
+            position: relative;
+        }
+        .spx-gauge-fill {
+            height: 100%; border-radius: 2px;
+            transition: width 0.4s ease;
+            background: linear-gradient(90deg, #ef5350 0%, #ffd740 50%, #00e676 100%);
+        }
+        /* ══ Button premium glow ══ */
+        div.stButton > button[kind="primary"],
+        div.stButton > button[data-testid="baseButton-primary"] {
+            background: linear-gradient(135deg, rgba(0,212,255,0.22), rgba(0,119,182,0.18)) !important;
+            border: 1px solid rgba(0,212,255,0.4) !important;
+            color: #f4f7ff !important; font-weight: 600 !important;
+            box-shadow: 0 0 20px rgba(0,212,255,0.18), 0 2px 8px rgba(0,0,0,0.3) !important;
+            transition: all 0.18s ease !important;
+        }
+        div.stButton > button[kind="primary"]:hover,
+        div.stButton > button[data-testid="baseButton-primary"]:hover {
+            box-shadow: 0 0 28px rgba(0,212,255,0.35), 0 4px 14px rgba(0,0,0,0.4) !important;
+            transform: translateY(-1px) !important;
+        }
+        /* ══ Sidebar premium hints ══ */
+        section[data-testid="stSidebar"] > div:first-child {
+            background: linear-gradient(180deg, rgba(2,8,22,0.98) 0%, rgba(4,10,28,1) 100%) !important;
+        }
+        section[data-testid="stSidebar"] .stRadio > div {
+            background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        section[data-testid="stSidebar"] [data-testid="stExpander"] {
+            border: 1px solid rgba(0,212,255,0.1) !important;
+            border-radius: 10px !important;
+            background: rgba(0,212,255,0.02) !important;
+        }
         </style>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def _resolve_market_session(now_ct: datetime | None = None) -> dict[str, str]:
+    """Map current time to market session label/class for the command bar. ET = CT + 1h."""
+
+    now = now_ct or (current_central_time() if current_central_time else datetime.now())
+    weekday = now.weekday()  # Mon=0..Sun=6
+    hour = now.hour + now.minute / 60.0  # CT decimal hour
+    if weekday >= 5:
+        return {"label": "WEEKEND", "cls": "status-closed", "icon": "◌"}
+    # CT windows: pre-market 3:00-8:30, regular 8:30-15:00, after 15:00-19:00
+    if 3.0 <= hour < 8.5:
+        return {"label": "PRE-MARKET", "cls": "status-premarket", "icon": "◐"}
+    if 8.5 <= hour < 15.0:
+        return {"label": "MARKET OPEN", "cls": "status-open", "icon": "●"}
+    if 15.0 <= hour < 19.0:
+        return {"label": "AFTER HOURS", "cls": "status-afterhours", "icon": "◑"}
+    return {"label": "MARKET CLOSED", "cls": "status-closed", "icon": "○"}
+
+
+def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> None:
+    """Render the premium top-of-app command bar with brand, clock, market status, mode."""
+
+    now = current_central_time() if current_central_time else datetime.now()
+    # Convert CT → ET for display (ET = CT + 1h)
+    et_now = now + timedelta(hours=1)
+    clock = et_now.strftime("%H:%M:%S")
+    date_str = et_now.strftime("%a %b %d")
+    session = _resolve_market_session(now)
+    mode_cls = "mode-edgelab" if visibility_mode == "Edge Lab" else "mode-production"
+    mode_icon = "🔬" if visibility_mode == "Edge Lab" else "◉"
+    next_date_html = ""
+    if next_trading_date is not None:
+        try:
+            next_date_html = (
+                f'<div class="cmd-metric">'
+                f'<span class="cmd-metric-label">Next Session</span>'
+                f'<span class="cmd-metric-value">{escape(str(next_trading_date))}</span>'
+                f'</div>'
+            )
+        except Exception:
+            next_date_html = ""
+    st.markdown(
+        f'<div class="spx-cmdbar">'
+        f'<div class="cmd-brand">'
+        f'<div class="cmd-logo">📊</div>'
+        f'<div class="cmd-title-wrap">'
+        f'<div class="cmd-title">{escape(APP_TITLE)}<span class="cmd-title-version">{escape(APP_VERSION)}</span></div>'
+        f'<div class="cmd-subtitle">ES Structure · Options Intelligence · 0DTE</div>'
+        f'</div>'
+        f'</div>'
+        f'<div class="cmd-metrics">'
+        f'<div class="cmd-metric"><span class="cmd-metric-label">New York</span><span class="cmd-metric-value">{clock} ET</span></div>'
+        f'<div class="cmd-metric"><span class="cmd-metric-label">Date</span><span class="cmd-metric-value">{date_str}</span></div>'
+        f'{next_date_html}'
+        f'<span class="cmd-status {session["cls"]}"><span class="cmd-status-dot"></span>{session["label"]}</span>'
+        f'<span class="cmd-mode-pill {mode_cls}">{mode_icon} {escape(visibility_mode)}</span>'
+        f'</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -13239,6 +13438,7 @@ def render_live_decision_center(
     <div class="cockpit-stat">
       <div class="cockpit-stat-label">Confidence</div>
       <div class="cockpit-stat-value {_conf_cls}">{confidence}%</div>
+      <div class="spx-gauge"><div class="spx-gauge-fill" style="width:{max(0, min(100, confidence))}%"></div></div>
     </div>
     <div class="cockpit-stat">
       <div class="cockpit-stat-label">Expected Fill</div>
@@ -14989,19 +15189,15 @@ def main() -> None:
         st.error(f"Unable to build Asian session checkpoints: {exc}")
         checkpoint_views = []
 
-    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
+    try:
+        render_command_bar(
+            visibility_mode=inputs.get("visibility_mode", "Production Mode"),
+            next_trading_date=inputs.get("next_trading_date"),
+        )
+    except Exception:
+        pass
 
-    _vis_label = inputs.get("visibility_mode", "Production Mode")
-    _vis_color = "rgba(179,136,255,0.18)" if _vis_label == "Edge Lab" else "rgba(0,212,255,0.1)"
-    _vis_border = "rgba(179,136,255,0.3)" if _vis_label == "Edge Lab" else "rgba(0,212,255,0.22)"
-    _vis_text = "#c8a8ff" if _vis_label == "Edge Lab" else "#7fe7ff"
-    st.markdown(
-        f'<div style="display:flex;justify-content:flex-end;margin-bottom:0.3rem;">'
-        f'<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;'
-        f'padding:0.2rem 0.6rem;border-radius:999px;background:{_vis_color};border:1px solid {_vis_border};color:{_vis_text};">'
-        f'{_vis_label}</span></div>',
-        unsafe_allow_html=True,
-    )
+    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
 
     with top_live_tab:
         if inputs["operating_mode"] == "Live Mode":
