@@ -185,6 +185,8 @@ DEFAULT_OPTIONS_PROVIDER = "tastytrade" if "tastytrade" in PROVIDER_NAMES else "
 DEFAULT_SETTINGS = {
     "es_spx_offset": 20.0,
     "news_day": False,
+    "manual_event_risk_level": "None",
+    "manual_event_label": "",
     "preferred_checkpoint": "6:00 PM CT",
     "data_mode": "Auto-fetch",
     "visibility_mode": "Production Mode",
@@ -461,6 +463,10 @@ def normalize_settings_record(raw_settings: dict[str, Any] | None) -> dict[str, 
 
     merged["es_spx_offset"] = float(merged.get("es_spx_offset", DEFAULT_SETTINGS["es_spx_offset"]))
     merged["news_day"] = bool(merged.get("news_day", DEFAULT_SETTINGS["news_day"]))
+    manual_event_levels = ["None", "Low", "Medium", "High", "Extreme"]
+    if merged.get("manual_event_risk_level") not in manual_event_levels:
+        merged["manual_event_risk_level"] = DEFAULT_SETTINGS["manual_event_risk_level"]
+    merged["manual_event_label"] = str(merged.get("manual_event_label", DEFAULT_SETTINGS["manual_event_label"]))
     if merged.get("preferred_checkpoint") not in CHECKPOINT_OPTIONS:
         merged["preferred_checkpoint"] = DEFAULT_SETTINGS["preferred_checkpoint"]
     if merged.get("data_mode") not in ["Auto-fetch", "Manual input"]:
@@ -7152,7 +7158,13 @@ def fetch_market_headlines() -> list[dict[str, Any]]:
     return deduped[:NEWS_FEED_MAX_ITEMS]
 
 
-def build_event_risk_context(*, news_day: bool, current_time_ct: datetime | None = None) -> dict[str, Any]:
+def build_event_risk_context(
+    *,
+    news_day: bool,
+    current_time_ct: datetime | None = None,
+    manual_event_risk_level: str = "None",
+    manual_event_label: str = "",
+) -> dict[str, Any]:
     """Build a compact event/news risk overlay for execution decisions."""
 
     now_ct = current_time_ct or current_central_time()
@@ -7229,6 +7241,31 @@ def build_event_risk_context(*, news_day: bool, current_time_ct: datetime | None
         reason = "Political shock headlines may distort index pricing"
         mode = "stand down" if inside_event_buffer else "reduced confidence"
 
+    manual_level = str(manual_event_risk_level or "None")
+    if manual_level not in {"None", ""}:
+        level = manual_level.lower()
+        reason = manual_event_label.strip() or "Manual event-risk override"
+        mode = "stand down" if level == "extreme" else "reduced confidence" if level == "high" else "caution"
+        return {
+            "event_risk_status": level.title(),
+            "event_risk_level": level,
+            "event_risk_reason": reason,
+            "next_known_event": manual_event_label.strip(),
+            "event_window_active": level in {"high", "extreme"},
+            "event_trading_mode": mode,
+            "event_name": manual_event_label.strip(),
+            "event_time_ct": "",
+            "event_importance": "manual",
+            "time_until_event": None,
+            "inside_event_buffer": level in {"high", "extreme"},
+            "political_headline_risk": False,
+            "truth_social_risk_flag": False,
+            "headline_shock_risk": False,
+            "shock_window_active": False,
+            "headlines": headlines,
+            "source_status": "manual_override",
+        }
+
     if not headlines and not news_day:
         return default_context
 
@@ -7251,6 +7288,36 @@ def build_event_risk_context(*, news_day: bool, current_time_ct: datetime | None
         "headlines": headlines,
         "source_status": "live" if headlines else "manual_news_day",
     }
+
+
+def apply_event_risk_to_execution_guidance(
+    *,
+    current_action: str,
+    current_reason: str,
+    event_risk_context: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Apply event-risk overlays to execution guidance without changing structural math."""
+
+    context = event_risk_context or {}
+    event_level = str(context.get("event_risk_level", "quiet")).lower()
+    event_mode = str(context.get("event_trading_mode", "normal")).lower()
+    event_reason = str(context.get("event_risk_reason", "") or "Event risk is active")
+    if current_action == "ENTER NOW" and event_level in {"major", "extreme"}:
+        return {"action": "WAIT FOR EVENT PASS", "reason": event_reason}
+    if current_action in {"ENTER NOW", "WAIT FOR RETEST"} and event_mode in {"caution", "reduced confidence"}:
+        return {"action": "PREPARE WITH CAUTION", "reason": event_reason}
+    return {"action": current_action, "reason": current_reason}
+
+
+def summarize_event_risk(event_risk_context: dict[str, Any] | None) -> str:
+    """Return one concise operator note for the event-risk strip."""
+
+    context = event_risk_context or {}
+    status = str(context.get("event_risk_status", "Unknown"))
+    reason = str(context.get("event_risk_reason", "News unavailable"))
+    if status in {"Unknown", ""}:
+        return "Event Risk: Unknown | News unavailable"
+    return f"Event Risk: {status} | {reason}"
 
 
 def resolve_recommended_contract_row(
@@ -7515,6 +7582,61 @@ def build_nearby_strike_ladder(
     return ladder_rows
 
 
+def choose_execution_contract_from_ladder(
+    ladder_rows: list[dict[str, Any]] | None,
+    *,
+    recommended_symbol: str,
+) -> dict[str, Any] | None:
+    """Choose the best execution contract from the locked ladder without changing the official system pick."""
+
+    rows = [dict(row) for row in (ladder_rows or [])]
+    if not rows:
+        return None
+    recommended_row = next((row for row in rows if row.get("contract_symbol") == recommended_symbol), None)
+
+    def _score(row: dict[str, Any]) -> float:
+        score = 0.0
+        budget_status = str(row.get("budget_status", "Unknown"))
+        if budget_status == "Within Budget":
+            score += 4.0
+        elif budget_status == "Near Budget":
+            score += 2.0
+        elif budget_status == "Above Budget":
+            score -= 3.0
+        rr_value = _to_float_or_none(row.get("rr_ratio"))
+        if rr_value is not None:
+            score += min(rr_value, 2.0) * 1.5
+        contract_score = _to_float_or_none(row.get("contract_score"))
+        if contract_score is not None:
+            score += contract_score * 2.0
+        delta_value = abs(_to_float_or_none(row.get("delta")) or 0.0)
+        if delta_value:
+            score += max(0.0, 1.0 - abs(delta_value - 0.55)) * 1.25
+        confidence_bonus = {"High": 1.5, "Medium": 1.0, "Low": 0.3, "Speculative": -0.8}.get(str(row.get("premium_projection_confidence", "")), -0.8)
+        score += confidence_bonus
+        projected_fill = _to_float_or_none(row.get("projected_fill_at_entry")) or _to_float_or_none(row.get("expected_fill_mark"))
+        if projected_fill is None:
+            score -= 1.0
+        elif projected_fill < MIN_EXECUTION_MARK:
+            score -= 4.0
+        if "Too Thin" in list(row.get("labels", [])):
+            score -= 4.0
+        if str(row.get("selection_reason", "")) == "Weak Estimate":
+            score -= 2.0
+        return score
+
+    viable_rows = [
+        row for row in rows
+        if (_to_float_or_none(row.get("projected_fill_at_entry")) or _to_float_or_none(row.get("expected_fill_mark")) or _to_float_or_none(row.get("current_mark")) or 0.0) >= MIN_EXECUTION_MARK
+    ]
+    within_budget_rows = [row for row in viable_rows if str(row.get("budget_status", "")) == "Within Budget"]
+    candidate_pool = within_budget_rows or [row for row in viable_rows if str(row.get("budget_status", "")) != "Unknown"] or viable_rows or rows
+    chosen = max(candidate_pool, key=_score, default=None)
+    if recommended_row is not None and str(recommended_row.get("budget_status", "")) == "Within Budget":
+        return recommended_row if _score(recommended_row) >= (_score(chosen) - 0.5) else chosen
+    return chosen or recommended_row
+
+
 def build_option_display_state(
     *,
     play_role: str,
@@ -7672,10 +7794,20 @@ def build_option_display_state(
     ladder_rows = _assign_selection_reasons(ladder_rows)
     recommended_row = next((row for row in ladder_rows if row.get("contract_symbol") == recommended_symbol), None)
     selected_row = next((row for row in ladder_rows if row.get("contract_symbol") == selected_symbol), None)
+    execution_row = choose_execution_contract_from_ladder(
+        ladder_rows,
+        recommended_symbol=recommended_symbol,
+    )
+    execution_symbol = str((execution_row or {}).get("contract_symbol", "") or "")
+    execution_contract = next((dict(row) for row in (candidates or []) if str(row.get("symbol", "") or "") == execution_symbol), selected_contract or recommended_contract)
+    selected_row = selected_row or execution_row
+    active_contract = selected_contract if selected_resolution.get("manual_override") else execution_contract
+    active_symbol = str((active_contract or {}).get("symbol", "") or execution_symbol or selected_symbol or recommended_symbol)
+    active_row = next((row for row in ladder_rows if row.get("contract_symbol") == active_symbol), None) or selected_row or execution_row
     selected_display_quote = _merge_quote_display_fields(
-        extract_lead_option_quote([selected_contract]) if selected_contract is not None else None,
-        selected_row,
-        calibration_overlays.get(selected_symbol, {}),
+        extract_lead_option_quote([active_contract]) if active_contract is not None else None,
+        active_row,
+        calibration_overlays.get(active_symbol, {}),
     )
     binding_snapshot = (
         validate_contract_binding(
@@ -7704,13 +7836,16 @@ def build_option_display_state(
             recommended_row,
             calibration_overlays.get(recommended_symbol, {}),
         ),
-        "selected_contract": selected_contract,
+        "selected_contract": active_contract,
         "selected_quote": selected_display_quote,
         "recommended_contract_symbol": recommended_symbol,
         "recommended_strike": _to_float_or_none((recommended_contract or {}).get("strike")) or _to_float_or_none((session_plan or {}).get("planned_strike")),
         "user_selected_contract_symbol": selected_resolution.get("user_selected_contract_symbol", ""),
         "operator_selected_strike": _to_float_or_none((selected_contract or {}).get("strike")),
         "manual_override": bool(selected_resolution.get("manual_override")),
+        "auto_execution_shift": bool(not selected_resolution.get("manual_override") and active_symbol and recommended_symbol and active_symbol != recommended_symbol),
+        "selected_for_entry_symbol": active_symbol,
+        "selected_for_entry_reason": str((active_row or {}).get("selection_reason", "") or ""),
         "ladder_rows": ladder_rows,
         "nearby_contract_count": len(ladder_rows),
         "nearby_within_budget_count": len(within_budget_rows),
@@ -7907,11 +8042,43 @@ def render_options_provider_preview(
                         for row in ladder_rows
                     ]
                 )
+                if not developer_mode:
+                    display_columns = [
+                        "labels",
+                        "selection_reason",
+                        "strike",
+                        "mark",
+                        "projected_mark_at_entry",
+                        "expected_fill_mark",
+                        "delta",
+                        "rr_ratio",
+                        "budget_status",
+                    ]
+                    if ladder_df["projected_mark_at_entry"].replace("", np.nan).notna().any():
+                        display_columns[4] = "projected_mark_at_entry"
+                    else:
+                        display_columns[4] = "predicted_entry_price"
+                    ladder_df = ladder_df[display_columns].rename(
+                        columns={
+                            "labels": "tag",
+                            "selection_reason": "reason",
+                            "mark": "current_mark",
+                            "projected_mark_at_entry": "at_entry",
+                            "predicted_entry_price": "at_entry",
+                            "expected_fill_mark": "expected_fill",
+                            "delta": "delta",
+                            "rr_ratio": "rr",
+                            "budget_status": "budget",
+                        }
+                    )
+                else:
+                    ladder_df = ladder_df.rename(columns={"projected_mark_at_entry": "at_entry", "expected_fill_mark": "expected_fill"})
 
                 def _highlight_ladder(row):
-                    if "Recommended" in str(row.get("labels", "")):
+                    row_text = " ".join(str(value) for value in row.values)
+                    if "Recommended" in row_text:
                         return ["background-color: rgba(0, 230, 118, 0.14); font-weight: 600;" for _ in row]
-                    if "Selected by You" in str(row.get("labels", "")):
+                    if "Selected by You" in row_text:
                         return ["background-color: rgba(255, 193, 7, 0.12);" for _ in row]
                     return ["" for _ in row]
 
@@ -8971,6 +9138,17 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 step=25.0,
                 format="%.2f",
             )
+            manual_event_levels = ["None", "Low", "Medium", "High", "Extreme"]
+            manual_event_risk_level = st.selectbox(
+                "Manual event risk",
+                manual_event_levels,
+                index=safe_option_index(manual_event_levels, settings.get("manual_event_risk_level", DEFAULT_SETTINGS["manual_event_risk_level"])),
+            )
+            manual_event_label = st.text_input(
+                "Event label",
+                value=str(settings.get("manual_event_label", DEFAULT_SETTINGS["manual_event_label"])),
+                placeholder="CPI, Powell speech, breaking headline",
+            )
             if visibility_mode == "Edge Lab":
                 options_mode_enabled = st.checkbox("Options mode enabled", value=bool(settings.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"])))
                 options_provider = st.selectbox("Options provider", PROVIDER_NAMES, index=safe_option_index(PROVIDER_NAMES, settings.get("options_provider", DEFAULT_SETTINGS["options_provider"])))
@@ -9051,6 +9229,8 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "historical_mode": historical_mode,
         "operating_mode": operating_mode,
         "news_day": news_day,
+        "manual_event_risk_level": manual_event_risk_level,
+        "manual_event_label": manual_event_label,
         "es_spx_offset": es_spx_offset,
         "manual_price_space": manual_price_space,
         "session_plan_lock_cutoff": session_plan_lock_cutoff,
@@ -12098,6 +12278,8 @@ def render_live_decision_center(
     active_play_label: str = "None",
     live_context: dict[str, Any] | None = None,
     event_risk_context: dict[str, Any] | None = None,
+    active_contract_quote: dict[str, Any] | None = None,
+    active_option_display: dict[str, Any] | None = None,
 ) -> None:
     """Render the production-first live decision center using native Streamlit components."""
 
@@ -12129,7 +12311,12 @@ def render_live_decision_center(
         if isinstance(primary_play, dict) and isinstance(primary_play.get("entry"), dict):
             entry_value = primary_play["entry"].get("price")
     strike_value = "-"
-    if signal_package is not None:
+    active_contract_quote = active_contract_quote or {}
+    active_option_display = active_option_display or {}
+    selected_strike = _to_float_or_none(active_contract_quote.get("strike"))
+    if selected_strike is not None:
+        strike_value = str(int(selected_strike))
+    elif signal_package is not None:
         primary_play = signal_package["scenario"].get("primary_play")
         if isinstance(primary_play, dict) and primary_play.get("strike") is not None:
             strike_value = str(primary_play["strike"])
@@ -12140,6 +12327,10 @@ def render_live_decision_center(
     hero_action_label = resolve_hero_action_label(authority, event_risk_context)
     setup_state = str(authority.get("setup_state", "NO_TRADE")).replace("_", " ").title()
     trigger_state = str(authority.get("trigger_state", "UNAVAILABLE")).replace("_", " ").title()
+    expected_fill = _to_float_or_none(active_contract_quote.get("projected_fill_at_entry")) or _to_float_or_none(active_contract_quote.get("expected_fill_mark"))
+    estimate_quality = str(active_contract_quote.get("premium_projection_confidence", "") or "Insufficient")
+    budget_status = str(active_contract_quote.get("budget_status", "") or "Unknown")
+    scenario_changed = bool((live_context or {}).get("live_scenario") and (live_context or {}).get("scenario_origin") and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin"))
     top_line = presentation_state["headline"] if str(decision).upper() == "NO TRADE" else f"{direction_display['arrow']} {direction_display['headline']}"
     subline = str(authority.get("setup_state_reason") or authority.get("execution_action_reason") or reason_line)
 
@@ -12152,7 +12343,7 @@ def render_live_decision_center(
             st.caption(subline)
             if str(decision).upper() != "NO TRADE":
                 st.caption(execution_display)
-            st.markdown(f"`{live_scenario}`  |  `{live_structure_state}`")
+            st.markdown(f"`{live_scenario}`")
             st.caption(f"Bias: {direction_display['bias']} | Trigger: {trigger_state}")
             if transition_note:
                 st.caption(transition_note)
@@ -12162,22 +12353,27 @@ def render_live_decision_center(
 
         stat1, stat2, stat3, stat4, stat5 = st.columns(5)
         stat1.metric("Planned Entry", f"{format_price(entry_value) if entry_value is not None else '-'} SPX")
-        stat2.metric("Current Scenario", live_scenario)
+        stat2.metric("Selected Strike", str(strike_value))
         stat3.metric("Plan Validity", plan_validity)
-        stat4.metric("Timing", timing_bucket)
+        stat4.metric("Expected Fill", format_price(expected_fill) if expected_fill is not None else "Unavailable")
         stat5.metric("Action", hero_action_label)
         stat6, stat7, stat8, stat9 = st.columns(4)
-        stat6.metric("Strike", str(strike_value))
+        stat6.metric("Scenario", live_structure_state)
         stat7.metric("Confidence", f"{confidence}%")
         stat8.metric("Risk", risk_class)
         stat9.metric("Event Risk", str((event_risk_context or {}).get("event_risk_status", "Unknown")))
+        operator_bits = [
+            f"Plan locked: {'Yes' if lock_label != '-' else 'No'}",
+            f"Scenario changed: {'Yes' if scenario_changed else 'No'}",
+            f"Best contract fit: {budget_status}",
+            f"Estimate quality: {estimate_quality}",
+        ]
+        st.caption(" | ".join(operator_bits))
         if expected_value is not None or evidence_label:
             st.caption(
                 f"Expected Value: {format_price(expected_value) if expected_value is not None else '-'}"
                 f" | Evidence: {evidence_label if evidence_label else 'None'}"
             )
-        if lock_label != "-":
-            st.caption(f"Lock Status: {lock_label}")
 
 
 def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_authority: dict[str, Any] | None) -> None:
@@ -12205,7 +12401,7 @@ def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_conte
     event_level = str(event_risk_context.get("event_risk_level", "quiet")).lower()
     execution_action = str(authority.get("execution_action", "") or "")
     setup_state = str(authority.get("setup_state", "") or "")
-    if event_level in {"major", "extreme"} and execution_action not in {"SKIP TRADE", "WAIT FOR EVENT PASS"}:
+    if event_level in {"major", "extreme"} and execution_action not in {"SKIP TRADE"}:
         return "CAUTION EVENT RISK"
     if execution_action == "ENTER NOW":
         return "ENTER NOW"
@@ -12239,6 +12435,21 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
             st.caption(f"Window: {'Active' if context.get('event_window_active') else 'Inactive'}")
             if time_until is not None:
                 st.caption(f"T-{int(time_until)} min")
+        headlines = list(context.get("headlines", []) or [])[:3]
+        if headlines:
+            st.caption("Market-moving headlines")
+            for item in headlines:
+                title = str(item.get("title", "")).strip()
+                if not title:
+                    continue
+                link = str(item.get("link", "")).strip()
+                category = str(item.get("category", "news")).title()
+                if link:
+                    st.markdown(f"[{category}: {title}]({link})")
+                else:
+                    st.caption(f"{category}: {title}")
+        elif str(context.get("source_status", "")) == "unavailable":
+            st.caption("News unavailable")
 
 
 def render_operator_play_card(
@@ -12332,6 +12543,8 @@ def render_operator_play_card(
     drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
     recommended_contract_quote = lead_option_quote
     display_contract_quote = selected_contract_quote or recommended_contract_quote
+    preferred_contract_row = authority.get("preferred_contract_row") if isinstance(authority.get("preferred_contract_row"), dict) else None
+    preferred_contract_mode = str(authority.get("preferred_contract_mode", "Current-state"))
     calibrated_value = _to_float_or_none((display_contract_quote or {}).get("calibrated_entry_mark"))
     if calibrated_value is None:
         calibrated_value = calibration_preview.get("calibrated_entry_mark") if calibration_preview else None
@@ -12364,11 +12577,11 @@ def render_operator_play_card(
     projected_fill_at_entry = selected_contract.get("projected_fill_at_entry") or expected_fill
     max_affordable_fill = selected_contract.get("max_affordable_fill_under_budget")
     event_risk_label = str(authority.get("event_risk_level", "unknown")).replace("_", " ").title()
-    manual_override_active = bool(
-        selected_symbol
-        and recommended_contract_symbol
-        and selected_symbol != recommended_contract_symbol
-    )
+    manual_override_active = bool(option_display_state.get("manual_override"))
+    auto_execution_shift = bool(option_display_state.get("auto_execution_shift"))
+    ladder_rows = option_display_state.get("ladder_rows", [])
+    show_calibrated = developer_mode or any(row.get("calibrated_entry_mark") is not None for row in ladder_rows)
+    show_expected_fill = developer_mode or any((row.get("projected_fill_at_entry") is not None or row.get("expected_fill_mark") is not None) for row in ladder_rows)
     top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
     plan_validity = str(authority.get("plan_validity", "-")).replace("_", " ").title()
     timing_bucket = str(authority.get("timing_bucket", "-")).replace("_", " ").title()
@@ -12390,8 +12603,6 @@ def render_operator_play_card(
     invalidation_message = str(authority.get("invalidation_message", ""))
     expiry_reason = str(authority.get("expiry_reason", ""))
     trigger_line = trigger_reason or setup_state_reason
-    preferred_contract_row = authority.get("preferred_contract_row") if isinstance(authority.get("preferred_contract_row"), dict) else None
-    preferred_contract_mode = str(authority.get("preferred_contract_mode", "Current-state"))
     strike_basis = "Original" if str(authority.get("selected_strike_basis", "original")) == "original" else "Adjusted"
     best_contract_symbol_for_box = str((preferred_contract_row or {}).get("contract_symbol") or displayed_contract_symbol or "")
     best_contract_mark = _non_negative_option_price((preferred_contract_row or {}).get("current_mark"))
@@ -12401,6 +12612,13 @@ def render_operator_play_card(
     best_contract_rr = _to_float_or_none((preferred_contract_row or {}).get("rr_ratio"))
     best_contract_basis = str(authority.get("execution_action_reason", "") or reason_line)
 
+    badge_bits = [
+        f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
+        f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
+        f"<span class=\"spx-chip {_chip_class(effective_confidence_label if (effective_confidence_label := str(intelligence.get('prediction_confidence', ''))) else 'LOW')} \">{escape(projection_confidence)}</span>",
+        f"<span class=\"spx-chip scenario-neutral\">{escape(event_risk_label)}</span>",
+        f"<span class=\"spx-chip scenario-neutral\">{escape(budget_execution_status or selected_budget_status or 'Unknown')}</span>",
+    ]
     st.markdown(
         f"""
         <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
@@ -12418,13 +12636,7 @@ def render_operator_play_card(
                     <div class="spx-play-context-value">{confidence}%</div>
                 </div>
             </div>
-            <div class="spx-badge-row">
-                <span class="spx-chip scenario-neutral">{escape(live_scenario)}</span>
-                <span class="spx-chip scenario-neutral">{escape(live_structure_state)}</span>
-                <span class="spx-chip {_chip_class(intelligence.get('plan_status', ''), 'plan')}">{escape(str(intelligence.get('plan_status', '-')))}</span>
-                <span class="spx-chip {_chip_class(intelligence.get('regime', ''), 'regime')}">{escape(str(intelligence.get('regime', '-')))}</span>
-                <span class="spx-chip {_chip_class(intelligence.get('chase_status', ''), 'chase')}">{escape(str(intelligence.get('chase_status', '-')))}</span>
-            </div>
+            <div class="spx-badge-row">{''.join(badge_bits)}</div>
             <div class="spx-entry-grid">
                 <div class="spx-entry-card">
                     <div class="spx-entry-card-label">Planned Entry</div>
@@ -12439,15 +12651,15 @@ def render_operator_play_card(
             </div>
             <div class="spx-metric-grid secondary">
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">At Entry</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Fill</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Confidence</div><div class="spx-metric-value">{escape(projection_confidence)}</div></div>
+                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else "-"}</div></div>' if show_calibrated else ''}
+                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Fill</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>' if show_expected_fill else ''}
+                <div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate</div><div class="spx-metric-value">{escape(projection_confidence)}</div></div>
             </div>
             <div class="spx-metric-grid secondary">
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else '-'}</div></div>
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Budget</div><div class="spx-metric-value">{escape(budget_execution_status or selected_budget_status or '-')}</div></div>
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get('entry_zone_status', '-')))}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Event Risk</div><div class="spx-metric-value">{escape(event_risk_label)}</div></div>
+                <div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else '-'}</div></div>
             </div>
             <div class="spx-metric-grid secondary">
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>
@@ -12455,8 +12667,8 @@ def render_operator_play_card(
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>
             </div>
-            <div class="spx-play-note">{escape(decision_sentence)}</div>
-            {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note else ''}
+            <div class="spx-play-note">{escape(reason_line if decision == 'NO TRADE' else decision_sentence)}</div>
+            {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
         </div>
         """,
         unsafe_allow_html=True,
@@ -12473,8 +12685,8 @@ def render_operator_play_card(
     live_col1, live_col2, live_col3, live_col4, live_col5 = st.columns(5)
     live_col1.metric("Current Mark", format_price(current_mark) if current_mark is not None else "-")
     live_col2.metric("At Entry", format_price(projected_entry_value) if projected_entry_value is not None else "-")
-    live_col3.metric("Calibrated", format_price(calibrated_value) if calibrated_value is not None else "-")
-    live_col4.metric("Expected Fill", format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-")
+    live_col3.metric("Calibrated", format_price(calibrated_value) if show_calibrated and calibrated_value is not None else "-")
+    live_col4.metric("Expected Fill", format_price(projected_fill_at_entry) if show_expected_fill and projected_fill_at_entry is not None else "-")
     live_col5.metric("Zone", str(authority.get("entry_zone_status", intelligence.get("entry_zone_status", "-"))))
 
     trigger_col1, trigger_col2, trigger_col3, trigger_col4 = st.columns(4)
@@ -12494,7 +12706,7 @@ def render_operator_play_card(
         ("Timing ok", bool(authority.get("checklist_timing_ok"))),
         ("Evidence ok", bool(authority.get("checklist_evidence_ok"))),
     ]
-    checklist_summary = " | ".join(f"{label}: {'Yes' if passed else 'No'}" for label, passed in checklist_labels)
+    checklist_summary = " | ".join(f"{label}: {'Yes' if passed else 'No'}" for label, passed in checklist_labels[:6])
     st.caption(checklist_summary)
     if decision == "CONDITIONAL BUY" and condition_required:
         st.caption(condition_required)
@@ -12517,20 +12729,21 @@ def render_operator_play_card(
                 f"Profile: {strike_profile} | Basis: {projection_reason or best_contract_basis or '-'} | Mode: {preferred_contract_mode}"
                 + (" | Informational only" if execution_action == "SKIP TRADE" else "")
             )
-    st.caption(
-        f"System Recommended: {recommended_contract_symbol or displayed_contract_symbol or '-'}"
-        + (
-            f" | Selected for Entry: {selected_symbol or displayed_contract_symbol or '-'}"
-            if selected_symbol or displayed_contract_symbol
-            else ""
-        )
-    )
+    selection_bits = [f"System Recommended: {recommended_contract_symbol or displayed_contract_symbol or '-'}"]
+    if manual_override_active:
+        selection_bits.append(f"Selected by You: {selected_symbol or displayed_contract_symbol or '-'}")
+    elif auto_execution_shift:
+        selection_bits.append(f"Selected for Entry: {selected_symbol or displayed_contract_symbol or '-'}")
+    st.caption(" | ".join(selection_bits))
     if manual_override_active:
         selected_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
         st.caption(
-            f"Manual strike override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
+            f"Manual override active | Selected strike {format_price(selected_strike) if selected_strike is not None else '-'}"
             f" | Mark {format_price(selected_mark) if selected_mark is not None else '-'}"
         )
+    elif auto_execution_shift:
+        shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
+        st.caption(f"Selected for entry: {selected_symbol or '-'} | {shift_reason}")
     if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None or selected_budget_status:
         st.caption(
             " | ".join(
@@ -12542,11 +12755,13 @@ def render_operator_play_card(
                 ]
             )
         )
-    if projection_warning and projection_warning not in {reason_line, decision_sentence}:
+    if (not show_expected_fill) and not developer_mode and decision != "NO TRADE":
+        st.caption("Expected fill unavailable")
+    elif projection_warning and projection_warning not in {reason_line, decision_sentence}:
         st.caption(projection_warning)
     if retest_summary:
         st.caption(retest_summary)
-    if top_reason_summary:
+    if top_reason_summary and developer_mode:
         st.caption(f"Top reasons: {top_reason_summary}")
     if decision == "NO TRADE":
         st.info(f"Why no trade: {reason_line}")
@@ -13021,10 +13236,12 @@ def render_live_mode_shell(
             active_play_label=hero_active_play,
             live_context=live_context,
             event_risk_context=event_risk_context,
+            active_contract_quote=primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote if hero_active_play == "Alternate" else primary_selected_contract_quote or alternate_selected_contract_quote,
+            active_option_display=primary_option_display if hero_active_play == "Primary" else alternate_option_display if hero_active_play == "Alternate" else primary_option_display or alternate_option_display,
         )
         render_event_risk_panel(event_risk_context)
         render_alert_panel(primary_authority, alternate_authority)
-        if display_signal_package is not None:
+        if developer_mode and display_signal_package is not None:
             render_trade_decision_summary(
                 display_signal_package,
                 final_projected_lines,
@@ -13105,13 +13322,95 @@ def render_live_mode_shell(
             "final_authority_risk_class": primary_authority.get("risk_class"),
             "final_authority_reason": primary_authority.get("reason_line"),
         }
-
-        decision_col1, decision_col2 = st.columns(2, gap="large")
         if display_signal_package is not None:
-            with decision_col1:
-                render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display)
-            with decision_col2:
-                render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display)
+            play_specs = [
+                {
+                    "label": "Primary",
+                    "title": "Primary Trade",
+                    "play": display_signal_package["scenario"]["primary_play"],
+                    "lead_quote": primary_display_contract_quote,
+                    "selected_quote": primary_selected_contract_quote,
+                    "status": final_status,
+                    "status_breakdown": final_status_breakdown,
+                    "planned_anchor_key": primary_planned_anchor_key,
+                    "session_plan": primary_session_plan,
+                    "calibration_preview": primary_calibration_preview,
+                    "adaptive_overlay": primary_adaptive_overlay,
+                    "authority": primary_authority,
+                    "option_display_state": primary_option_display,
+                },
+                {
+                    "label": "Alternate",
+                    "title": "Alternate Trade",
+                    "play": display_signal_package["scenario"]["alternate_play"],
+                    "lead_quote": alternate_display_contract_quote,
+                    "selected_quote": alternate_selected_contract_quote,
+                    "status": alternate_status_breakdown["final_status"],
+                    "status_breakdown": alternate_status_breakdown,
+                    "planned_anchor_key": alternate_planned_anchor_key,
+                    "session_plan": alternate_session_plan,
+                    "calibration_preview": alternate_calibration_preview,
+                    "adaptive_overlay": alternate_adaptive_overlay,
+                    "authority": alternate_authority,
+                    "option_display_state": alternate_option_display,
+                },
+            ]
+            active_label = hero_active_play if hero_active_play in {"Primary", "Alternate"} else None
+            if not developer_mode and active_label is not None:
+                active_spec = next((spec for spec in play_specs if spec["label"] == active_label), play_specs[0])
+                secondary_specs = [spec for spec in play_specs if spec["label"] != active_spec["label"]]
+                render_operator_play_card(
+                    active_spec["title"],
+                    active_spec["play"],
+                    final_projected_lines,
+                    final_projected_lines_es,
+                    active_spec["lead_quote"],
+                    compact=True,
+                    effective_offset=effective_offset,
+                    offset_diagnostics=offset_diagnostics,
+                    developer_mode=developer_mode,
+                    final_status=active_spec["status"],
+                    status_breakdown=active_spec["status_breakdown"],
+                    current_spx_price=live_current_spx,
+                    planned_anchor_key=active_spec["planned_anchor_key"],
+                    session_plan=active_spec["session_plan"],
+                    calibration_preview=active_spec["calibration_preview"],
+                    adaptive_overlay=active_spec["adaptive_overlay"],
+                    authority=active_spec["authority"],
+                    live_context=live_context,
+                    selected_contract_quote=active_spec["selected_quote"],
+                    option_display_state=active_spec["option_display_state"],
+                )
+                for spec in secondary_specs:
+                    with st.expander(f"{spec['title']} Snapshot", expanded=False):
+                        render_operator_play_card(
+                            spec["title"],
+                            spec["play"],
+                            final_projected_lines,
+                            final_projected_lines_es,
+                            spec["lead_quote"],
+                            compact=True,
+                            effective_offset=effective_offset,
+                            offset_diagnostics=offset_diagnostics,
+                            developer_mode=developer_mode,
+                            final_status=spec["status"],
+                            status_breakdown=spec["status_breakdown"],
+                            current_spx_price=live_current_spx,
+                            planned_anchor_key=spec["planned_anchor_key"],
+                            session_plan=spec["session_plan"],
+                            calibration_preview=spec["calibration_preview"],
+                            adaptive_overlay=spec["adaptive_overlay"],
+                            authority=spec["authority"],
+                            live_context=live_context,
+                            selected_contract_quote=spec["selected_quote"],
+                            option_display_state=spec["option_display_state"],
+                        )
+            else:
+                decision_col1, decision_col2 = st.columns(2, gap="large")
+                with decision_col1:
+                    render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display)
+                with decision_col2:
+                    render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display)
 
         render_spatial_ladder(final_projected_lines_es, inputs["current_es_price"] if is_valid_price_input(inputs["current_es_price"]) else None, price_space_label="ES")
         render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode)
@@ -13130,6 +13429,7 @@ def render_live_mode_shell(
             option_sections,
             developer_mode=developer_mode,
         )
+        st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
 
     with live_asian_tab:
         st.markdown(
@@ -13544,6 +13844,8 @@ def main() -> None:
     persisted_settings = {
         "es_spx_offset": inputs["es_spx_offset"],
         "news_day": inputs["news_day"],
+        "manual_event_risk_level": inputs["manual_event_risk_level"],
+        "manual_event_label": inputs["manual_event_label"],
         "preferred_checkpoint": settings.get("preferred_checkpoint", DEFAULT_SETTINGS["preferred_checkpoint"]),
         "data_mode": inputs["data_mode"],
         "visibility_mode": inputs["visibility_mode"],

@@ -8,6 +8,7 @@ import app as app_module
 from app import (
     _non_negative_option_price,
     align_play_conversion_to_effective_offset,
+    apply_event_risk_to_execution_guidance,
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
@@ -18,16 +19,20 @@ from app import (
     build_line_rows,
     build_contract_selection_key,
     build_option_display_state,
+    choose_execution_contract_from_ladder,
     classify_trigger_state,
     classify_budget_status,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
+    estimate_contract_value_at_planned_entry,
     get_structure_assertion_warnings,
     resolve_effective_offset,
+    resolve_hero_action_label,
     resolve_live_current_spx,
     resolve_play_display_values,
     resolve_recommended_contract_row,
     resolve_selected_contract_row,
+    summarize_event_risk,
     validate_contract_binding,
 )
 
@@ -657,6 +662,96 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(prefill["target_1_spx"], 7103.72)
         self.assertEqual(prefill["budget_execution_status"], "WITHIN_BUDGET")
         self.assertEqual(prefill["locked_selected_contract_symbol"], "SPXW 260422P07100000")
+
+    def test_forward_pricing_estimates_entry_value_and_conservative_fill(self) -> None:
+        projection = estimate_contract_value_at_planned_entry(
+            current_underlying_price=7140.0,
+            planned_underlying_entry_price=7120.0,
+            current_mark=4.9,
+            current_bid=4.8,
+            current_ask=5.0,
+            current_last=4.95,
+            option_type="PUT",
+            strike=7100,
+            expiration="2026-04-22",
+            delta=-0.42,
+            gamma=0.01,
+            theta=-0.18,
+            vega=0.09,
+            implied_volatility=0.24,
+            spread_width=0.2,
+            liquidity_score=450.0,
+            time_to_entry_minutes=25.0,
+            entry_time_bucket="near",
+            calibration_bias=0.1,
+            event_risk_level="quiet",
+            event_window_active=False,
+            headline_shock_risk=False,
+        )
+
+        self.assertIsNotNone(projection["projected_mark_at_entry"])
+        self.assertGreaterEqual(projection["projected_fill_at_entry"], projection["projected_mark_at_entry"])
+        self.assertGreaterEqual(projection["projected_bid_at_entry"], 0.01)
+        self.assertIn(projection["projection_confidence"], {"high", "medium", "low", "speculative"})
+
+    def test_forward_pricing_falls_back_cleanly_when_greeks_missing(self) -> None:
+        projection = estimate_contract_value_at_planned_entry(
+            current_underlying_price=7140.0,
+            planned_underlying_entry_price=7120.0,
+            current_mark=4.9,
+            current_bid=4.7,
+            current_ask=5.1,
+            current_last=None,
+            option_type="PUT",
+            strike=7100,
+            expiration="2026-04-22",
+            delta=-0.42,
+            gamma=None,
+            theta=None,
+            vega=None,
+            implied_volatility=None,
+            spread_width=0.4,
+            liquidity_score=10.0,
+            time_to_entry_minutes=None,
+            entry_time_bucket="unavailable",
+            calibration_bias=None,
+            event_risk_level="major",
+            event_window_active=True,
+            headline_shock_risk=True,
+        )
+
+        self.assertIsNotNone(projection["projected_mark_at_entry"])
+        self.assertIn(projection["projection_confidence"], {"low", "speculative"})
+        self.assertTrue(projection["projection_warning"])
+
+    def test_budget_aware_execution_selection_prefers_viable_within_budget_contract(self) -> None:
+        rows = [
+            {"contract_symbol": "REC", "budget_status": "Above Budget", "rr_ratio": 1.6, "contract_score": 0.9, "delta": -0.58, "premium_projection_confidence": "High", "projected_fill_at_entry": 7.5, "labels": []},
+            {"contract_symbol": "BUDGET", "budget_status": "Within Budget", "rr_ratio": 1.2, "contract_score": 0.75, "delta": -0.55, "premium_projection_confidence": "Medium", "projected_fill_at_entry": 3.9, "labels": []},
+        ]
+
+        chosen = choose_execution_contract_from_ladder(rows, recommended_symbol="REC")
+
+        self.assertEqual(chosen["contract_symbol"], "BUDGET")
+
+    def test_event_risk_overlay_downgrades_execution_guidance(self) -> None:
+        overlay = apply_event_risk_to_execution_guidance(
+            current_action="ENTER NOW",
+            current_reason="Structure valid and in zone",
+            event_risk_context={"event_risk_level": "major", "event_trading_mode": "reduced confidence", "event_risk_reason": "CPI window active"},
+        )
+
+        hero_label = resolve_hero_action_label(
+            {"execution_action": overlay["action"], "setup_state": "READY"},
+            {"event_risk_level": "major"},
+        )
+
+        self.assertEqual(overlay["action"], "WAIT FOR EVENT PASS")
+        self.assertEqual(hero_label, "CAUTION EVENT RISK")
+
+    def test_event_risk_summary_stays_compact_when_news_unavailable(self) -> None:
+        summary = summarize_event_risk({"event_risk_status": "Unknown", "event_risk_reason": "News unavailable"})
+        self.assertEqual(summary, "Event Risk: Unknown | News unavailable")
 
 
 if __name__ == "__main__":
