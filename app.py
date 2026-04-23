@@ -1943,16 +1943,6 @@ def inject_app_styles() -> None:
             font-family: var(--spx-font-body) !important;
         }
         .stCaption, .stCaption p { font-family: var(--spx-font-body) !important; }
-        /* ── MATERIAL SYMBOLS ICON PROTECTION ───────────────────────── */
-        /* Must come after all font-family rules to win the cascade     */
-        span.material-symbols-rounded,
-        span.material-symbols-outlined,
-        span.material-symbols-sharp {
-            font-family: "Material Symbols Rounded" !important;
-            font-style: normal !important;
-            font-weight: normal !important;
-            font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24 !important;
-        }
 
         /* ── CUSTOM SCROLLBAR ────────────────────────────────────────── */
         * { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,0.25) rgba(255,255,255,0.04); }
@@ -2103,7 +2093,7 @@ def inject_app_styles() -> None:
             background: rgba(255,255,255,0.01) !important;
         }
         div[data-testid="stExpander"] > details > summary > p,
-        div[data-testid="stExpander"] > details > summary span[data-testid="stExpanderToggleLabel"] {
+        div[data-testid="stExpander"] > details > summary p[data-testid="stExpanderToggleLabel"] {
             font-family: var(--spx-font-body) !important;
         }
         div[data-testid="stExpander"] > details > summary:hover {
@@ -2795,6 +2785,29 @@ def inject_app_styles() -> None:
         section[data-testid="stSidebar"] .stRadio > div {
             background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 10px;
             border: 1px solid rgba(255,255,255,0.05);
+        }
+        /* ══ MATERIAL SYMBOLS PROTECTION — must be last to win cascade ══ */
+        /* Two-attribute selectors beat any single-attribute rule above    */
+        [data-testid="stExpander"] details summary span.material-symbols-rounded,
+        [data-testid="stExpander"] details summary span.material-symbols-outlined,
+        [data-testid="stExpander"] details summary span.material-symbols-sharp,
+        [data-testid="stSidebar"] span.material-symbols-rounded,
+        [data-testid="stSidebar"] span.material-symbols-outlined,
+        [data-testid="stSidebar"] span.material-symbols-sharp,
+        span.material-symbols-rounded,
+        span.material-symbols-outlined,
+        span.material-symbols-sharp {
+            font-family: "Material Symbols Rounded" !important;
+            font-style: normal !important;
+            font-weight: normal !important;
+            font-size: inherit !important;
+            line-height: 1 !important;
+            letter-spacing: normal !important;
+            text-transform: none !important;
+            word-wrap: normal !important;
+            white-space: nowrap !important;
+            font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24 !important;
+            -webkit-font-smoothing: antialiased !important;
         }
         </style>
         """,
