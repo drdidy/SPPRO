@@ -681,7 +681,7 @@ def inject_app_styles() -> None:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
         :root {
             --spx-bg: #04070d;
             --spx-bg-soft: #0b1120;
@@ -697,6 +697,7 @@ def inject_app_styles() -> None:
             --spx-gold: #ffd740;
             --spx-purple: #b388ff;
             --spx-font-sans: "Outfit", "Segoe UI", sans-serif;
+            --spx-font-body: "Inter", "Segoe UI", sans-serif;
             --spx-font-mono: "JetBrains Mono", monospace;
         }
         .stApp {
@@ -712,7 +713,7 @@ def inject_app_styles() -> None:
             max-width: 1400px;
         }
         html, body, .stApp, .main .block-container {
-            font-family: var(--spx-font-sans);
+            font-family: var(--spx-font-body);
         }
         h1, h2, h3, h4 {
             font-family: var(--spx-font-sans) !important;
@@ -1628,25 +1629,309 @@ def inject_app_styles() -> None:
                 grid-template-columns: 1fr;
             }
         }
+
+        /* ── INTER BODY FONT ─────────────────────────────────────────── */
+        p, li, span, td, th, caption,
+        div[data-testid="stMarkdownContainer"] p,
+        div[data-testid="stMarkdownContainer"] li,
+        .spx-card-copy, .spx-banner-text, .spx-banner-meta,
+        .spx-play-note, .spx-muted, .spx-section-subtitle,
+        .spx-hero-subtitle, .spx-summary-body {
+            font-family: var(--spx-font-body) !important;
+        }
+        .stCaption, .stCaption p { font-family: var(--spx-font-body) !important; }
+
+        /* ── CUSTOM SCROLLBAR ────────────────────────────────────────── */
+        * { scrollbar-width: thin; scrollbar-color: rgba(0,212,255,0.25) rgba(255,255,255,0.04); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.3); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.5); }
+        ::-webkit-scrollbar-corner { background: transparent; }
+
+        /* ── TAB IMPROVEMENTS ────────────────────────────────────────── */
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+            background: rgba(8,12,22,0.72);
+            border-radius: 14px 14px 0 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            gap: 2px;
+            padding: 4px 6px 0 6px;
+        }
+        div[data-testid="stTabs"] button[role="tab"] {
+            border-radius: 10px 10px 0 0 !important;
+            padding: 0.5rem 1rem !important;
+            font-size: 0.78rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.06em !important;
+            color: var(--spx-muted) !important;
+            border: none !important;
+            background: transparent !important;
+            transition: all 180ms ease !important;
+        }
+        div[data-testid="stTabs"] button[role="tab"]:hover {
+            color: var(--spx-text) !important;
+            background: rgba(255,255,255,0.04) !important;
+        }
+        div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+            color: var(--spx-cyan) !important;
+            background: linear-gradient(180deg, rgba(0,212,255,0.1), rgba(0,212,255,0.04)) !important;
+            border-bottom: 2px solid var(--spx-cyan) !important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-panel"] {
+            padding-top: 1rem;
+        }
+
+        /* ── IMPROVED INPUTS ─────────────────────────────────────────── */
+        div[data-baseweb="input"] input,
+        div[data-baseweb="select"] input {
+            font-family: var(--spx-font-body) !important;
+            color: var(--spx-text) !important;
+        }
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div,
+        textarea {
+            background: rgba(7,11,20,0.94) !important;
+            border-color: rgba(255,255,255,0.08) !important;
+            border-radius: 12px !important;
+            transition: border-color 150ms ease !important;
+        }
+        div[data-baseweb="input"]:focus-within > div,
+        div[data-baseweb="select"]:focus-within > div,
+        textarea:focus {
+            border-color: rgba(0,212,255,0.35) !important;
+            box-shadow: 0 0 0 3px rgba(0,212,255,0.08) !important;
+        }
+        div[data-testid="stTextInput"] label,
+        div[data-testid="stNumberInput"] label,
+        div[data-testid="stSelectbox"] label,
+        div[data-testid="stDateInput"] label,
+        div[data-testid="stTextArea"] label {
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.75rem !important;
+            font-weight: 700 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            color: var(--spx-muted) !important;
+            margin-bottom: 0.2rem !important;
+        }
+
+        /* ── BUTTON IMPROVEMENTS ─────────────────────────────────────── */
+        div[data-testid="stButton"] > button {
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.82rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.04em;
+            border-radius: 12px !important;
+            padding: 0.5rem 1.1rem !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            background: linear-gradient(145deg, rgba(20,28,46,0.96), rgba(10,16,28,0.98)) !important;
+            color: #d0e4ff !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+            transition: all 160ms ease !important;
+        }
+        div[data-testid="stButton"] > button:hover {
+            border-color: rgba(0,212,255,0.28) !important;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.28), 0 0 14px rgba(0,212,255,0.1), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+            transform: translateY(-1px) !important;
+            color: #e8f4ff !important;
+        }
+        div[data-testid="stButton"] > button[kind="primary"] {
+            background: linear-gradient(145deg, rgba(0,212,255,0.18), rgba(0,180,220,0.08)) !important;
+            border-color: rgba(0,212,255,0.28) !important;
+            color: #a8edff !important;
+        }
+
+        /* ── METRIC CARD IMPROVEMENTS ────────────────────────────────── */
+        div[data-testid="stMetric"] {
+            background: linear-gradient(145deg, rgba(13,20,36,0.94), rgba(8,12,22,0.98)) !important;
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 16px !important;
+            padding: 0.85rem 0.9rem !important;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03) !important;
+            transition: box-shadow 200ms ease !important;
+        }
+        div[data-testid="stMetric"]:hover {
+            box-shadow: 0 12px 28px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+        }
+        div[data-testid="stMetricLabel"] p {
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.68rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.1em !important;
+            text-transform: uppercase;
+            color: var(--spx-muted) !important;
+        }
+        div[data-testid="stMetricValue"] {
+            font-family: var(--spx-font-mono) !important;
+            font-size: 1.1rem !important;
+            font-weight: 700 !important;
+            color: #e4f2ff !important;
+        }
+        div[data-testid="stMetricDelta"] { font-family: var(--spx-font-body) !important; }
+
+        /* ── EXPANDER IMPROVEMENTS ───────────────────────────────────── */
+        div[data-testid="stExpander"] {
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 16px !important;
+            background: rgba(8,12,22,0.7) !important;
+            overflow: hidden;
+            margin-bottom: 0.6rem;
+            transition: border-color 150ms ease;
+        }
+        div[data-testid="stExpander"]:hover {
+            border-color: rgba(255,255,255,0.1) !important;
+        }
+        div[data-testid="stExpander"] > details > summary {
+            padding: 0.7rem 0.9rem !important;
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.82rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.04em;
+            color: var(--spx-text) !important;
+            background: rgba(255,255,255,0.01) !important;
+        }
+        div[data-testid="stExpander"] > details > summary:hover {
+            background: rgba(0,212,255,0.04) !important;
+        }
+
+        /* ── DATAFRAME IMPROVEMENTS ──────────────────────────────────── */
+        div[data-testid="stDataFrame"] { border-radius: 16px !important; overflow: hidden; }
+        div[data-testid="stDataFrame"] iframe { border-radius: 16px !important; }
+        .stDataFrame th {
+            background: rgba(0,212,255,0.07) !important;
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.72rem !important;
+            font-weight: 700 !important;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--spx-muted) !important;
+        }
+        .stDataFrame td {
+            font-family: var(--spx-font-mono) !important;
+            font-size: 0.82rem !important;
+        }
+
+        /* ── SIDEBAR IMPROVEMENTS ────────────────────────────────────── */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #060a14 0%, #04070f 100%) !important;
+            border-right: 1px solid rgba(0,212,255,0.06) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] hr {
+            border: none;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+            margin: 0.5rem 0;
+        }
+        [data-testid="stSidebar"] .stRadio label {
+            font-family: var(--spx-font-body) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            background: rgba(255,255,255,0.02) !important;
+            border-color: rgba(255,255,255,0.05) !important;
+        }
+
+        /* ── FORM IMPROVEMENTS ───────────────────────────────────────── */
+        div[data-testid="stForm"] {
+            border: 1px solid rgba(255,255,255,0.07) !important;
+            border-radius: 18px !important;
+            background: rgba(8,12,22,0.72) !important;
+            padding: 1rem !important;
+        }
+
+        /* ── ALERT / WARNING / SUCCESS BOXES ─────────────────────────── */
+        div[data-testid="stAlert"] {
+            border-radius: 14px !important;
+            font-family: var(--spx-font-body) !important;
+            font-size: 0.88rem !important;
+        }
+
+        /* ── CHECKBOX / RADIO IMPROVEMENTS ──────────────────────────── */
+        [data-testid="stCheckbox"] label,
+        [data-testid="stRadio"] label { font-family: var(--spx-font-body) !important; }
+
+        /* ── PRODUCTION MODE FOCUS ───────────────────────────────────── */
+        body[data-prod-mode="true"] .spx-edge-only { display: none !important; }
+
+        /* ── HERO STAT VALUE ACCENT ──────────────────────────────────── */
+        .spx-hero-stat-value, .spx-card-stat-value {
+            background: linear-gradient(135deg, #e4f4ff 0%, #00d4ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── GLOW ON PRIMARY ACTIONS ─────────────────────────────────── */
+        .spx-card.primary {
+            box-shadow: 0 16px 40px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,212,255,0.12), inset 0 1px 0 rgba(255,255,255,0.02) !important;
+        }
+        .spx-status-chip.good {
+            box-shadow: 0 0 18px rgba(0,230,118,0.15), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        }
+        .spx-status-chip.bad {
+            box-shadow: 0 0 18px rgba(255,23,68,0.15), inset 0 1px 0 rgba(255,255,255,0.03) !important;
+        }
+
+        /* ── GRADIENT DIVIDER ────────────────────────────────────────── */
+        .spx-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, rgba(0,212,255,0.2) 30%, rgba(179,136,255,0.15) 70%, transparent 100%);
+            margin: 1rem 0;
+            border: none;
+        }
+
+        /* ── SELECTION HIGHLIGHT ─────────────────────────────────────── */
+        ::selection { background: rgba(0,212,255,0.2); color: #f8fbff; }
+
+        /* ── PRICE TAG (big number display) ──────────────────────────── */
+        .spx-price-tag {
+            font-family: var(--spx-font-mono);
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #ffffff 0%, #a0d8ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+        }
+
+        /* ── IMPROVED SPATIAL LADDER ─────────────────────────────────── */
+        .spx-ladder-row:hover { background: rgba(0,212,255,0.04) !important; cursor: default; }
+
+        /* ── LOADING STATE ───────────────────────────────────────────── */
+        div[data-testid="stSpinner"] { font-family: var(--spx-font-body) !important; }
+
+        /* ── TOOLTIP / CAPTION ───────────────────────────────────────── */
+        [data-testid="stCaptionContainer"] p {
+            font-family: var(--spx-font-body) !important;
+            color: var(--spx-muted-2) !important;
+            font-size: 0.76rem !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_section_header(title: str, subtitle: str | None = None) -> None:
+def render_section_header(title: str, subtitle: str | None = None, icon: str = "") -> None:
     """Render a compact styled section header."""
 
     subtitle_html = f'<div class="spx-section-subtitle">{subtitle}</div>' if subtitle else ""
+    icon_html = f'<span style="margin-right:0.5rem;opacity:0.7;">{icon}</span>' if icon else ""
     st.markdown(
         f"""
         <div class="spx-shell">
-            <div class="spx-section-title">{title}</div>
+            <div class="spx-section-title">{icon_html}{title}</div>
             {subtitle_html}
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_divider() -> None:
+    """Render a gradient accent divider."""
+    st.markdown('<hr class="spx-divider">', unsafe_allow_html=True)
 
 
 def render_release_hygiene() -> None:
@@ -6067,7 +6352,15 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     default_open_reference = float(live_defaults["default_open_reference"])
 
     with st.sidebar:
-        st.header(APP_TITLE)
+        st.markdown(
+            f"""
+            <div style="padding:0.7rem 0 0.5rem 0; margin-bottom:0.3rem; border-bottom:1px solid rgba(0,212,255,0.1);">
+                <div style="font-family:'Outfit',sans-serif;font-size:1.22rem;font-weight:800;color:#f8fbff;letter-spacing:-0.01em;line-height:1.1;">{APP_TITLE}</div>
+                <div style="font-family:'Inter',sans-serif;font-size:0.68rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.6);margin-top:0.2rem;">ES Structure · Options Intelligence</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         operating_mode = st.radio("Operating mode", ["Live Mode", "Historical Mode"], index=0)
         visibility_options = ["Production Mode", "Edge Lab"]
         visibility_mode = st.radio(
@@ -6092,7 +6385,8 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])))
 
-        st.subheader("Session Inputs")
+        st.markdown('<hr style="border:none;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,0.15),transparent);margin:0.4rem 0;">', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:rgba(142,161,188,0.8);margin-bottom:0.3rem;">SESSION INPUTS</div>', unsafe_allow_html=True)
         active_defaults = historical_defaults if historical_mode and historical_defaults is not None else live_defaults
         current_spx_price = st.number_input("9:00 AM SPX price", value=float(st.session_state.get("current_spx_price_input", active_defaults["default_spx_price"])), step=0.25, format="%.2f", key="current_spx_price_input")
         current_es_price = st.number_input("Current ES price", value=float(st.session_state.get("current_es_price_input", active_defaults["default_es_price"])), step=0.25, format="%.2f", key="current_es_price_input")
@@ -8013,7 +8307,7 @@ def render_trade_log_tab(
         available_snapshot_options.append(option_label)
         snapshot_lookup[option_label] = (snapshot["id"], snapshot["snapshot_date"])
 
-    journal_tabs = st.tabs(["Log Trade", "Review Outcomes", "Analytics / Edge"])
+    journal_tabs = st.tabs(["📝  Log Trade", "📊  Review Outcomes", "🔬  Analytics / Edge"])
     log_tab, review_tab, analytics_tab = journal_tabs
 
     with log_tab:
@@ -9210,7 +9504,7 @@ def render_live_mode_shell(
     """Render the live operator workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    live_signal_tab, live_asian_tab = st.tabs(["SIGNAL & LEVELS", "ASIAN SESSION"])
+    live_signal_tab, live_asian_tab = st.tabs(["⚡  SIGNAL & LEVELS", "🌙  ASIAN SESSION"])
 
     with live_signal_tab:
         if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
@@ -9837,7 +10131,7 @@ def render_historical_projection_mode(
     """Render the historical analysis workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    projection_tab, review_tab, backtest_tab = st.tabs(["Historical Projection", "Historical Review", "Backtest"])
+    projection_tab, review_tab, backtest_tab = st.tabs(["📈  Historical Projection", "🔍  Historical Review", "🧪  Backtest"])
     synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
 
     with projection_tab:
@@ -9895,11 +10189,10 @@ def main() -> None:
     """Run the current Streamlit integration."""
 
     render_startup_diagnostics()
-    st.set_page_config(page_title=APP_TITLE, layout="wide")
+    st.set_page_config(page_title=f"{APP_TITLE} {APP_VERSION}", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
     initialize_app_state()
     inject_app_styles()
     settings, settings_message = load_settings()
-    st.title(APP_TITLE)
     if settings_message:
         st.warning(settings_message)
 
@@ -10023,7 +10316,19 @@ def main() -> None:
         st.error(f"Unable to build Asian session checkpoints: {exc}")
         checkpoint_views = []
 
-    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["LIVE MODE", "HISTORICAL MODE", "TRADE LOG"])
+    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
+
+    _vis_label = inputs.get("visibility_mode", "Production Mode")
+    _vis_color = "rgba(179,136,255,0.18)" if _vis_label == "Edge Lab" else "rgba(0,212,255,0.1)"
+    _vis_border = "rgba(179,136,255,0.3)" if _vis_label == "Edge Lab" else "rgba(0,212,255,0.22)"
+    _vis_text = "#c8a8ff" if _vis_label == "Edge Lab" else "#7fe7ff"
+    st.markdown(
+        f'<div style="display:flex;justify-content:flex-end;margin-bottom:0.3rem;">'
+        f'<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;'
+        f'padding:0.2rem 0.6rem;border-radius:999px;background:{_vis_color};border:1px solid {_vis_border};color:{_vis_text};">'
+        f'{_vis_label}</span></div>',
+        unsafe_allow_html=True,
+    )
 
     with top_live_tab:
         if inputs["operating_mode"] == "Live Mode":
