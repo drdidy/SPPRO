@@ -14884,97 +14884,31 @@ def render_live_mode_shell(
                     "option_display_state": alternate_option_display,
                 },
             ]
-            active_label = hero_active_play if hero_active_play in {"Primary", "Alternate"} else None
             # Determine if alternate was promoted because primary was invalidated
             _primary_invalidated = str(primary_authority.get("setup_state", "")).upper() in {"INVALIDATED", "EXPIRED", "NO_TRADE"} and primary_authority.get("decision") == "NO TRADE"
-            _alternate_promoted = active_label == "Alternate" and _primary_invalidated
-            if not developer_mode and active_label is not None:
-                active_spec = next((spec for spec in play_specs if spec["label"] == active_label), play_specs[0])
-                secondary_specs = [spec for spec in play_specs if spec["label"] != active_spec["label"]]
-                # Show a promotion notice when alternate has been elevated
-                if _alternate_promoted:
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;margin-bottom:8px;'
-                        f'background:rgba(255,215,64,0.07);border:1px solid rgba(255,215,64,0.2);border-radius:8px;">'
-                        f'<span style="font-size:0.9rem;">⇑</span>'
-                        f'<span style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#ffd740;">Alternate promoted — Primary trade invalidated</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                _display_title = "Active Trade" if _alternate_promoted else active_spec["title"]
+            _alternate_promoted = hero_active_play == "Alternate" and _primary_invalidated
+            if _alternate_promoted:
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;margin-bottom:8px;'
+                    f'background:rgba(255,215,64,0.07);border:1px solid rgba(255,215,64,0.2);border-radius:8px;">'
+                    f'<span style="font-size:0.9rem;">⇑</span>'
+                    f'<span style="font-size:0.72rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#ffd740;">Alternate promoted — Primary trade invalidated</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            decision_col1, decision_col2 = st.columns(2, gap="large")
+            with decision_col1:
                 safe_render_section(
-                    _display_title,
-                    lambda spec=active_spec, dt=_display_title: render_operator_play_card(
-                        dt,
-                        spec["play"],
-                        final_projected_lines,
-                        final_projected_lines_es,
-                        spec["lead_quote"],
-                        compact=True,
-                        effective_offset=effective_offset,
-                        offset_diagnostics=offset_diagnostics,
-                        developer_mode=developer_mode,
-                        final_status=spec["status"],
-                        status_breakdown=spec["status_breakdown"],
-                        current_spx_price=live_current_spx,
-                        planned_anchor_key=spec["planned_anchor_key"],
-                        session_plan=spec["session_plan"],
-                        calibration_preview=spec["calibration_preview"],
-                        adaptive_overlay=spec["adaptive_overlay"],
-                        authority=spec["authority"],
-                        live_context=live_context,
-                        selected_contract_quote=spec["selected_quote"],
-                        option_display_state=spec["option_display_state"],
-                    ),
+                    "Primary Trade",
+                    lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
                     developer_mode=developer_mode,
                 )
-                for spec in secondary_specs:
-                    # Label the collapsed secondary trade clearly
-                    _sec_state = str(spec["authority"].get("setup_state", "")).upper() if spec.get("authority") else ""
-                    _sec_decision = str(spec["authority"].get("decision", "")) if spec.get("authority") else ""
-                    _sec_suffix = " — Invalidated" if _sec_state in {"INVALIDATED", "EXPIRED"} else (" — No Trade" if _sec_decision == "NO TRADE" else "")
-                    _sec_label = f"{spec['title']}{_sec_suffix}"
-                    with st.expander(_sec_label, expanded=False):
-                        safe_render_section(
-                            spec["title"],
-                            lambda spec=spec: render_operator_play_card(
-                                spec["title"],
-                                spec["play"],
-                                final_projected_lines,
-                                final_projected_lines_es,
-                                spec["lead_quote"],
-                                compact=True,
-                                effective_offset=effective_offset,
-                                offset_diagnostics=offset_diagnostics,
-                                developer_mode=developer_mode,
-                                final_status=spec["status"],
-                                status_breakdown=spec["status_breakdown"],
-                                current_spx_price=live_current_spx,
-                                planned_anchor_key=spec["planned_anchor_key"],
-                                session_plan=spec["session_plan"],
-                                calibration_preview=spec["calibration_preview"],
-                                adaptive_overlay=spec["adaptive_overlay"],
-                                authority=spec["authority"],
-                                live_context=live_context,
-                                selected_contract_quote=spec["selected_quote"],
-                                option_display_state=spec["option_display_state"],
-                            ),
-                            developer_mode=developer_mode,
-                        )
-            else:
-                decision_col1, decision_col2 = st.columns(2, gap="large")
-                with decision_col1:
-                    safe_render_section(
-                        "Primary Trade",
-                        lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
-                        developer_mode=developer_mode,
-                    )
-                with decision_col2:
-                    safe_render_section(
-                        "Alternate Trade",
-                        lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
-                        developer_mode=developer_mode,
-                    )
+            with decision_col2:
+                safe_render_section(
+                    "Alternate Trade",
+                    lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
+                    developer_mode=developer_mode,
+                )
 
         safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
 
