@@ -2217,6 +2217,7 @@ def inject_app_styles() -> None:
             font-family: var(--spx-font-body) !important;
             color: var(--spx-muted-2) !important;
             font-size: 0.76rem !important;
+        }
         :root {
             --spx-bg: #030614;
             --spx-bg-soft: #081021;
