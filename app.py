@@ -204,6 +204,16 @@ FORWARD_PRICING_MAX_THETA_DAYS = 2.0
 FORWARD_PRICING_MAX_EVENT_IV_FACTOR = 0.35
 FORWARD_PRICING_MAX_LIQUIDITY_PENALTY = 0.35
 FORWARD_PRICING_MAX_SPREAD_PENALTY = 0.45
+FORWARD_PRICING_OPEN_IV_CRUSH = 0.015
+FORWARD_PRICING_EVENT_IV_EXPANSION = {
+    "quiet": 0.0,
+    "low": 0.003,
+    "elevated": 0.006,
+    "medium": 0.008,
+    "high": 0.012,
+    "major": 0.018,
+    "extreme": 0.028,
+}
 EVENT_BUFFER_MINUTES = 45
 POST_EVENT_STABILIZATION_MINUTES = 30
 NEWS_FEED_TIMEOUT_SECONDS = 4.0
@@ -7962,10 +7972,16 @@ def build_selected_contract_binding(
         "projected_ask_at_entry": _non_negative_option_price(selected_contract.get("projected_ask_at_entry")),
         "projected_mid_at_entry": _non_negative_option_price(selected_contract.get("projected_mid_at_entry")),
         "projected_fill_at_entry": _non_negative_option_price(selected_contract.get("projected_fill_at_entry")),
+        "projected_mark_at_target_time": _non_negative_option_price(selected_contract.get("projected_mark_at_target_time")),
+        "expected_fill_at_target_time": _non_negative_option_price(selected_contract.get("expected_fill_at_target_time")),
+        "projection_target_time": str(selected_contract.get("projection_target_time", "") or ""),
+        "projection_target_label": str(selected_contract.get("projection_target_label", "") or ""),
         "calibrated_entry_mark": _non_negative_option_price(calibrated_entry_mark),
         "expected_fill_mark": _non_negative_option_price(expected_fill_mark),
         "max_affordable_fill_under_budget": _non_negative_option_price(selected_contract.get("max_affordable_fill_under_budget")),
         "premium_projection_confidence": str(selected_contract.get("premium_projection_confidence", "") or ""),
+        "estimate_quality": str(selected_contract.get("estimate_quality", "") or ""),
+        "estimate_reason": str(selected_contract.get("estimate_reason", "") or ""),
         "premium_projection_evidence": str(selected_contract.get("premium_projection_evidence", "") or ""),
         "premium_projection_uncertainty_band_low": _non_negative_option_price(selected_contract.get("premium_projection_uncertainty_band_low")),
         "premium_projection_uncertainty_band_high": _non_negative_option_price(selected_contract.get("premium_projection_uncertainty_band_high")),
@@ -8041,6 +8057,232 @@ def _confidence_label_from_score(score: float) -> str:
     if score >= 0.34:
         return "low"
     return "speculative"
+
+
+def _estimate_quality_from_confidence(confidence_label: str) -> str:
+    """Map the internal confidence label into operator-facing estimate quality."""
+
+    return {
+        "high": "Strong",
+        "medium": "Moderate",
+        "low": "Weak",
+        "speculative": "Insufficient",
+    }.get(str(confidence_label or "").lower(), "Insufficient")
+
+
+def _projection_confidence_from_quality(estimate_quality: str) -> str:
+    """Map operator-facing estimate quality back into the internal confidence set."""
+
+    return {
+        "strong": "high",
+        "moderate": "medium",
+        "weak": "low",
+        "insufficient": "speculative",
+    }.get(str(estimate_quality or "").lower(), "speculative")
+
+
+def _parse_datetime_or_none(value: Any) -> datetime | None:
+    """Parse a datetime-like value safely without throwing in the render path."""
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _is_market_open_time(timestamp: datetime | None) -> bool:
+    """Return True when a Central time timestamp is during the regular cash session."""
+
+    if timestamp is None:
+        return False
+    current_time = timestamp.time()
+    return time(8, 30) <= current_time <= time(15, 0)
+
+
+def _format_projection_target_label(target_time: datetime | None) -> str:
+    """Render a short operator label for the pricing target time."""
+
+    if target_time is None:
+        return "At Entry"
+    formatted = target_time.strftime("%-I:%M %p CT") if os.name != "nt" else target_time.strftime("%#I:%M %p CT")
+    return f"Projected @ {formatted}"
+
+
+def estimate_option_price_at_time(
+    current_underlying_price: float | None,
+    target_underlying_price: float | None,
+    current_option_mark: float | None,
+    bid: float | None,
+    ask: float | None,
+    delta: float | None,
+    gamma: float | None,
+    theta: float | None,
+    vega: float | None,
+    implied_volatility: float | None,
+    option_type: str,
+    strike: float | None,
+    current_time: datetime | None,
+    target_time: datetime | None,
+    event_risk_level: str | None,
+    liquidity_score: float | None,
+    spread_width: float | None,
+    is_market_open: bool,
+    calibration_bias: float | None = None,
+    slippage_bias: float | None = None,
+) -> dict[str, Any]:
+    """Project a single option quote forward to a specific target time and underlying price."""
+
+    underlying_now = _to_float_or_none(current_underlying_price)
+    underlying_target = _to_float_or_none(target_underlying_price)
+    mark_now = _non_negative_option_price(current_option_mark)
+    bid_now = _non_negative_option_price(bid)
+    ask_now = _non_negative_option_price(ask)
+    if mark_now is None:
+        quote_mid = None
+        if bid_now is not None and ask_now is not None:
+            quote_mid = (bid_now + ask_now) / 2.0
+        mark_now = _non_negative_option_price(quote_mid or ask_now or bid_now)
+
+    delta_value = _to_float_or_none(delta)
+    gamma_value = _to_float_or_none(gamma)
+    theta_value = _to_float_or_none(theta)
+    vega_value = _to_float_or_none(vega)
+    iv_value = _to_float_or_none(implied_volatility)
+    liquidity_value = max(0.0, _to_float_or_none(liquidity_score) or 0.0)
+    explicit_spread = _to_float_or_none(spread_width)
+    observed_spread = None
+    if bid_now is not None and ask_now is not None:
+        observed_spread = max(0.0, ask_now - bid_now)
+    spread_value = max(0.0, explicit_spread if explicit_spread is not None else (observed_spread or 0.0))
+    current_dt = _parse_datetime_or_none(current_time)
+    target_dt = _parse_datetime_or_none(target_time)
+    calibration_value = _to_float_or_none(calibration_bias) or 0.0
+    slippage_value = max(0.0, _to_float_or_none(slippage_bias) or 0.0)
+
+    if mark_now is None or underlying_now is None or underlying_target is None or delta_value is None:
+        return {
+            "projected_mark_at_target_time": None,
+            "expected_fill_at_target_time": None,
+            "estimate_quality": "Insufficient",
+            "estimate_reason": "Missing quote or Greek inputs for a stable time-based estimate.",
+            "projected_mid_at_target_time": None,
+            "projected_bid_at_target_time": None,
+            "projected_ask_at_target_time": None,
+            "projected_iv_change": None,
+            "minutes_to_target": None,
+            "target_time_label": _format_projection_target_label(target_dt),
+        }
+
+    dS = underlying_target - underlying_now
+    gamma_component = 0.5 * gamma_value * (dS ** 2) if gamma_value is not None else 0.0
+    price_change = (delta_value * dS) + gamma_component
+
+    minutes_to_target = None
+    if current_dt is not None and target_dt is not None:
+        minutes_to_target = max(0.0, (target_dt - current_dt).total_seconds() / 60.0)
+    dT = min((minutes_to_target or 0.0) / (60.0 * 24.0), FORWARD_PRICING_MAX_THETA_DAYS)
+    theta_impact = (theta_value * dT) if theta_value is not None and dT > 0 else 0.0
+
+    event_level = str(event_risk_level or "quiet").lower()
+    target_is_open = _is_market_open_time(target_dt) if target_dt is not None else bool(is_market_open)
+    approaching_open = bool(
+        current_dt is not None
+        and target_dt is not None
+        and not _is_market_open_time(current_dt)
+        and target_is_open
+    )
+    iv_crush = FORWARD_PRICING_OPEN_IV_CRUSH if approaching_open else 0.0
+    iv_expansion = FORWARD_PRICING_EVENT_IV_EXPANSION.get(event_level, FORWARD_PRICING_EVENT_IV_EXPANSION["quiet"])
+    projected_iv_change = iv_expansion - iv_crush
+    vega_impact = (vega_value * projected_iv_change) if vega_value is not None else 0.0
+
+    projected_mark_raw = mark_now + price_change + theta_impact + vega_impact + calibration_value
+    projected_mark = max(0.01, projected_mark_raw)
+
+    liquidity_factor = 1.0 if liquidity_value >= 200 else 1.15 if liquidity_value >= 75 else 1.35 if liquidity_value >= 25 else 1.6
+    regime_factor = 0.4 if target_is_open else 0.7
+    event_factor = {"quiet": 1.0, "low": 1.05, "elevated": 1.1, "medium": 1.15, "high": 1.25, "major": 1.35, "extreme": 1.55}.get(event_level, 1.1)
+    spread_penalty = min(
+        FORWARD_PRICING_MAX_SPREAD_PENALTY,
+        (spread_value * regime_factor * liquidity_factor * event_factor) + slippage_value,
+    )
+    projected_fill = max(projected_mark, projected_mark + spread_penalty)
+    projected_mid = projected_mark
+    half_spread = max(0.02, spread_value / 2.0)
+    projected_bid = max(0.01, projected_mid - half_spread)
+    projected_ask = max(projected_bid, projected_mid + half_spread)
+
+    confidence_score = 0.88
+    if gamma_value is None:
+        confidence_score -= 0.10
+    if theta_value is None:
+        confidence_score -= 0.10
+    if vega_value is None:
+        confidence_score -= 0.08
+    if iv_value is None:
+        confidence_score -= 0.08
+    if observed_spread is None and explicit_spread is None:
+        confidence_score -= 0.08
+    if spread_value > max(mark_now * 0.35, 0.45):
+        confidence_score -= 0.14
+    if liquidity_value < 25:
+        confidence_score -= 0.16
+    elif liquidity_value < 100:
+        confidence_score -= 0.08
+    if abs(dS) > 25:
+        confidence_score -= 0.16
+    elif abs(dS) > 12:
+        confidence_score -= 0.08
+    if abs(gamma_value or 0.0) > 0.05:
+        confidence_score -= 0.08
+    if event_level in {"high", "major"}:
+        confidence_score -= 0.10
+    elif event_level == "extreme":
+        confidence_score -= 0.18
+    if minutes_to_target is None:
+        confidence_score -= 0.08
+    elif minutes_to_target > 180:
+        confidence_score -= 0.08
+
+    confidence_label = _confidence_label_from_score(max(0.0, min(1.0, confidence_score)))
+    estimate_quality = _estimate_quality_from_confidence(confidence_label)
+    reasons: list[str] = []
+    if abs(dS) <= 8:
+        reasons.append("small underlying move")
+    elif abs(dS) <= 18:
+        reasons.append("moderate underlying move")
+    else:
+        reasons.append("large underlying move")
+    if theta_value is not None and dT > 0:
+        reasons.append("time decay applied")
+    if approaching_open:
+        reasons.append("IV compression into open")
+    elif event_level in {"high", "major", "extreme"}:
+        reasons.append("event risk widens uncertainty")
+    if spread_value > 0:
+        reasons.append("fill penalty includes spread")
+    if liquidity_value < 25:
+        reasons.append("thin liquidity")
+
+    return {
+        "projected_mark_at_target_time": round_price(projected_mark),
+        "expected_fill_at_target_time": round_price(projected_fill),
+        "estimate_quality": estimate_quality,
+        "estimate_reason": ", ".join(reasons),
+        "projected_mid_at_target_time": round_price(projected_mid),
+        "projected_bid_at_target_time": round_price(projected_bid),
+        "projected_ask_at_target_time": round_price(projected_ask),
+        "projected_iv_change": round(projected_iv_change, 4),
+        "minutes_to_target": round_price(minutes_to_target) if minutes_to_target is not None else None,
+        "target_time_label": _format_projection_target_label(target_dt),
+    }
 
 
 def estimate_entry_timing(
@@ -8124,7 +8366,10 @@ def estimate_contract_value_at_planned_entry(
     liquidity_score: float | None,
     time_to_entry_minutes: float | None,
     entry_time_bucket: str,
+    current_time_ct: datetime | None = None,
+    target_time_ct: datetime | None = None,
     calibration_bias: float | None = None,
+    slippage_bias: float | None = None,
     event_risk_level: str | None = None,
     event_window_active: bool = False,
     headline_shock_risk: bool = False,
@@ -8147,6 +8392,10 @@ def estimate_contract_value_at_planned_entry(
     liquidity_value = max(0.0, _to_float_or_none(liquidity_score) or 0.0)
     bias_value = _to_float_or_none(calibration_bias) or 0.0
     minutes_to_entry = _to_float_or_none(time_to_entry_minutes)
+    now_ct = _parse_datetime_or_none(current_time_ct) or (current_central_time() if current_central_time else datetime.now())
+    target_ct = _parse_datetime_or_none(target_time_ct)
+    if target_ct is None and minutes_to_entry is not None:
+        target_ct = now_ct + timedelta(minutes=float(minutes_to_entry))
     if mark_now is None or underlying_now is None or underlying_entry is None:
         return {
             "projected_mark_at_entry": None,
@@ -8154,70 +8403,56 @@ def estimate_contract_value_at_planned_entry(
             "projected_ask_at_entry": None,
             "projected_mid_at_entry": None,
             "projected_fill_at_entry": None,
+            "projected_mark_at_target_time": None,
+            "expected_fill_at_target_time": None,
+            "projection_target_time": target_ct.isoformat() if target_ct is not None else None,
+            "projection_target_label": _format_projection_target_label(target_ct),
             "projection_confidence": "speculative",
             "projection_method": "insufficient_inputs",
             "projection_warning": "Premium estimate unavailable or low confidence",
             "premium_projection_evidence": "Sparse",
             "premium_projection_uncertainty_band_low": None,
             "premium_projection_uncertainty_band_high": None,
+            "estimate_quality": "Insufficient",
+            "estimate_reason": "Missing quote inputs for a stable planned-entry estimate.",
         }
 
-    underlying_move = underlying_entry - underlying_now
-    directional_component = (delta_value * underlying_move) if delta_value is not None else 0.0
-    convexity_component = (0.5 * gamma_value * (underlying_move ** 2)) if gamma_value is not None else 0.0
-    theta_days = min((minutes_to_entry or 0.0) / 1440.0, FORWARD_PRICING_MAX_THETA_DAYS)
-    decay_component = (theta_value * theta_days) if theta_value is not None and theta_days > 0 else 0.0
     event_level = str(event_risk_level or "quiet").lower()
-    event_factor = {"quiet": 0.0, "elevated": 0.08, "major": 0.18, "extreme": 0.30}.get(event_level, 0.0)
-    if headline_shock_risk:
-        event_factor = max(event_factor, 0.18)
-    iv_scalar = iv_value / 100.0 if iv_value is not None and iv_value > 1 else (iv_value or 0.0)
-    volatility_component = 0.0
-    if vega_value is not None and iv_scalar:
-        volatility_component = abs(vega_value) * min(iv_scalar, 1.0) * min(max(abs(underlying_move) / max(underlying_now, 1.0), 0.0), FORWARD_PRICING_MAX_EVENT_IV_FACTOR) * (1.0 + event_factor)
-
-    theoretical_mid = max(0.01, mark_now + directional_component + convexity_component + decay_component + volatility_component + bias_value)
+    if headline_shock_risk and event_level in {"quiet", "low", "elevated", "medium"}:
+        event_level = "high"
+    projection = estimate_option_price_at_time(
+        current_underlying_price=underlying_now,
+        target_underlying_price=underlying_entry,
+        current_option_mark=mark_now,
+        bid=bid_now,
+        ask=ask_now,
+        delta=delta_value,
+        gamma=gamma_value,
+        theta=theta_value,
+        vega=vega_value,
+        implied_volatility=iv_value,
+        option_type=option_type,
+        strike=strike,
+        current_time=now_ct,
+        target_time=target_ct,
+        event_risk_level=event_level,
+        liquidity_score=liquidity_value,
+        spread_width=spread_value,
+        is_market_open=_is_market_open_time(now_ct),
+        calibration_bias=bias_value,
+        slippage_bias=slippage_bias,
+    )
+    projected_mark = _non_negative_option_price(projection.get("projected_mark_at_target_time"))
+    projected_fill = _non_negative_option_price(projection.get("expected_fill_at_target_time"))
     reference_spread = spread_value if spread_value > 0 else max((ask_now or mark_now) - (bid_now or mark_now), 0.0)
-    liquidity_penalty = min(FORWARD_PRICING_MAX_LIQUIDITY_PENALTY, 0.18 if liquidity_value <= 0 else 12.0 / max(liquidity_value, 12.0))
-    spread_penalty = min(FORWARD_PRICING_MAX_SPREAD_PENALTY, 0.08 if reference_spread == 0 else reference_spread * 0.25)
-    event_penalty = 0.06 if event_window_active else 0.0
-    conservative_fill_penalty = spread_penalty + liquidity_penalty + event_penalty
-    projected_fill = max(0.01, theoretical_mid + conservative_fill_penalty)
-    projected_bid = max(0.01, theoretical_mid - max(reference_spread * 0.55, 0.03))
-    projected_ask = max(projected_bid, theoretical_mid + max(reference_spread * 0.45, 0.03))
-
-    confidence_score = 0.82
-    evidence_tokens: list[str] = ["delta"]
-    if gamma_value is not None:
-        evidence_tokens.append("gamma")
-    else:
-        confidence_score -= 0.08
-    if theta_value is not None:
-        evidence_tokens.append("theta")
-    else:
-        confidence_score -= 0.05
-    if iv_value is not None:
-        evidence_tokens.append("iv")
-    else:
-        confidence_score -= 0.06
-    if reference_spread > max(mark_now * 0.35, 0.35):
-        confidence_score -= 0.12
-    if liquidity_value < 20:
-        confidence_score -= 0.12
-    if minutes_to_entry is None:
-        confidence_score -= 0.12
-    elif minutes_to_entry > 90:
-        confidence_score -= 0.08
-    if entry_time_bucket in {"far", "overdue"}:
-        confidence_score -= 0.10
-    if event_window_active:
-        confidence_score -= 0.18
-    elif event_level in {"major", "extreme"}:
-        confidence_score -= 0.10
-    projection_confidence = _confidence_label_from_score(max(0.0, min(1.0, confidence_score)))
+    projected_mid = _non_negative_option_price(projection.get("projected_mid_at_target_time")) or projected_mark
+    projected_bid = _non_negative_option_price(projection.get("projected_bid_at_target_time"))
+    projected_ask = _non_negative_option_price(projection.get("projected_ask_at_target_time"))
+    projection_confidence = _projection_confidence_from_quality(str(projection.get("estimate_quality", "Insufficient")))
+    event_factor = {"quiet": 0.0, "low": 0.03, "elevated": 0.06, "medium": 0.08, "high": 0.12, "major": 0.18, "extreme": 0.28}.get(event_level, 0.08)
     uncertainty_multiplier = {"high": 0.10, "medium": 0.18, "low": 0.28, "speculative": 0.40}[projection_confidence]
     uncertainty_multiplier += event_factor * 0.35
-    uncertainty_band = max(0.08, projected_fill * uncertainty_multiplier)
+    uncertainty_band = max(0.08, (projected_fill or projected_mark or mark_now) * uncertainty_multiplier)
     warning_parts: list[str] = []
     if projection_confidence in {"low", "speculative"}:
         warning_parts.append("Premium estimate unavailable or low confidence")
@@ -8231,17 +8466,27 @@ def estimate_contract_value_at_planned_entry(
         warning_parts.append("Too thin")
 
     return {
-        "projected_mark_at_entry": round_price(theoretical_mid),
-        "projected_bid_at_entry": round_price(projected_bid),
-        "projected_ask_at_entry": round_price(projected_ask),
-        "projected_mid_at_entry": round_price(theoretical_mid),
-        "projected_fill_at_entry": round_price(projected_fill),
+        "projected_mark_at_entry": round_price(projected_mark) if projected_mark is not None else None,
+        "projected_bid_at_entry": round_price(projected_bid) if projected_bid is not None else None,
+        "projected_ask_at_entry": round_price(projected_ask) if projected_ask is not None else None,
+        "projected_mid_at_entry": round_price(projected_mid) if projected_mid is not None else None,
+        "projected_fill_at_entry": round_price(projected_fill) if projected_fill is not None else None,
+        "projected_mark_at_target_time": round_price(projected_mark) if projected_mark is not None else None,
+        "expected_fill_at_target_time": round_price(projected_fill) if projected_fill is not None else None,
+        "projection_target_time": target_ct.isoformat() if target_ct is not None else None,
+        "projection_target_label": str(projection.get("target_time_label") or _format_projection_target_label(target_ct)),
         "projection_confidence": projection_confidence,
-        "projection_method": "delta_gamma_theta_vega_fill_model",
+        "projection_method": "time_target_delta_gamma_theta_vega_fill_model",
         "projection_warning": " | ".join(warning_parts) if warning_parts else "",
-        "premium_projection_evidence": " + ".join(evidence_tokens),
-        "premium_projection_uncertainty_band_low": round_price(max(0.01, projected_fill - uncertainty_band)),
-        "premium_projection_uncertainty_band_high": round_price(projected_fill + uncertainty_band),
+        "premium_projection_evidence": " + ".join(
+            token
+            for token in ["delta", "gamma" if gamma_value is not None else "", "theta" if theta_value is not None else "", "iv" if iv_value is not None else ""]
+            if token
+        ) or "Sparse",
+        "premium_projection_uncertainty_band_low": round_price(max(0.01, projected_fill - uncertainty_band)) if projected_fill is not None else None,
+        "premium_projection_uncertainty_band_high": round_price(projected_fill + uncertainty_band) if projected_fill is not None else None,
+        "estimate_quality": str(projection.get("estimate_quality", "Insufficient")),
+        "estimate_reason": str(projection.get("estimate_reason", "")),
     }
 
 
@@ -8616,6 +8861,9 @@ def build_nearby_strike_ladder(
     ladder_rows: list[dict[str, Any]] = []
     timing_estimate = timing_estimate or {}
     event_risk_context = event_risk_context or {}
+    projection_target_time = _parse_datetime_or_none(timing_estimate.get("expected_entry_time_ct"))
+    projection_target_label = _format_projection_target_label(projection_target_time)
+    now_ct = current_central_time() if current_central_time else datetime.now()
     for row in window_rows:
         symbol = str(row.get("symbol", "") or "")
         predicted_entry = _non_negative_option_price(row.get("predicted_entry_price"))
@@ -8643,7 +8891,10 @@ def build_nearby_strike_ladder(
             liquidity_score=(_to_float_or_none(row.get("volume")) or 0.0) + (_to_float_or_none(row.get("open_interest")) or 0.0),
             time_to_entry_minutes=_to_float_or_none(timing_estimate.get("time_to_entry_minutes")),
             entry_time_bucket=str(timing_estimate.get("entry_time_bucket", "unavailable")),
+            current_time_ct=now_ct,
+            target_time_ct=projection_target_time,
             calibration_bias=_to_float_or_none(calibration.get("prediction_bias_used")),
+            slippage_bias=_to_float_or_none(calibration.get("slippage_bias_used")),
             event_risk_level=str(event_risk_context.get("event_risk_level", "quiet")),
             event_window_active=bool(event_risk_context.get("event_window_active", False)),
             headline_shock_risk=bool(event_risk_context.get("headline_shock_risk", False)),
@@ -8684,12 +8935,18 @@ def build_nearby_strike_ladder(
                 "projected_ask_at_entry": _non_negative_option_price(forward_projection.get("projected_ask_at_entry")),
                 "projected_mid_at_entry": _non_negative_option_price(forward_projection.get("projected_mid_at_entry")),
                 "projected_fill_at_entry": _non_negative_option_price(forward_projection.get("projected_fill_at_entry")),
+                "projected_mark_at_target_time": _non_negative_option_price(forward_projection.get("projected_mark_at_target_time")),
+                "expected_fill_at_target_time": _non_negative_option_price(forward_projection.get("expected_fill_at_target_time")),
+                "projection_target_time": forward_projection.get("projection_target_time"),
+                "projection_target_label": str(forward_projection.get("projection_target_label") or projection_target_label),
                 "premium_projection_confidence": str(forward_projection.get("projection_confidence", "speculative")).title(),
                 "premium_projection_evidence": str(forward_projection.get("premium_projection_evidence", "")),
                 "premium_projection_uncertainty_band_low": _non_negative_option_price(forward_projection.get("premium_projection_uncertainty_band_low")),
                 "premium_projection_uncertainty_band_high": _non_negative_option_price(forward_projection.get("premium_projection_uncertainty_band_high")),
                 "projection_method": str(forward_projection.get("projection_method", "")),
                 "projection_warning": str(forward_projection.get("projection_warning", "")),
+                "estimate_quality": str(forward_projection.get("estimate_quality", "Insufficient")),
+                "estimate_reason": str(forward_projection.get("estimate_reason", "")),
                 "delta": _to_float_or_none(row.get("delta")),
                 "rr_ratio": _to_float_or_none(row.get("rr_ratio")),
                 "contract_score": _to_float_or_none(row.get("contract_score")),
@@ -8802,12 +9059,18 @@ def build_option_display_state(
                 "projected_ask_at_entry",
                 "projected_mid_at_entry",
                 "projected_fill_at_entry",
+                "projected_mark_at_target_time",
+                "expected_fill_at_target_time",
+                "projection_target_time",
+                "projection_target_label",
                 "premium_projection_confidence",
                 "premium_projection_evidence",
                 "premium_projection_uncertainty_band_low",
                 "premium_projection_uncertainty_band_high",
                 "projection_method",
                 "projection_warning",
+                "estimate_quality",
+                "estimate_reason",
                 "max_affordable_fill_under_budget",
             ]:
                 if source.get(key) is not None:
@@ -8975,6 +9238,8 @@ def build_option_display_state(
         "budget_cap": budget_cap,
         "cheapest_within_budget": cheapest_within_budget,
         "timing_estimate": timing_estimate,
+        "projection_target_time": str((active_row or {}).get("projection_target_time") or timing_estimate.get("expected_entry_time_ct") or ""),
+        "projection_target_label": str((active_row or {}).get("projection_target_label") or _format_projection_target_label(_parse_datetime_or_none(timing_estimate.get("expected_entry_time_ct")))),
         "ladder_anchor_strike": recommended_resolution.get("ladder_anchor_strike"),
         "ladder_locked": bool(recommended_resolution.get("ladder_locked")),
         "centered_from_locked_plan": bool(recommended_resolution.get("centered_from_locked_plan")),
@@ -14178,7 +14443,11 @@ def render_operator_play_card(
     selected_estimated_fill_cost = _to_float_or_none((display_contract_quote or {}).get("estimated_fill_cost"))
     selected_budget_status = str((display_contract_quote or {}).get("budget_status", "") or "")
     projection_confidence = str(selected_contract.get("premium_projection_confidence", "") or "Speculative")
+    estimate_quality = str((display_contract_quote or {}).get("estimate_quality", "") or _estimate_quality_from_confidence(projection_confidence.lower()))
+    projection_target_label = str((display_contract_quote or {}).get("projection_target_label", "") or option_display_state.get("projection_target_label") or "At Entry")
+    expected_fill_target_label = projection_target_label.replace("Projected @", "Expected Fill @") if projection_target_label.startswith("Projected @") else "Expected Fill"
     projection_reason = str((display_contract_quote or {}).get("selection_reason", "") or (preferred_contract_row or {}).get("selection_reason", "") or "")
+    estimate_reason = str((display_contract_quote or {}).get("estimate_reason", "") or "")
     projection_warning = str(selected_contract.get("projection_warning", "") or "")
     projected_fill_at_entry = selected_contract.get("projected_fill_at_entry") or expected_fill
     max_affordable_fill = selected_contract.get("max_affordable_fill_under_budget")
@@ -14258,10 +14527,10 @@ def render_operator_play_card(
                 </div>
             </div>
             <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">At Entry</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else '-'}</div></div>
+                <div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(projection_target_label)}</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else '-'}</div></div>
                 {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else "-"}</div></div>' if show_calibrated else ''}
-                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Expected Fill</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>' if show_expected_fill else ''}
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate</div><div class="spx-metric-value">{escape(projection_confidence)}</div></div>
+                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(expected_fill_target_label)}</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>' if show_expected_fill else ''}
+                <div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate Quality</div><div class="spx-metric-value">{escape(estimate_quality)}</div></div>
             </div>
             <div class="spx-metric-grid secondary">
                 <div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else '-'}</div></div>
@@ -14283,11 +14552,23 @@ def render_operator_play_card(
     )
     if binding_error:
         st.error("Contract binding error")
+    if projected_entry_value is not None and projected_fill_at_entry is not None:
+        projection_sentence = (
+            f"If price returns to planned entry, estimated premium is {format_price(projected_entry_value)} "
+            f"and likely fill is {format_price(projected_fill_at_entry)}."
+        )
+        if estimate_reason:
+            projection_sentence += f" {estimate_reason[:1].upper() + estimate_reason[1:]}"
+        st.caption(projection_sentence)
+    elif estimate_quality == "Insufficient":
+        st.caption("Insufficient data for reliable estimate.")
 
     # Best Contract — premium styled card, only actionable contract data
     if best_contract_symbol_for_box:
         _bc_pred = (preferred_contract_row or {}).get("projected_mark_at_entry") or best_contract_pred
         _bc_fill = (preferred_contract_row or {}).get("projected_fill_at_entry") or best_contract_fill
+        _bc_target_label = str((preferred_contract_row or {}).get("projection_target_label") or projection_target_label or "At Entry")
+        _bc_fill_label = _bc_target_label.replace("Projected @", "Expected Fill @") if _bc_target_label.startswith("Projected @") else "Expected Fill"
         _bc_header = "Best candidate · informational only" if decision == "NO TRADE" else "Best Contract"
         _bc_border = "#ffd740" if decision == "NO TRADE" else "#00e676"
         _bc_budget = budget_execution_status or selected_budget_status or "-"
@@ -14299,8 +14580,8 @@ def render_operator_play_card(
             f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;color:#e0eeff;margin-bottom:8px;">{escape(best_contract_symbol_for_box)}</div>'
             f'<div style="display:flex;gap:14px;flex-wrap:wrap;">'
             f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">At Entry</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Fill Est.</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_target_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_fill_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
             f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
             f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
             f'</div>'

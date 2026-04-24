@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import unittest
 import app as app_module
 
@@ -26,6 +27,7 @@ from app import (
     classify_budget_status,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
+    estimate_option_price_at_time,
     estimate_contract_value_at_planned_entry,
     get_structure_assertion_warnings,
     resolve_effective_offset,
@@ -726,6 +728,138 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn(projection["projection_confidence"], {"low", "speculative"})
         self.assertTrue(projection["projection_warning"])
 
+    def test_time_target_pricing_applies_theta_and_keeps_fill_conservative(self) -> None:
+        now_ct = app_module.at_central(date(2026, 4, 22), 8, 20)
+        target_ct = app_module.at_central(date(2026, 4, 22), 9, 0)
+
+        projection = estimate_option_price_at_time(
+            current_underlying_price=7140.0,
+            target_underlying_price=7140.0,
+            current_option_mark=5.0,
+            bid=4.9,
+            ask=5.1,
+            delta=-0.40,
+            gamma=0.01,
+            theta=-0.24,
+            vega=0.08,
+            implied_volatility=0.22,
+            option_type="PUT",
+            strike=7100.0,
+            current_time=now_ct,
+            target_time=target_ct,
+            event_risk_level="quiet",
+            liquidity_score=220.0,
+            spread_width=0.2,
+            is_market_open=False,
+        )
+
+        self.assertLess(projection["projected_mark_at_target_time"], 5.0)
+        self.assertGreaterEqual(projection["expected_fill_at_target_time"], projection["projected_mark_at_target_time"])
+        self.assertEqual(projection["target_time_label"], "Projected @ 9:00 AM CT")
+
+    def test_time_target_pricing_increases_with_favorable_underlying_move(self) -> None:
+        now_ct = app_module.at_central(date(2026, 4, 22), 8, 15)
+        target_ct = app_module.at_central(date(2026, 4, 22), 9, 0)
+
+        projection = estimate_option_price_at_time(
+            current_underlying_price=7140.0,
+            target_underlying_price=7125.0,
+            current_option_mark=4.8,
+            bid=4.7,
+            ask=4.9,
+            delta=-0.45,
+            gamma=0.012,
+            theta=-0.16,
+            vega=0.08,
+            implied_volatility=0.23,
+            option_type="PUT",
+            strike=7100.0,
+            current_time=now_ct,
+            target_time=target_ct,
+            event_risk_level="quiet",
+            liquidity_score=300.0,
+            spread_width=0.2,
+            is_market_open=False,
+        )
+
+        self.assertGreater(projection["projected_mark_at_target_time"], 4.8)
+
+    def test_time_target_pricing_applies_iv_crush_into_open(self) -> None:
+        now_ct = app_module.at_central(date(2026, 4, 22), 8, 20)
+        target_ct = app_module.at_central(date(2026, 4, 22), 9, 0)
+
+        with_crush = estimate_option_price_at_time(
+            current_underlying_price=7140.0,
+            target_underlying_price=7140.0,
+            current_option_mark=5.0,
+            bid=4.9,
+            ask=5.1,
+            delta=-0.35,
+            gamma=0.01,
+            theta=-0.10,
+            vega=0.20,
+            implied_volatility=0.24,
+            option_type="PUT",
+            strike=7100.0,
+            current_time=now_ct,
+            target_time=target_ct,
+            event_risk_level="quiet",
+            liquidity_score=250.0,
+            spread_width=0.2,
+            is_market_open=False,
+        )
+        no_crush = estimate_option_price_at_time(
+            current_underlying_price=7140.0,
+            target_underlying_price=7140.0,
+            current_option_mark=5.0,
+            bid=4.9,
+            ask=5.1,
+            delta=-0.35,
+            gamma=0.01,
+            theta=-0.10,
+            vega=0.20,
+            implied_volatility=0.24,
+            option_type="PUT",
+            strike=7100.0,
+            current_time=now_ct,
+            target_time=app_module.at_central(date(2026, 4, 22), 8, 25),
+            event_risk_level="quiet",
+            liquidity_score=250.0,
+            spread_width=0.2,
+            is_market_open=False,
+        )
+
+        self.assertLess(with_crush["projected_mark_at_target_time"], no_crush["projected_mark_at_target_time"])
+
+    def test_time_target_pricing_never_goes_negative_and_missing_greeks_lower_quality(self) -> None:
+        now_ct = app_module.at_central(date(2026, 4, 22), 8, 15)
+        target_ct = app_module.at_central(date(2026, 4, 22), 9, 0)
+
+        projection = estimate_option_price_at_time(
+            current_underlying_price=7140.0,
+            target_underlying_price=7110.0,
+            current_option_mark=0.15,
+            bid=0.10,
+            ask=0.20,
+            delta=-0.10,
+            gamma=None,
+            theta=None,
+            vega=None,
+            implied_volatility=None,
+            option_type="PUT",
+            strike=7000.0,
+            current_time=now_ct,
+            target_time=target_ct,
+            event_risk_level="major",
+            liquidity_score=5.0,
+            spread_width=0.10,
+            is_market_open=False,
+        )
+
+        self.assertGreaterEqual(projection["projected_mark_at_target_time"], 0.01)
+        self.assertGreaterEqual(projection["expected_fill_at_target_time"], projection["projected_mark_at_target_time"])
+        self.assertIn(projection["estimate_quality"], {"Weak", "Insufficient"})
+
     def test_budget_aware_execution_selection_prefers_viable_within_budget_contract(self) -> None:
         rows = [
             {"contract_symbol": "REC", "budget_status": "Above Budget", "rr_ratio": 1.6, "contract_score": 0.9, "delta": -0.58, "premium_projection_confidence": "High", "projected_fill_at_entry": 7.5, "labels": []},
@@ -806,6 +940,7 @@ class AppUnitTests(unittest.TestCase):
         self.assertIsNotNone(display_state["selected_quote"])
         self.assertIn("projected_mark_at_entry", display_state["selected_quote"])
         self.assertIn("premium_projection_confidence", display_state["selected_quote"])
+        self.assertIn("projection_target_label", display_state["selected_quote"])
 
 
 if __name__ == "__main__":
