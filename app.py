@@ -14997,6 +14997,33 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
         st.error("Intelligence module unavailable — core import failed.")
         return
 
+    # ── Auto-backfill on first visit ───────────────────────────────────────────
+    # If the DB has never been seeded, automatically load 6 months of history
+    # so analytics are available immediately without any manual steps.
+    if _intelligence.get_backfill_meta("last_backfill_run") is None:
+        st.markdown(
+            '<div style="background:rgba(130,80,255,0.08);border:1px solid rgba(130,80,255,0.22);'
+            'border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:0.82rem;'
+            'color:rgba(200,180,255,0.85);line-height:1.6;">'
+            '<b>First-time setup</b> — Loading 6 months of historical signals and outcomes. '
+            'This runs once and takes about 1–3 minutes.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _auto_end = date.today() - timedelta(days=1)
+        _auto_start = _auto_end - timedelta(days=180)
+        _prog = st.empty()
+        with st.spinner("Initializing intelligence engine from historical data..."):
+            run_intelligence_backfill(
+                start_date=_auto_start,
+                end_date=_auto_end,
+                effective_offset=effective_offset,
+                progress_placeholder=_prog,
+            )
+        _prog.empty()
+        st.rerun()
+        return
+
     sig_count = _intelligence.get_signal_count()
     out_count = _intelligence.get_outcome_count()
     pending_count = len(_intelligence.get_pending_outcome_dates())
@@ -15063,8 +15090,8 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     # ── Edge analytics ─────────────────────────────────────────────────────────
     if out_count == 0:
         st.info(
-            "No resolved outcomes yet. Run a backfill above to populate historical data, "
-            "or the engine will accumulate signals automatically each live session."
+            "No resolved outcomes yet — the engine will populate automatically as live sessions accumulate. "
+            "Use the Historical Backfill expander above to load additional history."
         )
         return
 
