@@ -15401,16 +15401,31 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
                 st.success(f"Backfill complete — {succeeded} of {attempted} dates processed.")
                 st.rerun()
 
-    st.markdown('<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(130,80,255,0.15),transparent);margin:8px 0 24px 0;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(130,80,255,0.15),transparent);margin:8px 0 20px 0;"></div>', unsafe_allow_html=True)
 
     if out_count == 0:
         st.info("No resolved outcomes yet — the engine will populate automatically as live sessions accumulate.")
         return
 
-    stats = _intelligence.get_edge_stats()
+    # ── Timeframe selector ─────────────────────────────────────────────────────
+    _tf_options = ["Last 30 Days", "Last 60 Days", "Last 90 Days", "Last 6 Months", "Last 12 Months", "All Time"]
+    _tf_days = {"Last 30 Days": 30, "Last 60 Days": 60, "Last 90 Days": 90, "Last 6 Months": 180, "Last 12 Months": 365, "All Time": None}
+    _tf_col, _spacer = st.columns([2, 3])
+    with _tf_col:
+        _selected_tf = st.selectbox("Timeframe", _tf_options, index=2, key="intel_timeframe", label_visibility="collapsed")
+    _tf_days_val = _tf_days[_selected_tf]
+    _since_date = (date.today() - timedelta(days=_tf_days_val)).isoformat() if _tf_days_val else None
+
+    st.markdown(
+        f'<div style="font-size:0.7rem;color:rgba(160,120,255,0.6);font-weight:600;letter-spacing:0.1em;'
+        f'text-transform:uppercase;margin-bottom:20px;">Showing: {_selected_tf}</div>',
+        unsafe_allow_html=True,
+    )
+
+    stats = _intelligence.get_edge_stats(since=_since_date)
     total_res = stats.get("total_resolved", 0)
     if total_res == 0:
-        st.info("No resolved signals found.")
+        st.info(f"No resolved signals in the selected timeframe ({_selected_tf}). Try a longer period or run a backfill.")
         return
 
     overall = stats.get("overall", {})
@@ -15489,7 +15504,7 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
 
     st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
     st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Recent Signal Log</div>', unsafe_allow_html=True)
-    all_recs = _intelligence.get_all_records()
+    all_recs = _intelligence.get_all_records(since=_since_date)
     log_rows = [{"Date": r["trading_date"], "Scenario": r.get("scenario_name") or "—", "Direction": r.get("primary_direction") or "—", "Confirmation": r.get("confirmation_status") or "—", "Sit-Out": "Yes" if r.get("sit_out") else "No", "Result": r.get("result_classification") or "Pending", "P&L": f"{r['primary_pnl']:+.1f}" if r.get("primary_pnl") is not None else "—", "✓/✗": "✓" if r.get("primary_tp1_hit") else ("✗" if r.get("primary_stop_hit") else "·"), "Source": "Backfill" if r.get("is_backfill") else "Live"} for r in all_recs[:60]]
     if log_rows:
         st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)

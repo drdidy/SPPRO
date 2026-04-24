@@ -203,27 +203,43 @@ def get_outcome_count() -> int:
         return db.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0]
 
 
-def get_all_records() -> list[dict]:
-    """Return all signals joined with outcomes, newest first."""
+def get_all_records(since: Optional[str] = None) -> list[dict]:
+    """Return signals joined with outcomes, newest first. `since` is an ISO date string (inclusive)."""
     with _conn() as db:
-        rows = db.execute(
-            """SELECT s.trading_date, s.prior_date, s.scenario_name,
-                      s.primary_direction, s.primary_entry_price, s.primary_tp1_price,
-                      s.alternate_direction, s.confirmation_status, s.sit_out, s.is_backfill,
-                      o.primary_entry_triggered, o.primary_stop_hit,
-                      o.primary_tp1_hit, o.primary_tp2_hit, o.primary_result, o.primary_pnl,
-                      o.alternate_entry_triggered, o.alternate_result, o.alternate_pnl,
-                      o.chosen_path, o.result_classification, o.estimated_pnl
-               FROM signals s
-               LEFT JOIN outcomes o ON s.trading_date = o.trading_date
-               ORDER BY s.trading_date DESC""",
-        ).fetchall()
+        if since:
+            rows = db.execute(
+                """SELECT s.trading_date, s.prior_date, s.scenario_name,
+                          s.primary_direction, s.primary_entry_price, s.primary_tp1_price,
+                          s.alternate_direction, s.confirmation_status, s.sit_out, s.is_backfill,
+                          o.primary_entry_triggered, o.primary_stop_hit,
+                          o.primary_tp1_hit, o.primary_tp2_hit, o.primary_result, o.primary_pnl,
+                          o.alternate_entry_triggered, o.alternate_result, o.alternate_pnl,
+                          o.chosen_path, o.result_classification, o.estimated_pnl
+                   FROM signals s
+                   LEFT JOIN outcomes o ON s.trading_date = o.trading_date
+                   WHERE s.trading_date >= ?
+                   ORDER BY s.trading_date DESC""",
+                (since,),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """SELECT s.trading_date, s.prior_date, s.scenario_name,
+                          s.primary_direction, s.primary_entry_price, s.primary_tp1_price,
+                          s.alternate_direction, s.confirmation_status, s.sit_out, s.is_backfill,
+                          o.primary_entry_triggered, o.primary_stop_hit,
+                          o.primary_tp1_hit, o.primary_tp2_hit, o.primary_result, o.primary_pnl,
+                          o.alternate_entry_triggered, o.alternate_result, o.alternate_pnl,
+                          o.chosen_path, o.result_classification, o.estimated_pnl
+                   FROM signals s
+                   LEFT JOIN outcomes o ON s.trading_date = o.trading_date
+                   ORDER BY s.trading_date DESC""",
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_edge_stats() -> dict[str, Any]:
-    """Compute aggregate win-rate and P&L stats across all resolved signals."""
-    records = get_all_records()
+def get_edge_stats(since: Optional[str] = None) -> dict[str, Any]:
+    """Compute aggregate win-rate and P&L stats. `since` is an ISO date string to filter from."""
+    records = get_all_records(since=since)
     resolved = [r for r in records if r.get("result_classification") is not None]
 
     def _grp(items: list[dict]) -> dict[str, Any]:
