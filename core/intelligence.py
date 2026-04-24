@@ -250,6 +250,9 @@ def get_all_records(since: Optional[str] = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+_NO_TRADE_CLASSES = frozenset({"No Trade", "No Session Data", "Invalid Stop", "No Play", "Not Triggered"})
+
+
 def get_edge_stats(since: Optional[str] = None) -> dict[str, Any]:
     """Compute aggregate win-rate and P&L stats. `since` is an ISO date string to filter from."""
     records = get_all_records(since=since)
@@ -258,12 +261,24 @@ def get_edge_stats(since: Optional[str] = None) -> dict[str, Any]:
     def _grp(items: list[dict]) -> dict[str, Any]:
         n = len(items)
         if not n:
-            return {"n": 0, "win_rate": None, "avg_pnl": None, "total_pnl": None}
-        wins = sum(1 for r in items if r.get("primary_tp1_hit") or r.get("primary_tp2_hit"))
-        pnls = [float(r["primary_pnl"]) for r in items if r.get("primary_pnl") is not None]
+            return {"n": 0, "trades": 0, "win_rate": None, "avg_pnl": None, "total_pnl": None}
+
+        # Only sessions where an entry was actually triggered count toward win rate
+        traded = [
+            r for r in items
+            if r.get("chosen_path") not in (None, "None")
+            and r.get("result_classification") not in _NO_TRADE_CLASSES
+        ]
+        n_traded = len(traded)
+
+        # A trade is a win when the final estimated P&L is positive (TP1 or TP2 reached)
+        wins = sum(1 for r in traded if (r.get("estimated_pnl") or 0) > 0)
+        pnls = [float(r["estimated_pnl"]) for r in traded if r.get("estimated_pnl") is not None]
+
         return {
             "n": n,
-            "win_rate": round(wins / n, 4),
+            "trades": n_traded,
+            "win_rate": round(wins / n_traded, 4) if n_traded else None,
             "avg_pnl": round(sum(pnls) / len(pnls), 2) if pnls else None,
             "total_pnl": round(sum(pnls), 2) if pnls else None,
         }

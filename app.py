@@ -15436,13 +15436,14 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Overall Performance</div>', unsafe_allow_html=True)
     ov_cols = st.columns(4)
     with ov_cols[0]:
-        st.metric("Sessions Analyzed", total_res)
+        n_trades = overall.get("trades", 0)
+        st.metric("Trades Triggered", n_trades, help=f"{total_res} sessions analyzed")
     with ov_cols[1]:
         wr = overall.get("win_rate")
         st.metric("Win Rate", f"{wr * 100:.1f}%" if wr is not None else "—")
     with ov_cols[2]:
         ap = overall.get("avg_pnl")
-        st.metric("Avg P&L / Session", f"{ap:+.1f} pts" if ap is not None else "—")
+        st.metric("Avg P&L / Trade", f"{ap:+.1f} pts" if ap is not None else "—")
     with ov_cols[3]:
         tp = overall.get("total_pnl")
         st.metric("Total P&L", f"{tp:+.1f} pts" if tp is not None else "—")
@@ -15452,8 +15453,8 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Edge by Scenario</div>', unsafe_allow_html=True)
     by_sc = stats.get("by_scenario", {})
     if by_sc:
-        _sc_rows = [{"Scenario": k, "Sessions": v["n"], "Win Rate": f"{v['win_rate']*100:.1f}%" if v.get("win_rate") is not None else "—", "Avg P&L": f"{v['avg_pnl']:+.1f}" if v.get("avg_pnl") is not None else "—", "Total P&L": f"{v['total_pnl']:+.1f}" if v.get("total_pnl") is not None else "—"} for k, v in sorted(by_sc.items(), key=lambda x: -(x[1].get("total_pnl") or 0))]
-        st.dataframe(pd.DataFrame(_sc_rows), use_container_width=True, hide_index=True, column_config={"Scenario": st.column_config.TextColumn("Scenario", width="large"), "Sessions": st.column_config.NumberColumn("Sessions", width="small"), "Win Rate": st.column_config.TextColumn("Win Rate", width="small"), "Avg P&L": st.column_config.TextColumn("Avg P&L (pts)", width="small"), "Total P&L": st.column_config.TextColumn("Total P&L (pts)", width="small")})
+        _sc_rows = [{"Scenario": k, "Sessions": v["n"], "Trades": v.get("trades", 0), "Win Rate": f"{v['win_rate']*100:.1f}%" if v.get("win_rate") is not None else "—", "Avg P&L": f"{v['avg_pnl']:+.1f}" if v.get("avg_pnl") is not None else "—", "Total P&L": f"{v['total_pnl']:+.1f}" if v.get("total_pnl") is not None else "—"} for k, v in sorted(by_sc.items(), key=lambda x: -(x[1].get("total_pnl") or 0))]
+        st.dataframe(pd.DataFrame(_sc_rows), use_container_width=True, hide_index=True, column_config={"Scenario": st.column_config.TextColumn("Scenario", width="large"), "Sessions": st.column_config.NumberColumn("Sessions", width="small"), "Trades": st.column_config.NumberColumn("Trades", width="small"), "Win Rate": st.column_config.TextColumn("Win Rate", width="small"), "Avg P&L": st.column_config.TextColumn("Avg P&L (pts)", width="small"), "Total P&L": st.column_config.TextColumn("Total P&L (pts)", width="small")})
 
     st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
 

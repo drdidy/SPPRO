@@ -524,22 +524,27 @@ def evaluate_830_confirmation(candle: dict[str, Any] | None, entry_line_price: f
     is_red = close_price < open_price
 
     if direction == "PUT":
+        # Resistance test: candle spiked up to the line; confirmed if close stayed below it
         tested = high_price >= line_price
-        confirmed = tested and is_green and close_price < line_price
-        failed = tested and (close_price >= line_price or (is_red and close_price < line_price))
+        confirmed = tested and close_price < line_price
+        failed = tested and close_price >= line_price
     elif direction == "CALL":
+        # Support test: candle dipped down to the line; confirmed if close stayed above it
         tested = low_price <= line_price
-        confirmed = tested and is_red and close_price > line_price
-        failed = tested and (close_price <= line_price or (is_green and close_price > line_price))
+        confirmed = tested and close_price > line_price
+        failed = tested and close_price <= line_price
     else:
         raise ValueError("direction must be 'PUT' or 'CALL'")
 
     if confirmed:
         status = "8:30 confirmed"
         entry_timing = "Enter at 9:05 AM"
-    elif tested:
-        status = "8:30 test failed"
+    elif failed:
+        status = "8:30 test failed — line not holding"
         entry_timing = "Do not enter until properly retested"
+    elif tested:
+        status = "8:30 tested — candle closed at the line"
+        entry_timing = "Wait for clean rejection before entry"
     else:
         status = "8:30 did not test the line"
         entry_timing = "Wait for the 9:00 candle to test; enter at 9:30 AM or 10:00 AM if confirmed"
