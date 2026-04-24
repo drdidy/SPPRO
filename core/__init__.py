@@ -1,5 +1,6 @@
 """Core engine package for SPX Prophet."""
 
+from core.anchor_engine import SESSION_SOURCES, run_anchor_selection
 from core.confluence import score_confluence
 from core.data_fetch import extract_spx_830_candle, fetch_es_hourly_candles, fetch_spx_confirmation_candles
 from core.pivots import build_six_line_anchors, detect_session_pivots, resolve_anchor_prices
@@ -26,6 +27,8 @@ from core.time_utils import (
 )
 
 __all__ = [
+    "SESSION_SOURCES",
+    "run_anchor_selection",
     "at_central",
     "apply_overnight_pivot_overrides",
     "build_session_windows",
