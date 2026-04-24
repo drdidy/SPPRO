@@ -8,7 +8,20 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "intelligence.db")
+def _resolve_db_path() -> str:
+    primary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "intelligence.db")
+    try:
+        # Test writability of the primary path
+        test = primary + ".writetest"
+        with open(test, "w") as f:
+            f.write("1")
+        os.remove(test)
+        return primary
+    except OSError:
+        return os.path.join(os.path.expanduser("~"), "intelligence.db")
+
+
+DB_PATH = _resolve_db_path()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (

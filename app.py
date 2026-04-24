@@ -15412,8 +15412,8 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     _tf_days = {"Last 30 Days": 30, "Last 60 Days": 60, "Last 90 Days": 90, "Last 6 Months": 180, "Last 12 Months": 365, "All Time": None}
     _tf_col, _spacer = st.columns([2, 3])
     with _tf_col:
-        _selected_tf = st.selectbox("Timeframe", _tf_options, index=2, key="intel_timeframe", label_visibility="collapsed")
-    _tf_days_val = _tf_days[_selected_tf]
+        _selected_tf = st.selectbox("Timeframe", _tf_options, index=2, key="intel_timeframe")
+    _tf_days_val = _tf_days.get(_selected_tf)
     _since_date = (date.today() - timedelta(days=_tf_days_val)).isoformat() if _tf_days_val else None
 
     st.markdown(
@@ -15422,7 +15422,11 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
         unsafe_allow_html=True,
     )
 
-    stats = _intelligence.get_edge_stats(since=_since_date)
+    try:
+        stats = _intelligence.get_edge_stats(since=_since_date)
+    except Exception as _stats_err:
+        st.error(f"Intelligence analytics error: {type(_stats_err).__name__}: {_stats_err}")
+        return
     total_res = stats.get("total_resolved", 0)
     if total_res == 0:
         st.info(f"No resolved signals in the selected timeframe ({_selected_tf}). Try a longer period or run a backfill.")
