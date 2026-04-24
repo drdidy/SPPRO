@@ -45,6 +45,7 @@ try:
         evaluate_trading_scenario,
     )
     from core.time_utils import at_central, build_session_windows, current_central_time, filter_time_range
+    from core import intelligence as _intelligence
     CORE_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     extract_spx_830_candle = None
@@ -65,6 +66,7 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     build_session_windows = None
     current_central_time = None
     filter_time_range = None
+    _intelligence = None
     CORE_IMPORT_ERROR = f"Core import failed: {exc.__class__.__name__}: {exc}"
 
 try:
@@ -547,6 +549,13 @@ def initialize_app_state() -> None:
     st.session_state.setdefault("trade_form_notice", None)
     st.session_state.setdefault("live_state_store", {})
     st.session_state.setdefault("contract_override_store", {})
+    st.session_state.setdefault("intelligence_resolved_this_session", False)
+
+    if _intelligence is not None:
+        try:
+            _intelligence.ensure_schema()
+        except Exception:
+            pass
 
 
 def clear_trade_form_prefill() -> None:
@@ -15140,6 +15149,354 @@ def render_live_mode_shell(
                 st.info("Enter a valid current ES price in the sidebar to generate your NY Open Intelligence summary.")
 
 
+def _resolve_one_intelligence_date(trading_date: date, prior_date: date, effective_offset: float) -> bool:
+    """Resolve outcomes for a single past trading date and write them to the intelligence DB."""
+    try:
+        es_candles, _ = fetch_es_candles_for_app(prior_date, trading_date)
+        if es_candles is None or es_candles.empty:
+            return False
+        anchor_bundle = build_six_line_anchors(es_candles, prior_date)
+        nine_am_target = build_projection_target(trading_date)
+        projected_es = project_six_lines(anchor_bundle["anchors"], nine_am_target)
+        projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
+        next_session_spx = build_synthetic_spx_session(get_next_day_session_candles(es_candles, trading_date), effective_offset)
+        nine_am_bar = next_session_spx.loc[next_session_spx["timestamp"] == at_central(trading_date, 9, 0)]
+        if nine_am_bar.empty:
+            return False
+        nine_am_row = nine_am_bar.iloc[0]
+        line_values = {name: details["projected_price"] for name, details in projected_spx.items()}
+        seed_scenario = evaluate_trading_scenario(current_price=float(nine_am_row["close"]), line_values=line_values, open_price=float(nine_am_row["open"]), confirmation_confirmed=False)
+        spx_candles = fetch_spx_confirmation_candles(trading_date)
+        spx_830_candle = extract_spx_830_candle(spx_candles, trading_date)
+        primary_seed = seed_scenario.get("primary_play")
+        confirmation = evaluate_830_confirmation(spx_830_candle, primary_seed["entry"]["price"] if primary_seed else float(nine_am_row["close"]), primary_seed["direction"] if primary_seed else "CALL")
+        signal_package = build_signal_package(current_price=float(nine_am_row["close"]), line_values=line_values, confirmation=confirmation, news_day=False, current_time=nine_am_target, open_price=float(nine_am_row["open"]))
+        primary_review = evaluate_play_outcome(signal_package["scenario"].get("primary_play"), projected_spx, next_session_spx)
+        alternate_review = evaluate_play_outcome(signal_package["scenario"].get("alternate_play"), projected_spx, next_session_spx)
+        trade_taken = bool(primary_review["entry_triggered"] or alternate_review["entry_triggered"])
+        chosen = primary_review if primary_review["entry_triggered"] else alternate_review
+        chosen_path = "Primary" if primary_review["entry_triggered"] else ("Alternate" if alternate_review["entry_triggered"] else "None")
+        integrity = sorted(set(primary_review.get("integrity_flags", [])) | set(alternate_review.get("integrity_flags", [])))
+        result_class = chosen["result_classification"] if (trade_taken or "invalid_stop" in integrity) else "No Trade"
+        _intelligence.record_outcome(
+            trading_date=trading_date,
+            primary_entry_triggered=bool(primary_review["entry_triggered"]),
+            primary_stop_hit=bool(primary_review["stop_hit"]),
+            primary_tp1_hit=bool(primary_review["tp1_hit"]),
+            primary_tp2_hit=bool(primary_review.get("tp2_hit", False)),
+            primary_result=str(primary_review["result_classification"]),
+            primary_pnl=float(primary_review["estimated_pnl"]),
+            alternate_entry_triggered=bool(alternate_review["entry_triggered"]),
+            alternate_stop_hit=bool(alternate_review["stop_hit"]),
+            alternate_tp1_hit=bool(alternate_review["tp1_hit"]),
+            alternate_tp2_hit=bool(alternate_review.get("tp2_hit", False)),
+            alternate_result=str(alternate_review["result_classification"]),
+            alternate_pnl=float(alternate_review["estimated_pnl"]),
+            chosen_path=chosen_path,
+            result_classification=result_class,
+            estimated_pnl=float(chosen["estimated_pnl"]) if trade_taken else 0.0,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _conn_context():
+    import sqlite3 as _sq
+    from core.intelligence import DB_PATH
+    c = _sq.connect(DB_PATH)
+    c.row_factory = _sq.Row
+    return c
+
+
+def auto_resolve_pending_outcomes(effective_offset: float) -> int:
+    """Resolve any pending signal outcomes once per session. Returns count resolved."""
+    if _intelligence is None:
+        return 0
+    if st.session_state.get("intelligence_resolved_this_session"):
+        return 0
+    st.session_state["intelligence_resolved_this_session"] = True
+    pending = _intelligence.get_pending_outcome_dates()
+    today = date.today()
+    resolved_count = 0
+    for td_str in pending:
+        try:
+            td = date.fromisoformat(td_str)
+            if td >= today:
+                continue
+            with _conn_context() as db:
+                sig_row = db.execute("SELECT prior_date FROM signals WHERE trading_date=?", (td_str,)).fetchone()
+            if sig_row is None:
+                continue
+            prior = date.fromisoformat(sig_row["prior_date"])
+            if _resolve_one_intelligence_date(td, prior, effective_offset):
+                resolved_count += 1
+        except Exception:
+            continue
+    return resolved_count
+
+
+def run_intelligence_backfill(start_date: date, end_date: date, effective_offset: float, progress_placeholder=None) -> tuple[int, int]:
+    """Backfill intelligence DB for a date range. Returns (attempted, succeeded)."""
+    if _intelligence is None:
+        return 0, 0
+    all_dates = []
+    cursor = start_date
+    while cursor <= end_date:
+        if cursor.weekday() < 5:
+            all_dates.append(cursor)
+        cursor += timedelta(days=1)
+    attempted = 0
+    succeeded = 0
+    for i, trading_date in enumerate(all_dates):
+        if progress_placeholder is not None:
+            try:
+                pct = int((i / len(all_dates)) * 100)
+                progress_placeholder.progress(pct, text=f"Backfilling {trading_date.isoformat()} ({i+1}/{len(all_dates)})")
+            except Exception:
+                pass
+        prior = previous_business_day(trading_date)
+        attempted += 1
+        with _conn_context() as db:
+            existing_sig = db.execute("SELECT trading_date FROM signals WHERE trading_date=?", (trading_date.isoformat(),)).fetchone()
+            existing_out = db.execute("SELECT trading_date FROM outcomes WHERE trading_date=?", (trading_date.isoformat(),)).fetchone()
+        if existing_sig is None:
+            try:
+                es_candles, _ = fetch_es_candles_for_app(prior, trading_date)
+                if es_candles is None or es_candles.empty:
+                    continue
+                anchor_bundle = build_six_line_anchors(es_candles, prior)
+                nine_am_target = build_projection_target(trading_date)
+                projected_es = project_six_lines(anchor_bundle["anchors"], nine_am_target)
+                projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
+                next_session_spx = build_synthetic_spx_session(get_next_day_session_candles(es_candles, trading_date), effective_offset)
+                nine_am_bar = next_session_spx.loc[next_session_spx["timestamp"] == at_central(trading_date, 9, 0)]
+                if nine_am_bar.empty:
+                    continue
+                nine_am_row = nine_am_bar.iloc[0]
+                line_values = {name: details["projected_price"] for name, details in projected_spx.items()}
+                spx_candles = fetch_spx_confirmation_candles(trading_date)
+                spx_830_candle = extract_spx_830_candle(spx_candles, trading_date)
+                seed_scenario = evaluate_trading_scenario(current_price=float(nine_am_row["close"]), line_values=line_values, open_price=float(nine_am_row["open"]), confirmation_confirmed=False)
+                primary_seed = seed_scenario.get("primary_play")
+                confirmation = evaluate_830_confirmation(spx_830_candle, primary_seed["entry"]["price"] if primary_seed else float(nine_am_row["close"]), primary_seed["direction"] if primary_seed else "CALL")
+                sp = build_signal_package(current_price=float(nine_am_row["close"]), line_values=line_values, confirmation=confirmation, news_day=False, current_time=nine_am_target, open_price=float(nine_am_row["open"]))
+                _intelligence.capture_signal(trading_date, prior, sp, is_backfill=True)
+                if existing_out is None:
+                    pr = evaluate_play_outcome(sp["scenario"].get("primary_play"), projected_spx, next_session_spx)
+                    ar = evaluate_play_outcome(sp["scenario"].get("alternate_play"), projected_spx, next_session_spx)
+                    trade_taken = bool(pr["entry_triggered"] or ar["entry_triggered"])
+                    chosen = pr if pr["entry_triggered"] else ar
+                    chosen_path = "Primary" if pr["entry_triggered"] else ("Alternate" if ar["entry_triggered"] else "None")
+                    integrity = sorted(set(pr.get("integrity_flags", [])) | set(ar.get("integrity_flags", [])))
+                    result_class = chosen["result_classification"] if (trade_taken or "invalid_stop" in integrity) else "No Trade"
+                    _intelligence.record_outcome(
+                        trading_date=trading_date,
+                        primary_entry_triggered=bool(pr["entry_triggered"]), primary_stop_hit=bool(pr["stop_hit"]),
+                        primary_tp1_hit=bool(pr["tp1_hit"]), primary_tp2_hit=bool(pr.get("tp2_hit", False)),
+                        primary_result=str(pr["result_classification"]), primary_pnl=float(pr["estimated_pnl"]),
+                        alternate_entry_triggered=bool(ar["entry_triggered"]), alternate_stop_hit=bool(ar["stop_hit"]),
+                        alternate_tp1_hit=bool(ar["tp1_hit"]), alternate_tp2_hit=bool(ar.get("tp2_hit", False)),
+                        alternate_result=str(ar["result_classification"]), alternate_pnl=float(ar["estimated_pnl"]),
+                        chosen_path=chosen_path, result_classification=result_class,
+                        estimated_pnl=float(chosen["estimated_pnl"]) if trade_taken else 0.0,
+                    )
+                succeeded += 1
+            except Exception:
+                continue
+        elif existing_out is None and trading_date < date.today():
+            if _resolve_one_intelligence_date(trading_date, prior, effective_offset):
+                succeeded += 1
+    if progress_placeholder is not None:
+        try:
+            progress_placeholder.progress(100, text="Backfill complete.")
+        except Exception:
+            pass
+    _intelligence.set_backfill_meta("last_backfill_end", end_date.isoformat())
+    _intelligence.set_backfill_meta("last_backfill_run", date.today().isoformat())
+    return attempted, succeeded
+
+
+def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> None:
+    """Render the Adaptive Intelligence Engine dashboard."""
+    st.markdown(
+        '<div style="position:relative;overflow:hidden;border-radius:20px;padding:22px 24px 18px 24px;'
+        'margin-bottom:20px;background:linear-gradient(135deg,rgba(4,8,22,0.99) 0%,rgba(8,6,28,0.98) 50%,rgba(2,6,18,0.99) 100%);'
+        'border:1px solid rgba(150,100,255,0.16);box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
+        '<div style="pointer-events:none;position:absolute;top:-20px;right:40px;width:240px;height:130px;'
+        'background:radial-gradient(ellipse,rgba(130,80,255,0.10) 0%,transparent 70%);"></div>'
+        '<div style="display:flex;align-items:flex-start;gap:16px;">'
+        '<div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+        'font-size:1.3rem;background:linear-gradient(135deg,rgba(130,80,255,0.28),rgba(80,40,180,0.18));'
+        'box-shadow:0 0 18px rgba(130,80,255,0.22);border:1px solid rgba(130,80,255,0.22);">◍</div>'
+        '<div style="flex:1;min-width:0;">'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        'text-transform:uppercase;color:rgba(160,120,255,0.65);margin-bottom:4px;">ADAPTIVE · LEARNING · ENGINE</div>'
+        '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
+        'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Intelligence Dashboard</div>'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.8rem;color:rgba(180,205,240,0.55);line-height:1.5;">'
+        'Auto-logged signals · historical backfill · edge analytics · performance learning'
+        '</div></div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+    if _intelligence is None:
+        st.error("Intelligence module unavailable — core import failed.")
+        return
+
+    # Auto-initialize on first visit
+    if _intelligence.get_backfill_meta("last_backfill_run") is None:
+        st.markdown(
+            '<div style="background:rgba(130,80,255,0.08);border:1px solid rgba(130,80,255,0.22);'
+            'border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:0.82rem;'
+            'color:rgba(200,180,255,0.85);line-height:1.6;">'
+            '<b>First-time setup</b> — Loading 6 months of historical signals and outcomes. '
+            'This runs once and takes about 1–3 minutes.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _auto_end = date.today() - timedelta(days=1)
+        _auto_start = _auto_end - timedelta(days=180)
+        _prog = st.empty()
+        with st.spinner("Initializing intelligence engine from historical data..."):
+            run_intelligence_backfill(start_date=_auto_start, end_date=_auto_end, effective_offset=effective_offset, progress_placeholder=_prog)
+        _prog.empty()
+        st.rerun()
+        return
+
+    sig_count = _intelligence.get_signal_count()
+    out_count = _intelligence.get_outcome_count()
+    pending_count = len(_intelligence.get_pending_outcome_dates())
+    last_backfill = _intelligence.get_backfill_meta("last_backfill_run") or "Never"
+
+    _chip_row = (
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;">'
+        f'<div style="padding:8px 16px;border-radius:10px;background:rgba(130,80,255,0.10);border:1px solid rgba(130,80,255,0.22);font-size:0.78rem;color:rgba(200,170,255,0.9);">'
+        f'<span style="font-weight:700;font-size:1.05rem;color:#c8a8ff;">{sig_count}</span>&nbsp; Signals Logged</div>'
+        f'<div style="padding:8px 16px;border-radius:10px;background:rgba(0,212,100,0.08);border:1px solid rgba(0,212,100,0.20);font-size:0.78rem;color:rgba(140,240,180,0.9);">'
+        f'<span style="font-weight:700;font-size:1.05rem;color:#43f3a3;">{out_count}</span>&nbsp; Outcomes Resolved</div>'
+        f'<div style="padding:8px 16px;border-radius:10px;background:rgba(255,180,50,0.07);border:1px solid rgba(255,180,50,0.18);font-size:0.78rem;color:rgba(255,210,120,0.9);">'
+        f'<span style="font-weight:700;font-size:1.05rem;color:#ffd060;">{pending_count}</span>&nbsp; Pending</div>'
+        f'<div style="padding:8px 16px;border-radius:10px;background:rgba(100,150,255,0.07);border:1px solid rgba(100,150,255,0.18);font-size:0.78rem;color:rgba(160,195,255,0.9);">'
+        f'Last backfill: <span style="font-weight:700;color:#a0c8ff;">{last_backfill}</span></div>'
+        f'</div>'
+    )
+    st.markdown(_chip_row, unsafe_allow_html=True)
+
+    with st.expander("Historical Backfill", expanded=False):
+        st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Extend the intelligence DB beyond the initial 6-month seed. Yahoo Finance provides up to 2 years of ES=F data.</div>', unsafe_allow_html=True)
+        bf_col1, bf_col2 = st.columns(2)
+        with bf_col1:
+            bf_start = st.date_input("Backfill from", value=date.today() - timedelta(days=365), key="intel_bf_start")
+        with bf_col2:
+            bf_end = st.date_input("Backfill to", value=date.today() - timedelta(days=1), key="intel_bf_end")
+        if st.button("Run Backfill", use_container_width=True, key="intel_run_backfill", type="primary"):
+            if bf_end < bf_start:
+                st.error("End date must be on or after start date.")
+            else:
+                prog_ph = st.empty()
+                with st.spinner("Running backfill..."):
+                    attempted, succeeded = run_intelligence_backfill(bf_start, bf_end, effective_offset, prog_ph)
+                prog_ph.empty()
+                st.success(f"Backfill complete — {succeeded} of {attempted} dates processed.")
+                st.rerun()
+
+    st.markdown('<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(130,80,255,0.15),transparent);margin:8px 0 24px 0;"></div>', unsafe_allow_html=True)
+
+    if out_count == 0:
+        st.info("No resolved outcomes yet — the engine will populate automatically as live sessions accumulate.")
+        return
+
+    stats = _intelligence.get_edge_stats()
+    total_res = stats.get("total_resolved", 0)
+    if total_res == 0:
+        st.info("No resolved signals found.")
+        return
+
+    overall = stats.get("overall", {})
+    st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Overall Performance</div>', unsafe_allow_html=True)
+    ov_cols = st.columns(4)
+    with ov_cols[0]:
+        st.metric("Sessions Analyzed", total_res)
+    with ov_cols[1]:
+        wr = overall.get("win_rate")
+        st.metric("Win Rate", f"{wr * 100:.1f}%" if wr is not None else "—")
+    with ov_cols[2]:
+        ap = overall.get("avg_pnl")
+        st.metric("Avg P&L / Session", f"{ap:+.1f} pts" if ap is not None else "—")
+    with ov_cols[3]:
+        tp = overall.get("total_pnl")
+        st.metric("Total P&L", f"{tp:+.1f} pts" if tp is not None else "—")
+
+    st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Edge by Scenario</div>', unsafe_allow_html=True)
+    by_sc = stats.get("by_scenario", {})
+    if by_sc:
+        _sc_rows = [{"Scenario": k, "Sessions": v["n"], "Win Rate": f"{v['win_rate']*100:.1f}%" if v.get("win_rate") is not None else "—", "Avg P&L": f"{v['avg_pnl']:+.1f}" if v.get("avg_pnl") is not None else "—", "Total P&L": f"{v['total_pnl']:+.1f}" if v.get("total_pnl") is not None else "—"} for k, v in sorted(by_sc.items(), key=lambda x: -(x[1].get("total_pnl") or 0))]
+        st.dataframe(pd.DataFrame(_sc_rows), use_container_width=True, hide_index=True, column_config={"Scenario": st.column_config.TextColumn("Scenario", width="large"), "Sessions": st.column_config.NumberColumn("Sessions", width="small"), "Win Rate": st.column_config.TextColumn("Win Rate", width="small"), "Avg P&L": st.column_config.TextColumn("Avg P&L (pts)", width="small"), "Total P&L": st.column_config.TextColumn("Total P&L (pts)", width="small")})
+
+    st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
+
+    dir_col, conf_col = st.columns(2, gap="large")
+    with dir_col:
+        st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Direction Intelligence</div>', unsafe_allow_html=True)
+        for d_name, d_stat in stats.get("by_direction", {}).items():
+            wr = d_stat.get("win_rate")
+            ap = d_stat.get("avg_pnl")
+            _acc = "#43f3a3" if d_name == "CALL" else "#ff6d8b"
+            st.markdown(f'<div style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);border-left:3px solid {_acc};border-radius:10px;padding:12px 14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:0.85rem;font-weight:700;color:{_acc};">{d_name}</span><span style="font-size:0.72rem;color:rgba(180,210,240,0.45);">{d_stat["n"]} sessions</span></div><div style="display:flex;gap:20px;margin-top:8px;"><div><div style="font-size:0.6rem;color:rgba(155,185,220,0.45);font-weight:600;letter-spacing:0.08em;">WIN RATE</div><div style="font-size:1.0rem;font-weight:700;color:#e8f2ff;">{f"{wr*100:.1f}%" if wr is not None else "—"}</div></div><div><div style="font-size:0.6rem;color:rgba(155,185,220,0.45);font-weight:600;letter-spacing:0.08em;">AVG P&L</div><div style="font-size:1.0rem;font-weight:700;color:#e8f2ff;">{f"{ap:+.1f} pts" if ap is not None else "—"}</div></div></div></div>', unsafe_allow_html=True)
+    with conf_col:
+        st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Confirmation Signal</div>', unsafe_allow_html=True)
+        _conf_acc = {"Confirmed": "#43f3a3", "Failed": "#ff6d8b", "Not Recorded": "rgba(180,205,240,0.45)"}
+        for c_name, c_stat in stats.get("by_confirmation", {}).items():
+            wr = c_stat.get("win_rate")
+            ap = c_stat.get("avg_pnl")
+            _acc = _conf_acc.get(c_name, "rgba(180,205,240,0.45)")
+            st.markdown(f'<div style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);border-left:3px solid {_acc};border-radius:10px;padding:12px 14px;margin-bottom:10px;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:0.85rem;font-weight:700;color:{_acc};">{c_name}</span><span style="font-size:0.72rem;color:rgba(180,210,240,0.45);">{c_stat["n"]} sessions</span></div><div style="display:flex;gap:20px;margin-top:8px;"><div><div style="font-size:0.6rem;color:rgba(155,185,220,0.45);font-weight:600;letter-spacing:0.08em;">WIN RATE</div><div style="font-size:1.0rem;font-weight:700;color:#e8f2ff;">{f"{wr*100:.1f}%" if wr is not None else "—"}</div></div><div><div style="font-size:0.6rem;color:rgba(155,185,220,0.45);font-weight:600;letter-spacing:0.08em;">AVG P&L</div><div style="font-size:1.0rem;font-weight:700;color:#e8f2ff;">{f"{ap:+.1f} pts" if ap is not None else "—"}</div></div></div></div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ AI Insights</div>', unsafe_allow_html=True)
+    insights = []
+    if by_sc:
+        best_sc = max(by_sc.items(), key=lambda x: x[1].get("total_pnl") or 0, default=(None, {}))
+        worst_sc = min(by_sc.items(), key=lambda x: x[1].get("total_pnl") or 0, default=(None, {}))
+        best_wr_sc = max(by_sc.items(), key=lambda x: x[1].get("win_rate") or 0, default=(None, {}))
+        if best_sc[0] and (best_sc[1].get("total_pnl") or 0) > 0:
+            insights.append(f"✦ <b>{best_sc[0]}</b> is your highest-earning scenario — {best_sc[1]['n']} sessions, {(best_sc[1].get('win_rate') or 0)*100:.0f}% win rate, +{best_sc[1].get('total_pnl', 0):.1f} pts total.")
+        if best_wr_sc[0] and (best_wr_sc[1].get("win_rate") or 0) >= 0.6:
+            insights.append(f"✦ <b>{best_wr_sc[0]}</b> has the highest win rate at {(best_wr_sc[1].get('win_rate') or 0)*100:.1f}% over {best_wr_sc[1]['n']} sessions.")
+        if worst_sc[0] and (worst_sc[1].get("total_pnl") or 0) < 0:
+            insights.append(f"✦ Exercise caution with <b>{worst_sc[0]}</b> — it has underperformed across {worst_sc[1]['n']} sessions ({(worst_sc[1].get('win_rate') or 0)*100:.0f}% win rate).")
+    if by_sc:
+        by_dir = stats.get("by_direction", {})
+        if by_dir:
+            best_dir = max(by_dir.items(), key=lambda x: x[1].get("win_rate") or 0, default=(None, {}))
+            if best_dir[0]:
+                insights.append(f"✦ <b>{best_dir[0]}</b> trades have historically outperformed with a {(best_dir[1].get('win_rate') or 0)*100:.1f}% win rate.")
+        by_conf = stats.get("by_confirmation", {})
+        conf_s = by_conf.get("Confirmed", {})
+        fail_s = by_conf.get("Failed", {})
+        if conf_s.get("win_rate") and fail_s.get("win_rate"):
+            delta = (conf_s["win_rate"] - fail_s["win_rate"]) * 100
+            if delta > 5:
+                insights.append(f"✦ Confirmation adds meaningful edge — confirmed setups win {delta:.0f}% more often than failed confirmation.")
+    if not insights:
+        insights.append("✦ Accumulate more resolved sessions for AI insights to appear.")
+    for ins in insights:
+        st.markdown(f'<div style="background:rgba(130,80,255,0.06);border:1px solid rgba(130,80,255,0.18);border-left:3px solid rgba(160,100,255,0.7);border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:0.82rem;color:rgba(200,180,255,0.85);line-height:1.6;">{ins}</div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height:1px;background:rgba(255,255,255,0.05);margin:20px 0;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;margin-bottom:14px;">◆ Recent Signal Log</div>', unsafe_allow_html=True)
+    all_recs = _intelligence.get_all_records()
+    log_rows = [{"Date": r["trading_date"], "Scenario": r.get("scenario_name") or "—", "Direction": r.get("primary_direction") or "—", "Confirmation": r.get("confirmation_status") or "—", "Sit-Out": "Yes" if r.get("sit_out") else "No", "Result": r.get("result_classification") or "Pending", "P&L": f"{r['primary_pnl']:+.1f}" if r.get("primary_pnl") is not None else "—", "✓/✗": "✓" if r.get("primary_tp1_hit") else ("✗" if r.get("primary_stop_hit") else "·"), "Source": "Backfill" if r.get("is_backfill") else "Live"} for r in all_recs[:60]]
+    if log_rows:
+        st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No signal records yet.")
+
+
 def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: float) -> None:
     """Render a practical historical backtest runner."""
 
@@ -15595,6 +15952,20 @@ def main() -> None:
         confirmation = build_unavailable_confirmation("Scenario unavailable because current SPX price is missing or invalid.")
     st.session_state["current_signal_package"] = signal_package
 
+    # Auto-capture today's signal into the intelligence DB (Live Mode only)
+    if _intelligence is not None and signal_package is not None and inputs.get("operating_mode") == "Live Mode":
+        try:
+            _intelligence.capture_signal(trading_date=inputs["next_trading_date"], prior_date=inputs["prior_session_date"], signal_package=signal_package, is_backfill=False)
+        except Exception:
+            pass
+
+    # Auto-resolve outcomes for any pending past signals (once per session)
+    if _intelligence is not None and inputs.get("operating_mode") == "Live Mode":
+        try:
+            auto_resolve_pending_outcomes(effective_offset)
+        except Exception:
+            pass
+
     try:
         checkpoint_views = build_premarket_checkpoint_views(
             anchor_bundle=anchor_bundle,
@@ -15615,7 +15986,9 @@ def main() -> None:
     except Exception:
         pass
 
-    top_live_tab, top_historical_tab, top_trade_log_tab = st.tabs(["◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG"])
+    top_live_tab, top_historical_tab, top_trade_log_tab, top_intelligence_tab = st.tabs([
+        "◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG", "◍  INTELLIGENCE"
+    ])
 
     with top_live_tab:
         if inputs["operating_mode"] == "Live Mode":
@@ -15665,6 +16038,9 @@ def main() -> None:
 
     with top_trade_log_tab:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
+
+    with top_intelligence_tab:
+        render_intelligence_tab(effective_offset=effective_offset, inputs=inputs)
 
 if __name__ == "__main__":
     main()
