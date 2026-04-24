@@ -15350,13 +15350,13 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
             '<div style="background:rgba(130,80,255,0.08);border:1px solid rgba(130,80,255,0.22);'
             'border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:0.82rem;'
             'color:rgba(200,180,255,0.85);line-height:1.6;">'
-            '<b>First-time setup</b> — Loading 6 months of historical signals and outcomes. '
+            '<b>First-time setup</b> — Loading year-to-date historical signals and outcomes. '
             'This runs once and takes about 1–3 minutes.'
             '</div>',
             unsafe_allow_html=True,
         )
         _auto_end = date.today() - timedelta(days=1)
-        _auto_start = _auto_end - timedelta(days=180)
+        _auto_start = date(date.today().year, 1, 1)
         _prog = st.empty()
         with st.spinner("Initializing intelligence engine from historical data..."):
             run_intelligence_backfill(start_date=_auto_start, end_date=_auto_end, effective_offset=effective_offset, progress_placeholder=_prog)
@@ -15384,10 +15384,10 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     st.markdown(_chip_row, unsafe_allow_html=True)
 
     with st.expander("Historical Backfill", expanded=False):
-        st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Extend the intelligence DB beyond the initial 6-month seed. Yahoo Finance provides up to 2 years of ES=F data.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Extend the intelligence DB beyond the initial year-to-date seed. Yahoo Finance provides up to 2 years of ES=F data.</div>', unsafe_allow_html=True)
         bf_col1, bf_col2 = st.columns(2)
         with bf_col1:
-            bf_start = st.date_input("Backfill from", value=date.today() - timedelta(days=365), key="intel_bf_start")
+            bf_start = st.date_input("Backfill from", value=date(date.today().year, 1, 1), key="intel_bf_start")
         with bf_col2:
             bf_end = st.date_input("Backfill to", value=date.today() - timedelta(days=1), key="intel_bf_end")
         if st.button("Run Backfill", use_container_width=True, key="intel_run_backfill", type="primary"):
