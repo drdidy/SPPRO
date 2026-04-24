@@ -12037,7 +12037,8 @@ def find_nearest_lines(line_values: dict[str, float], current_price: float) -> t
 def render_evening_location_panel(current_es_price: float, selected_checkpoint: dict[str, Any]) -> dict[str, Any]:
     """Render the current ES price location relative to the checkpoint structure."""
 
-    es_line_values = {name: details["projected_price"] for name, details in selected_checkpoint["es_lines"].items()}
+    es_lines = selected_checkpoint["es_lines"]
+    es_line_values = {name: details["projected_price"] for name, details in es_lines.items()}
     reference_scenario = evaluate_trading_scenario(
         current_price=current_es_price,
         line_values=es_line_values,
@@ -12046,39 +12047,65 @@ def render_evening_location_panel(current_es_price: float, selected_checkpoint: 
     )
     nearest_resistance, nearest_support = find_nearest_lines(es_line_values, current_es_price)
 
-    st.markdown(
-        """
-        <div class="spx-shell">
-            <div class="spx-section-title">Current ES Structure</div>
-            <div class="spx-section-subtitle">Reference framework based on line location.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    def _line_label(key: str) -> str:
+        return es_lines.get(key, {}).get("label") or key.replace("_", " ").title()
+
+    res_display = (
+        f"{_line_label(nearest_resistance[0])} @ {format_price(nearest_resistance[1])}"
+        if nearest_resistance else "None above"
     )
+    sup_display = (
+        f"{_line_label(nearest_support[0])} @ {format_price(nearest_support[1])}"
+        if nearest_support else "None below"
+    )
+
+    _scen_full = reference_scenario.get("scenario_name", "Unknown")
+    _scen_display = (_scen_full[:26] + "…") if len(_scen_full) > 26 else _scen_full
 
     top_left, top_mid, top_right = st.columns(3)
     top_left.metric("Checkpoint", selected_checkpoint["label"])
     top_mid.metric("Current ES", format_price(current_es_price))
-    _scen_full = reference_scenario["scenario_name"]
-    _scen_display = (_scen_full[:22] + "…") if len(_scen_full) > 22 else _scen_full
     top_right.metric("Structure", _scen_display, help=_scen_full)
 
     lower_left, lower_right = st.columns(2)
-    lower_left.metric(
-        "Nearest Resistance Above",
-        f"{nearest_resistance[0]} @ {format_price(nearest_resistance[1])}" if nearest_resistance else "None above",
-    )
-    lower_right.metric(
-        "Nearest Support Below",
-        f"{nearest_support[0]} @ {format_price(nearest_support[1])}" if nearest_support else "None below",
-    )
+    lower_left.metric("Nearest Resistance", res_display)
+    lower_right.metric("Nearest Support", sup_display)
 
-    with st.container(border=True):
-        st.markdown('<div class="spx-reference">Reference framework based on line location</div>', unsafe_allow_html=True)
-        st.write(reference_scenario["description"])
-        st.write(f"Primary reference direction: {reference_scenario['primary_trade_direction'] or 'None'}")
-        st.write(f"Alternate reference direction: {reference_scenario['alternate_trade'] or 'None'}")
-        st.write(f"Confidence label: {reference_scenario['confidence_level']}")
+    _primary_dir = reference_scenario.get("primary_trade_direction") or "—"
+    _alt_dir     = reference_scenario.get("alternate_trade") or "—"
+    _confidence  = str(reference_scenario.get("confidence_level") or "—").title()
+    _description = reference_scenario.get("description") or ""
+
+    def _dir_color(d: str) -> str:
+        u = str(d).upper()
+        return "#43f3a3" if u == "CALL" else "#ff6d8b" if u == "PUT" else "rgba(180,210,240,0.6)"
+
+    st.markdown(
+        f'<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);'
+        f'border-radius:14px;padding:14px 16px;margin-top:8px;">'
+        f'<div style="font-size:0.78rem;color:rgba(200,220,245,0.75);line-height:1.55;margin-bottom:12px;">'
+        f'{escape(_description)}</div>'
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">'
+        f'<div style="display:flex;align-items:center;gap:6px;">'
+        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'color:rgba(180,210,240,0.4);">Primary</span>'
+        f'<span style="font-size:0.72rem;font-weight:700;color:{_dir_color(_primary_dir)};">{escape(_primary_dir)}</span>'
+        f'</div>'
+        f'<span style="color:rgba(255,255,255,0.1);">|</span>'
+        f'<div style="display:flex;align-items:center;gap:6px;">'
+        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'color:rgba(180,210,240,0.4);">Alternate</span>'
+        f'<span style="font-size:0.72rem;font-weight:700;color:{_dir_color(_alt_dir)};">{escape(_alt_dir)}</span>'
+        f'</div>'
+        f'<span style="color:rgba(255,255,255,0.1);">|</span>'
+        f'<div style="display:flex;align-items:center;gap:6px;">'
+        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'color:rgba(180,210,240,0.4);">Confidence</span>'
+        f'<span style="font-size:0.72rem;font-weight:600;color:rgba(200,220,245,0.8);">{escape(_confidence)}</span>'
+        f'</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
 
     return reference_scenario
 
