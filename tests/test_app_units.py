@@ -1822,8 +1822,29 @@ class AppUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(statuses["phases"]["asian"]["state"], "ACTIVE")
-        self.assertEqual(statuses["phases"]["asian"]["range"], "5 PM - 12 AM CT")
+        self.assertEqual(statuses["phases"]["asian"]["range"], "5 PM - 2 AM CT")
         self.assertEqual(statuses["phases"]["london"]["state"], "UPCOMING")
+
+    def test_premarket_phase_statuses_keep_asian_active_until_2am(self) -> None:
+        statuses = app_module.build_premarket_phase_statuses(
+            date(2026, 4, 27),
+            now_ct=app_module.at_central(date(2026, 4, 27), 1, 30),
+        )
+
+        self.assertEqual(statuses["active_name"], "ASIAN")
+        self.assertEqual(statuses["phases"]["asian"]["state"], "ACTIVE")
+        self.assertEqual(statuses["phases"]["london"]["state"], "UPCOMING")
+
+    def test_premarket_phase_statuses_start_london_after_asian_closes(self) -> None:
+        statuses = app_module.build_premarket_phase_statuses(
+            date(2026, 4, 27),
+            now_ct=app_module.at_central(date(2026, 4, 27), 2, 30),
+        )
+
+        self.assertEqual(statuses["active_name"], "LONDON")
+        self.assertEqual(statuses["phases"]["asian"]["state"], "DONE")
+        self.assertEqual(statuses["phases"]["london"]["state"], "ACTIVE")
+        self.assertEqual(statuses["phases"]["london"]["range"], "2 AM - 7 AM CT")
 
     def test_asian_anchor_can_override_pm_when_structurally_closer(self) -> None:
         frame = self._build_anchor_candidate_frame()

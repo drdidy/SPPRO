@@ -6968,11 +6968,11 @@ def _anchor_window_specs(prior_session_date: date, next_trading_date: date) -> d
         "ASIAN": {
             "label": "Asian Session",
             "start": at_central(evening_date, 17, 0),
-            "end": at_central(next_trading_date, 0, 0),
+            "end": at_central(next_trading_date, 2, 0),
         },
         "LONDON": {
             "label": "London",
-            "start": at_central(next_trading_date, 0, 0),
+            "start": at_central(next_trading_date, 2, 0),
             "end": at_central(next_trading_date, 7, 0),
         },
         "PRE_NY": {
@@ -14985,8 +14985,8 @@ def render_historical_projection_panel(
         "Selected Anchor Sources": " | ".join(anchor_labels) if anchor_labels else "Unavailable",
         "Candidate Windows": (
             f"PM {format_timestamp(at_central(inputs['prior_session_date'], 12, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 15, 0))} | "
-            f"Asian {format_timestamp(at_central(inputs['next_trading_date'] - timedelta(days=1), 17, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 0, 0))} | "
-            f"London {format_timestamp(at_central(inputs['next_trading_date'], 0, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 7, 0))} | "
+            f"Asian {format_timestamp(at_central(inputs['next_trading_date'] - timedelta(days=1), 17, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 2, 0))} | "
+            f"London {format_timestamp(at_central(inputs['next_trading_date'], 2, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 7, 0))} | "
             f"Pre-NY {format_timestamp(at_central(inputs['next_trading_date'], 7, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 8, 25))}"
         ),
         "Prior Session Wick Window": f"{format_timestamp(at_central(inputs['prior_session_date'], 8, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 16, 0))}",
@@ -15304,6 +15304,7 @@ def build_premarket_checkpoint_views(
         "asian": [
             ("11:00 PM CT", at_central(evening_date, 23, 0)),
             ("1:00 AM CT",  at_central(next_trading_date, 1, 0)),
+            ("2:00 AM CT",  at_central(next_trading_date, 2, 0)),
         ],
         "london": [
             ("3:00 AM CT",  at_central(next_trading_date, 3, 0)),
@@ -15381,14 +15382,14 @@ def build_premarket_phase_statuses(
         },
         "asian": {
             "name": "ASIAN",
-            "range": "5 PM - 12 AM CT",
+            "range": "5 PM - 2 AM CT",
             "start": at_central(evening_date, 17, 0),
-            "end": at_central(next_trading_date, 0, 0),
+            "end": at_central(next_trading_date, 2, 0),
         },
         "london": {
             "name": "LONDON",
-            "range": "12 AM - 7 AM CT",
-            "start": at_central(next_trading_date, 0, 0),
+            "range": "2 AM - 7 AM CT",
+            "start": at_central(next_trading_date, 2, 0),
             "end": at_central(next_trading_date, 7, 0),
         },
         "preopen": {

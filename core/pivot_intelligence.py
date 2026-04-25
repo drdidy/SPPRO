@@ -8,6 +8,7 @@ with afternoon pivots when they produce the structure that NY actually respects.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import timedelta
 from typing import Any, Iterable
 
 import pandas as pd
@@ -31,6 +32,7 @@ class PivotWindowSpec:
     end_minute: int
     weight: float
     description: str
+    end_day_offset: int = 0
 
 
 PIVOT_WINDOWS: tuple[PivotWindowSpec, ...] = (
@@ -47,19 +49,20 @@ PIVOT_WINDOWS: tuple[PivotWindowSpec, ...] = (
         name=ASIAN_WINDOW_NAME,
         start_hour=17,
         start_minute=0,
-        end_hour=23,
-        end_minute=59,
+        end_hour=2,
+        end_minute=0,
         weight=1.15,
-        description="Asian session structure window. Preferred when closer to price.",
+        description="5 PM-2 AM CT Asian session structure window. Preferred when closer to price.",
+        end_day_offset=1,
     ),
     PivotWindowSpec(
         name="overnight_continuation",
-        start_hour=0,
+        start_hour=2,
         start_minute=0,
         end_hour=7,
         end_minute=30,
         weight=1.05,
-        description="Post-midnight continuation window before NY premarket structure hardens.",
+        description="Post-Asian continuation window before NY premarket structure hardens.",
     ),
 )
 
@@ -109,7 +112,7 @@ def _is_pivot_low(window: pd.DataFrame, index: int) -> bool:
 
 def _window_bounds(session_date: Any, spec: PivotWindowSpec):
     start = at_central(session_date, spec.start_hour, spec.start_minute)
-    end = at_central(session_date, spec.end_hour, spec.end_minute)
+    end = at_central(session_date + timedelta(days=spec.end_day_offset), spec.end_hour, spec.end_minute)
     return start, end
 
 
