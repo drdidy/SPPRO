@@ -1418,51 +1418,68 @@ def inject_app_styles() -> None:
         .spx-play-shell {
             position: relative;
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 22px;
-            padding: 0.95rem 1rem 1rem 1rem;
+            border: 1px solid rgba(140,175,255,0.13);
+            border-radius: 26px;
+            padding: 1.02rem 1.06rem 1.08rem 1.06rem;
             background:
-                radial-gradient(circle at top right, rgba(0,212,255,0.08), transparent 30%),
-                linear-gradient(180deg, rgba(12,18,31,0.97), rgba(8,12,22,0.96));
-            box-shadow: 0 14px 30px rgba(0,0,0,0.18);
-            margin-bottom: 0.8rem;
+                radial-gradient(circle at top right, rgba(106,230,255,0.11), transparent 30%),
+                radial-gradient(circle at 8% 4%, rgba(143,125,255,0.08), transparent 24%),
+                linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.98));
+            box-shadow: 0 24px 56px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.04);
+            margin-bottom: 0.95rem;
+        }
+        .spx-play-shell::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 4px;
+            background: linear-gradient(180deg, rgba(106,230,255,0.95), rgba(143,125,255,0.45));
+            opacity: 0.9;
         }
         .spx-play-shell.alternate {
-            opacity: 0.9;
-            border-color: rgba(255,255,255,0.06);
+            opacity: 0.96;
+            border-color: rgba(167,191,255,0.10);
             background:
-                radial-gradient(circle at top right, rgba(255,255,255,0.05), transparent 28%),
-                linear-gradient(180deg, rgba(10,14,24,0.93), rgba(8,11,20,0.94));
+                radial-gradient(circle at top right, rgba(179,136,255,0.08), transparent 28%),
+                linear-gradient(180deg, rgba(10,14,26,0.94), rgba(8,11,21,0.97));
+        }
+        .spx-play-shell.alternate::before {
+            background: linear-gradient(180deg, rgba(179,136,255,0.75), rgba(106,230,255,0.30));
         }
         .spx-play-topline {
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 0.8rem;
-            margin-bottom: 0.65rem;
+            margin-bottom: 0.72rem;
         }
         .spx-play-title {
-            font-size: 0.92rem;
-            font-weight: 740;
+            font-size: 1rem;
+            font-weight: 820;
             color: #e3edf9;
+            letter-spacing: 0.01em;
         }
         .spx-play-title.alt {
-            font-size: 0.84rem;
+            font-size: 0.94rem;
             color: #bfd0e2;
         }
         .spx-play-topline-note {
-            color: var(--spx-muted);
-            font-size: 0.74rem;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: #9db4cb;
+            font-size: 0.76rem;
+            white-space: nowrap;
         }
         .spx-decision-banner {
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 0.75rem;
-            padding: 0.78rem 0.88rem;
-            border-radius: 18px;
+            padding: 0.92rem 0.98rem;
+            border-radius: 21px;
             border: 1px solid rgba(255,255,255,0.08);
-            margin-bottom: 0.78rem;
+            margin-bottom: 0.82rem;
         }
         .spx-decision-banner.enter {
             background: linear-gradient(135deg, rgba(0,230,118,0.18), rgba(0,230,118,0.08));
@@ -1486,7 +1503,7 @@ def inject_app_styles() -> None:
         }
         .spx-decision-main {
             font-family: var(--spx-font-sans);
-            font-size: 1.22rem;
+            font-size: 1.34rem;
             font-weight: 830;
             color: #f8fbff;
             letter-spacing: 0.01em;
@@ -1523,8 +1540,10 @@ def inject_app_styles() -> None:
         .spx-entry-card {
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 16px;
-            padding: 0.72rem 0.8rem;
-            background: rgba(255,255,255,0.028);
+            padding: 0.78rem 0.84rem;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
         }
         .spx-entry-card-label {
             color: var(--spx-muted);
@@ -2486,23 +2505,25 @@ def inject_app_styles() -> None:
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
         }
         .spx-play-shell {
-            border-radius: 26px;
-            border-color: rgba(140,175,255,0.12);
+            border-radius: 28px;
+            border-color: rgba(140,175,255,0.14);
             background:
-                radial-gradient(circle at top right, rgba(106,230,255,0.09), transparent 28%),
-                linear-gradient(180deg, rgba(12,18,33,0.95), rgba(8,12,24,0.98));
-            box-shadow: 0 24px 56px rgba(0, 0, 0, 0.22);
+                radial-gradient(circle at 100% 0%, rgba(106,230,255,0.12), transparent 28%),
+                radial-gradient(circle at 0% 0%, rgba(143,125,255,0.08), transparent 24%),
+                linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.985));
+            box-shadow: 0 26px 60px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-play-shell.filtered {
             background:
-                radial-gradient(circle at top right, rgba(255,109,139,0.08), transparent 26%),
-                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(11,10,18,0.98));
-            border-color: rgba(255,109,139,0.16);
+                radial-gradient(circle at top right, rgba(255,109,139,0.08), transparent 24%),
+                radial-gradient(circle at 0% 0%, rgba(143,125,255,0.055), transparent 24%),
+                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(10,10,18,0.985));
+            border-color: rgba(255,109,139,0.14);
         }
         .spx-decision-banner {
-            border-radius: 20px;
-            padding: 0.92rem 1rem;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            border-radius: 22px;
+            padding: 0.98rem 1rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
         }
         .spx-entry-card,
         .spx-metric-block,
@@ -14742,11 +14763,8 @@ def render_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        _blocked_reason = str((authority or {}).get("setup_state_reason") or authority_reason or decision_reason or "Execution guard is blocking this play.").strip()
         if st.session_state.get(override_intent_key, False):
-            st.warning(f"Manual execution override pending | {setup_state}")
-        else:
-            st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
+            st.caption(f"Manual override pending: {setup_state}")
         if not st.session_state.get(override_intent_key, False):
             if st.button("Request Manual Override", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
@@ -18014,6 +18032,10 @@ def render_operator_play_card(
     if not developer_mode and visible_reason_note == "Line confirmation unavailable without candle data.":
         visible_reason_note = ""
     reason_note_html = f'<div class="spx-play-note">{escape(visible_reason_note)}</div>' if visible_reason_note else ""
+    card_subline = f"{direction_display['bias']} bias"
+    if decision != "NO TRADE":
+        card_subline = f"{card_subline} | {execution_display}"
+    card_status_chip = f'<span class="spx-chip {_chip_class(trade_state, "state")}">{escape(setup_state)}</span>' if setup_state else ""
     badge_bits = [
         f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
@@ -18029,12 +18051,12 @@ def render_operator_play_card(
         <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
-                <div class="spx-play-topline-note">Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))} | <span class="spx-chip {_chip_class(trade_state, 'state')}">{escape(setup_state)}</span></div>
+                <div class="spx-play-topline-note"><span>Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))}</span>{card_status_chip}</div>
             </div>
             <div class="spx-decision-banner {_decision_class(decision)}">
                 <div>
                     <div class="spx-decision-main">{escape(presentation_state['headline'])}</div>
-                    <div class="spx-decision-sub">{escape(direction_display['bias'])} | {escape(execution_display)}</div>
+                    <div class="spx-decision-sub">{escape(card_subline)}</div>
                 </div>
                 <div class="spx-play-context">
                     <div class="spx-play-context-label">{escape(trigger_state)}</div>
@@ -18201,11 +18223,8 @@ def render_operator_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        _blocked_reason = str(setup_state_reason or reason_line or "Execution guard is blocking this play.").strip()
         if st.session_state.get(override_intent_key, False):
-            st.warning(f"Manual execution override pending | {setup_state}")
-        else:
-            st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
+            st.caption(f"Manual override pending: {setup_state}")
         if not st.session_state.get(override_intent_key, False):
             if st.button("Request Manual Override", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
