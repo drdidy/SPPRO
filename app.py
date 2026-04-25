@@ -1450,6 +1450,31 @@ def inject_app_styles() -> None:
                 radial-gradient(circle at 8% 4%, var(--play-accent-secondary), transparent 24%),
                 linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.98));
         }
+        .spx-play-shell.direction-bullish:not(.state-blocked) {
+            --play-accent: rgba(58,255,192,0.86);
+            --play-accent-soft: rgba(58,255,192,0.11);
+            --play-accent-secondary: rgba(106,230,255,0.06);
+        }
+        .spx-play-shell.direction-bearish:not(.state-blocked) {
+            --play-accent: rgba(255,109,139,0.86);
+            --play-accent-soft: rgba(255,109,139,0.105);
+            --play-accent-secondary: rgba(255,183,77,0.045);
+        }
+        .spx-play-shell.state-blocked {
+            --play-accent: rgba(255,109,139,0.90);
+            --play-accent-soft: rgba(255,109,139,0.075);
+            --play-accent-secondary: rgba(255,212,93,0.035);
+            border-color: rgba(255,109,139,0.17);
+        }
+        .spx-play-shell.state-watch {
+            --play-accent: rgba(255,212,93,0.84);
+            --play-accent-soft: rgba(255,212,93,0.09);
+            --play-accent-secondary: rgba(106,230,255,0.04);
+        }
+        .spx-play-shell.state-ready.direction-bullish,
+        .spx-play-shell.state-ready.direction-bearish {
+            border-color: rgba(58,255,192,0.20);
+        }
         .spx-play-topline {
             display: flex;
             justify-content: space-between;
@@ -1709,6 +1734,8 @@ def inject_app_styles() -> None:
         .spx-chip.yellow { background: rgba(255,193,7,0.14); border-color: rgba(255,193,7,0.25); color: #fff2bf; }
         .spx-chip.red { background: rgba(255,82,82,0.14); border-color: rgba(255,82,82,0.24); color: #ffd0d0; }
         .spx-chip.gray { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: #d1deef; }
+        .spx-chip.direction-bullish { background: rgba(58,255,192,0.105); border-color: rgba(58,255,192,0.18); color: #bafbe8; }
+        .spx-chip.direction-bearish { background: rgba(255,109,139,0.11); border-color: rgba(255,109,139,0.20); color: #ffd1dc; }
         .spx-chip.soft {
             background: rgba(148, 163, 184, 0.08);
             border-color: rgba(148, 163, 184, 0.14);
@@ -2582,6 +2609,33 @@ def inject_app_styles() -> None:
                 radial-gradient(circle at top right, rgba(176,150,255,0.095), transparent 25%),
                 radial-gradient(circle at 0% 0%, rgba(255,109,139,0.055), transparent 24%),
                 linear-gradient(180deg, rgba(18,14,24,0.94), rgba(10,10,18,0.985));
+        }
+        .spx-play-shell.direction-bullish:not(.state-blocked):not(.filtered) {
+            --play-accent: rgba(58,255,192,0.88);
+            --play-accent-soft: rgba(58,255,192,0.11);
+            --play-accent-secondary: rgba(106,230,255,0.055);
+        }
+        .spx-play-shell.direction-bearish:not(.state-blocked):not(.filtered) {
+            --play-accent: rgba(255,109,139,0.88);
+            --play-accent-soft: rgba(255,109,139,0.105);
+            --play-accent-secondary: rgba(255,183,77,0.04);
+        }
+        .spx-play-shell.state-blocked,
+        .spx-play-shell.state-blocked.filtered,
+        .spx-play-shell.alternate.state-blocked.filtered {
+            --play-accent: rgba(255,109,139,0.92);
+            --play-accent-soft: rgba(255,109,139,0.075);
+            --play-accent-secondary: rgba(255,212,93,0.035);
+            border-color: rgba(255,109,139,0.18);
+            background:
+                radial-gradient(circle at top right, rgba(255,109,139,0.075), transparent 26%),
+                radial-gradient(circle at 0% 0%, rgba(255,212,93,0.035), transparent 24%),
+                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(10,10,18,0.985));
+        }
+        .spx-play-shell.state-watch:not(.state-blocked) {
+            --play-accent: rgba(255,212,93,0.86);
+            --play-accent-soft: rgba(255,212,93,0.09);
+            --play-accent-secondary: rgba(106,230,255,0.04);
         }
         .spx-decision-banner {
             border-radius: 22px;
@@ -18060,7 +18114,20 @@ def render_operator_play_card(
         if kind == "chase":
             return {"WAIT": "blue", "ENTER NOW": "green", "ENTER WITH CAUTION": "yellow", "CHASE NOT ALLOWED": "red"}.get(text, "gray")
         if kind == "state":
-            return {"ACTIVE": "green", "FILTERED": "red", "INVALID": "red"}.get(text, "gray")
+            return {
+                "ACTIVE": "green",
+                "READY": "green",
+                "TRIGGERED": "green",
+                "ARMED": "blue",
+                "LOCKED": "blue",
+                "WAIT": "yellow",
+                "FILTERED": "red",
+                "FILTERED OUT": "red",
+                "INVALID": "red",
+                "INVALIDATED": "red",
+                "EXPIRED": "red",
+                "NO TRADE": "red",
+            }.get(text, "gray")
         return {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(text, "gray")
 
     play = resolve_play_display_values(play_spx, projected_lines_spx)
@@ -18173,7 +18240,9 @@ def render_operator_play_card(
     execution_action = str(authority.get("execution_action", decision or "-"))
     strike_profile = str(authority.get("strike_profile", "-")).replace("_", " ").title()
     retest_summary = str(authority.get("retest_summary", ""))
-    setup_state = str(authority.get("setup_state", trade_state)).replace("_", " ").title()
+    raw_setup_state = str(authority.get("setup_state", trade_state) or "")
+    raw_setup_state_upper = raw_setup_state.replace("_", " ").upper()
+    setup_state = raw_setup_state.replace("_", " ").title()
     setup_state_reason = _clean_operator_note(authority.get("setup_state_reason", reason_line))
     trigger_type = str(authority.get("trigger_type", "NONE")).replace("_", " ").title()
     trigger_state = str(authority.get("trigger_state", "UNAVAILABLE")).replace("_", " ").title()
@@ -18296,13 +18365,26 @@ def render_operator_play_card(
         if footer_rows
         else ""
     )
+    blocked_state = raw_setup_state_upper in {"INVALIDATED", "EXPIRED", "NO TRADE", "FILTERED OUT", "FILTERED"}
+    visual_state_class = (
+        "state-blocked"
+        if blocked_state or decision == "NO TRADE"
+        else "state-ready"
+        if raw_setup_state_upper in {"ACTIVE", "READY", "TRIGGERED"}
+        else "state-watch"
+    )
+    direction_class = "direction-bullish" if direction_display["bias"] == "BULLISH" else "direction-bearish" if direction_display["bias"] == "BEARISH" else "direction-neutral"
+    card_headline = "PLAN INVALID" if raw_setup_state_upper == "INVALIDATED" else "SETUP EXPIRED" if raw_setup_state_upper == "EXPIRED" else presentation_state["headline"]
     card_subline = f"{direction_display['bias']} bias"
-    if decision != "NO TRADE":
+    if blocked_state:
+        card_subline = f"{card_subline} | Setup blocked"
+    elif decision != "NO TRADE":
         card_subline = f"{card_subline} | {execution_display}"
-    card_status_chip = f'<span class="spx-chip {_chip_class(trade_state, "state")}">{escape(setup_state)}</span>' if setup_state else ""
+    decision_banner_class = "skip" if blocked_state else _decision_class(decision)
+    card_status_chip = f'<span class="spx-chip {_chip_class(setup_state, "state")}">{escape(setup_state)}</span>' if setup_state else ""
     badge_bits = [
         f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
-        f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
+        f"<span class=\"spx-chip {direction_class}\">{escape(direction_display['bias'])}</span>",
         f"<span class=\"spx-chip {_chip_class(effective_confidence_label if (effective_confidence_label := str(intelligence.get('prediction_confidence', ''))) else 'LOW')} \">{escape(projection_confidence)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(event_risk_label)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">Crowding {escape(crowding_label)}</span>",
@@ -18312,14 +18394,14 @@ def render_operator_play_card(
         badge_bits.append(f"<span class=\"spx-chip yellow\">Absorption {escape(absorption_label)}</span>")
     st.markdown(
         f"""
-        <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
+        <div class="spx-play-shell {'primary' if is_primary else 'alternate'} {direction_class} {visual_state_class}{' filtered' if decision == 'NO TRADE' else ''}">
             <div class="spx-play-topline">
                 <div class="{'spx-play-title' if is_primary else 'spx-play-title alt'}">{escape(title)}</div>
                 <div class="spx-play-topline-note"><span>Strike {escape(str(displayed_strike if displayed_strike is not None else play.get('strike', '-')))}</span>{card_status_chip}</div>
             </div>
-            <div class="spx-decision-banner {_decision_class(decision)}">
+            <div class="spx-decision-banner {decision_banner_class}">
                 <div>
-                    <div class="spx-decision-main">{escape(presentation_state['headline'])}</div>
+                    <div class="spx-decision-main">{escape(card_headline)}</div>
                     <div class="spx-decision-sub">{escape(card_subline)}</div>
                 </div>
                 <div class="spx-play-context">
