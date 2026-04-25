@@ -52,6 +52,7 @@ from app import (
     resolve_vwap_display,
     normalize_result_value,
     normalize_trade_record,
+    normalize_market_headlines,
     resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
     summarize_event_risk,
@@ -1114,6 +1115,55 @@ class AppUnitTests(unittest.TestCase):
     def test_event_risk_summary_stays_compact_when_news_unavailable(self) -> None:
         summary = summarize_event_risk({"event_risk_status": "Unknown", "event_risk_reason": "News unavailable"})
         self.assertEqual(summary, "Event Risk: Unknown | News unavailable")
+
+    def test_market_headline_normalization_prioritizes_spx_relevant_news(self) -> None:
+        headlines = normalize_market_headlines(
+            [
+                {"title": "Celebrity couple launches new fashion brand", "category": "markets"},
+                {"title": "S&P 500 futures slip as CPI report lifts Treasury yields", "category": "markets"},
+                {"title": "Powell says Fed is watching inflation and rates", "category": "markets"},
+                {"title": "S&P 500 futures slip as CPI report lifts Treasury yields", "category": "markets"},
+            ],
+            limit=5,
+        )
+
+        self.assertEqual(len(headlines), 2)
+        self.assertEqual(headlines[0]["category"], "macro")
+        self.assertGreaterEqual(headlines[0]["relevance_score"], headlines[1]["relevance_score"])
+        self.assertNotIn("Celebrity", " ".join(item["title"] for item in headlines))
+
+    def test_high_impact_calendar_event_sets_major_risk_window(self) -> None:
+        now_ct = app_module.at_central(date(2026, 4, 23), 7, 12)
+        event_time = app_module.at_central(date(2026, 4, 23), 7, 30)
+        context = app_module.build_event_risk_context(
+            news_day=False,
+            current_time_ct=now_ct,
+            trading_date=date(2026, 4, 23),
+            calendar_events=[
+                {
+                    "event_name": "CPI",
+                    "event_time_ct": event_time.isoformat(),
+                    "event_time_display": "7:30 AM CT",
+                    "importance": "High",
+                    "importance_value": 3,
+                    "forecast": "0.3%",
+                    "previous": "0.2%",
+                }
+            ],
+            headlines=[],
+        )
+
+        self.assertEqual(context["event_risk_level"], "major")
+        self.assertTrue(context["event_window_active"])
+        self.assertEqual(context["next_known_event"], "CPI")
+        self.assertEqual(context["high_impact_events"][0]["event_name"], "CPI")
+
+    def test_market_intelligence_panel_uses_calendar_first_copy(self) -> None:
+        source = inspect.getsource(app_module.render_event_risk_panel)
+        self.assertNotIn("0DTE event risk", source)
+        self.assertIn("Economic Data", source)
+        self.assertIn("Breaking Headlines", source)
+        self.assertIn("High-Risk Economic Calendar", source)
 
     def test_option_crowding_detects_put_heavy_pressure_with_both_sides(self) -> None:
         candidates = [

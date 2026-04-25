@@ -255,7 +255,66 @@ EVENT_BUFFER_MINUTES = 45
 POST_EVENT_STABILIZATION_MINUTES = 30
 NEWS_FEED_TIMEOUT_SECONDS = 4.0
 NEWS_FEED_MAX_ITEMS = 8
+ECONOMIC_CALENDAR_TIMEOUT_SECONDS = 4.0
 PREMIUM_CONFIDENCE_LEVELS = ("high", "medium", "low", "speculative")
+MARKET_HEADLINE_RELEVANCE_TERMS = {
+    "spx": 5,
+    "s&p 500": 5,
+    "s&p500": 5,
+    "es futures": 5,
+    "stock futures": 4,
+    "futures": 3,
+    "nasdaq": 3,
+    "dow": 2,
+    "vix": 4,
+    "volatility": 4,
+    "treasury": 4,
+    "yield": 4,
+    "yields": 4,
+    "rates": 4,
+    "fed": 5,
+    "fomc": 5,
+    "powell": 5,
+    "cpi": 5,
+    "ppi": 5,
+    "pce": 5,
+    "nfp": 5,
+    "payrolls": 5,
+    "jobs": 4,
+    "unemployment": 4,
+    "gdp": 4,
+    "ism": 4,
+    "pmi": 4,
+    "inflation": 5,
+    "tariff": 4,
+    "tariffs": 4,
+    "trump": 4,
+    "white house": 3,
+    "truth social": 5,
+}
+HIGH_IMPACT_ECONOMIC_TERMS = {
+    "cpi",
+    "consumer price",
+    "ppi",
+    "producer price",
+    "pce",
+    "fomc",
+    "fed interest rate",
+    "fed rate",
+    "powell",
+    "non farm",
+    "non-farm",
+    "payroll",
+    "unemployment",
+    "jobs report",
+    "gdp",
+    "ism manufacturing",
+    "ism services",
+    "retail sales",
+    "consumer confidence",
+    "jobless claims",
+    "fed minutes",
+}
 MARKET_HEADLINE_FEEDS = [
     # Reuters — fastest macro breaking news
     {"name": "reuters_markets", "url": "https://feeds.reuters.com/reuters/businessNews", "category": "markets"},
@@ -264,7 +323,7 @@ MARKET_HEADLINE_FEEDS = [
     # CNBC Top News — breaking alerts
     {"name": "cnbc_top", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "category": "markets"},
     # Google News — Fed / rate / macro terms
-    {"name": "macro_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve FOMC CPI PPI NFP GDP inflation OR interest rates 0dte options"), "category": "macro"},
+    {"name": "macro_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Federal Reserve FOMC CPI PPI PCE NFP GDP inflation interest rates S&P 500 futures"), "category": "macro"},
     # Google News — political / tariff shock
     {"name": "politics_google", "url": "https://news.google.com/rss/search?q=" + quote_plus("Trump tariffs OR truth social OR S&P 500 futures OR stock market selloff"), "category": "politics"},
 ]
@@ -10260,6 +10319,54 @@ def estimate_contract_value_at_planned_entry(
     }
 
 
+def score_market_headline_relevance(title: str, category: str = "") -> int:
+    """Score whether a headline is relevant to an SPX/ES intraday trade."""
+
+    text = f"{title} {category}".lower()
+    score = 0
+    for term, weight in MARKET_HEADLINE_RELEVANCE_TERMS.items():
+        if term in text:
+            score += weight
+    if any(noise in text for noise in ["celebrity", "movie", "sports", "royal", "fashion"]):
+        score -= 8
+    return score
+
+
+def classify_market_headline_category(title: str, fallback: str = "markets") -> str:
+    """Normalize headline category into production-friendly buckets."""
+
+    text = str(title or "").lower()
+    if any(token in text for token in ["cpi", "ppi", "pce", "nfp", "payroll", "jobs", "gdp", "inflation", "ism", "pmi", "retail sales"]):
+        return "macro"
+    if any(token in text for token in ["fed", "fomc", "powell", "rates", "treasury", "yield"]):
+        return "fed"
+    if any(token in text for token in ["trump", "truth social", "tariff", "white house"]):
+        return "politics"
+    return fallback or "markets"
+
+
+def normalize_market_headlines(headlines: list[dict[str, Any]] | None, *, limit: int = NEWS_FEED_MAX_ITEMS) -> list[dict[str, Any]]:
+    """Deduplicate, filter, and rank headlines for SPX execution relevance."""
+
+    ranked: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for raw in headlines or []:
+        title = str(raw.get("title", "") or "").strip()
+        if not title:
+            continue
+        dedupe_key = " ".join(title.lower().split())
+        if dedupe_key in seen_titles:
+            continue
+        seen_titles.add(dedupe_key)
+        category = classify_market_headline_category(title, str(raw.get("category", "markets") or "markets"))
+        score = score_market_headline_relevance(title, category)
+        if score < 3:
+            continue
+        ranked.append({**raw, "title": title, "category": category, "relevance_score": score})
+    ranked.sort(key=lambda item: int(item.get("relevance_score", 0)), reverse=True)
+    return ranked[:limit]
+
+
 def fetch_market_headlines() -> list[dict[str, Any]]:
     """Fetch a focused market-moving headline set and fail gracefully."""
 
@@ -10269,7 +10376,7 @@ def fetch_market_headlines() -> list[dict[str, Any]]:
             with urlopen(feed["url"], timeout=NEWS_FEED_TIMEOUT_SECONDS) as response:
                 xml_data = response.read()
             root = ET.fromstring(xml_data)
-            for item in root.findall(".//item")[:3]:
+            for item in root.findall(".//item")[:6]:
                 title = str(item.findtext("title") or "").strip()
                 link = str(item.findtext("link") or "").strip()
                 pub_date = str(item.findtext("pubDate") or "").strip()
@@ -10285,32 +10392,104 @@ def fetch_market_headlines() -> list[dict[str, Any]]:
                 )
         except Exception:
             continue
-    deduped: list[dict[str, Any]] = []
-    seen_titles: set[str] = set()
-    for headline in headlines:
-        title = headline["title"]
-        if title in seen_titles:
-            continue
-        seen_titles.add(title)
-        deduped.append(headline)
-    return deduped[:NEWS_FEED_MAX_ITEMS]
+    return normalize_market_headlines(headlines)
+
+
+def _parse_calendar_event_time(value: Any) -> datetime | None:
+    """Parse an economic-calendar timestamp into Central Time."""
+
+    if not value:
+        return None
+    try:
+        parsed = pd.to_datetime(value, utc=True, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return to_central_time(parsed.to_pydatetime())
+    except Exception:
+        return None
+
+
+def normalize_economic_calendar_event(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize a Trading Economics-style calendar row for the market panel."""
+
+    event_name = str(raw.get("Event") or raw.get("event") or raw.get("Category") or raw.get("category") or "").strip()
+    if not event_name:
+        return None
+    country = str(raw.get("Country") or raw.get("country") or "").strip()
+    if country and country.lower() not in {"united states", "usa", "us"}:
+        return None
+    event_time = _parse_calendar_event_time(raw.get("Date") or raw.get("date") or raw.get("event_time_ct"))
+    importance_raw = raw.get("Importance", raw.get("importance", 0))
+    try:
+        importance_value = int(float(importance_raw))
+    except (TypeError, ValueError):
+        importance_value = 0
+    text = f"{event_name} {raw.get('Category', '')} {raw.get('category', '')}".lower()
+    keyword_high = any(term in text for term in HIGH_IMPACT_ECONOMIC_TERMS)
+    importance_label = "High" if importance_value >= 3 or keyword_high else "Medium" if importance_value == 2 else "Low"
+    return {
+        "event_name": event_name,
+        "event_time_ct": event_time.isoformat() if event_time is not None else "",
+        "event_time_display": format_timestamp(event_time) if event_time is not None else "Time unavailable",
+        "importance": importance_label,
+        "importance_value": max(importance_value, 3 if keyword_high else importance_value),
+        "country": country or "United States",
+        "forecast": str(raw.get("Forecast") or raw.get("forecast") or "").strip(),
+        "previous": str(raw.get("Previous") or raw.get("previous") or "").strip(),
+        "actual": str(raw.get("Actual") or raw.get("actual") or "").strip(),
+        "source": str(raw.get("Source") or raw.get("source") or "Economic calendar").strip(),
+        "url": str(raw.get("URL") or raw.get("url") or "").strip(),
+    }
+
+
+def fetch_economic_calendar_events(target_date: date) -> list[dict[str, Any]]:
+    """Fetch high-impact U.S. calendar events when an API key is configured."""
+
+    api_key = (
+        os.getenv("TRADING_ECONOMICS_API_KEY")
+        or os.getenv("TRADINGECONOMICS_API_KEY")
+        or os.getenv("TE_API_KEY")
+        or ""
+    ).strip()
+    if not api_key:
+        return []
+    start = target_date.isoformat()
+    end = target_date.isoformat()
+    url = (
+        "https://api.tradingeconomics.com/calendar"
+        f"?c={quote_plus(api_key)}&country=united%20states&d1={start}&d2={end}&importance=3&f=json"
+    )
+    try:
+        with urlopen(url, timeout=ECONOMIC_CALENDAR_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    events = [event for event in (normalize_economic_calendar_event(row) for row in payload if isinstance(row, dict)) if event]
+    events.sort(key=lambda event: event.get("event_time_ct") or "")
+    return events
 
 
 def build_event_risk_context(
     *,
     news_day: bool,
     current_time_ct: datetime | None = None,
+    trading_date: date | None = None,
     manual_event_risk_level: str = "None",
     manual_event_label: str = "",
+    calendar_events: list[dict[str, Any]] | None = None,
+    headlines: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact event/news risk overlay for execution decisions."""
 
     now_ct = current_time_ct or current_central_time()
+    target_date = trading_date or now_ct.date()
     default_context = {
         "event_risk_status": "Unknown",
         "event_risk_level": "unknown",
-        "event_risk_reason": "News unavailable",
-        "next_known_event": "",
+        "event_risk_reason": "Calendar and live news unavailable",
+        "next_known_event": "No major event detected",
         "event_window_active": False,
         "event_trading_mode": "normal",
         "event_name": "",
@@ -10324,24 +10503,58 @@ def build_event_risk_context(
         "shock_window_active": False,
         "headlines": [],
         "source_status": "unavailable",
+        "calendar_events": [],
+        "high_impact_events": [],
+        "calendar_source_status": "unavailable",
     }
 
-    event_name = ""
-    event_time = None
-    event_importance = ""
+    fetched_calendar_events = calendar_events if calendar_events is not None else fetch_economic_calendar_events(target_date)
+    normalized_calendar_events: list[dict[str, Any]] = []
+    for row in fetched_calendar_events or []:
+        if not isinstance(row, dict):
+            continue
+        event = row if row.get("event_name") else normalize_economic_calendar_event(row)
+        if event:
+            normalized_calendar_events.append(event)
+    high_impact_events = [
+        event for event in normalized_calendar_events
+        if str(event.get("importance", "")).lower() == "high" or int(event.get("importance_value", 0) or 0) >= 3
+    ]
     if news_day:
         morning_release = now_ct.replace(hour=7, minute=30, second=0, microsecond=0)
         fomc_release = now_ct.replace(hour=13, minute=0, second=0, microsecond=0)
-        if now_ct <= morning_release + timedelta(minutes=POST_EVENT_STABILIZATION_MINUTES):
-            event_name = "High-impact macro release"
-            event_time = morning_release
-            event_importance = "high"
-        else:
-            event_name = "Fed / macro risk day"
-            event_time = fomc_release
-            event_importance = "high"
+        manual_watch_time = morning_release if now_ct <= morning_release + timedelta(minutes=POST_EVENT_STABILIZATION_MINUTES) else fomc_release
+        manual_watch = {
+            "event_name": "High-impact macro release" if manual_watch_time == morning_release else "Fed / macro risk day",
+            "event_time_ct": manual_watch_time.isoformat(),
+            "event_time_display": format_timestamp(manual_watch_time),
+            "importance": "High",
+            "importance_value": 3,
+            "country": "United States",
+            "forecast": "",
+            "previous": "",
+            "actual": "",
+            "source": "Manual news-day toggle",
+            "url": "",
+        }
+        if not any(event.get("event_name") == manual_watch["event_name"] and event.get("event_time_ct") == manual_watch["event_time_ct"] for event in high_impact_events):
+            high_impact_events.append(manual_watch)
+            normalized_calendar_events.append(manual_watch)
 
-    headlines = fetch_market_headlines()
+    def _event_time(event: dict[str, Any]) -> datetime | None:
+        return _parse_calendar_event_time(event.get("event_time_ct") or event.get("Date") or event.get("date"))
+
+    high_impact_events.sort(key=lambda event: event.get("event_time_ct") or "")
+    upcoming_high_impact = [
+        event for event in high_impact_events
+        if (_event_time(event) is not None and _event_time(event) >= now_ct - timedelta(minutes=POST_EVENT_STABILIZATION_MINUTES))
+    ]
+    selected_event = upcoming_high_impact[0] if upcoming_high_impact else (high_impact_events[0] if high_impact_events else None)
+    event_name = str((selected_event or {}).get("event_name", "") or "")
+    event_time = _event_time(selected_event or {})
+    event_importance = str((selected_event or {}).get("importance", "") or "")
+
+    headlines = normalize_market_headlines(headlines) if headlines is not None else fetch_market_headlines()
     political_titles = [item for item in headlines if any(token in item["title"].lower() for token in ["trump", "truth social", "tariff", "white house"])]
     macro_titles = [item for item in headlines if any(token in item["title"].lower() for token in ["fed", "cpi", "ppi", "nfp", "gdp", "jobs", "rates", "inflation"])]
     market_shock_titles = [item for item in headlines if any(token in item["title"].lower() for token in ["futures", "s&p 500", "stocks", "treasury", "yield", "volatility", "market"])]
@@ -10355,15 +10568,16 @@ def build_event_risk_context(
         inside_event_buffer = abs(time_until_event) <= EVENT_BUFFER_MINUTES or (-POST_EVENT_STABILIZATION_MINUTES <= time_until_event <= EVENT_BUFFER_MINUTES)
 
     level = "quiet"
-    reason = "No active event risk"
+    reason = "No high-impact economic event detected"
     mode = "normal"
-    if news_day and inside_event_buffer:
+    if selected_event and inside_event_buffer:
         level = "major"
         reason = f"{event_name} window is active"
         mode = "reduced confidence"
-    elif news_day:
-        level = "elevated"
-        reason = f"{event_name} is on deck"
+    elif selected_event:
+        minutes_to_event = time_until_event if time_until_event is not None else 9999
+        level = "high" if 0 <= minutes_to_event <= 180 else "elevated"
+        reason = f"{event_name} is on the economic calendar"
         mode = "caution"
     if headline_shock_risk:
         if truth_social_risk_flag:
@@ -10402,16 +10616,19 @@ def build_event_risk_context(
             "shock_window_active": False,
             "headlines": headlines,
             "source_status": "manual_override",
+            "calendar_events": normalized_calendar_events,
+            "high_impact_events": high_impact_events,
+            "calendar_source_status": "manual_override",
         }
 
-    if not headlines and not news_day:
+    if not headlines and not selected_event and not normalized_calendar_events:
         return default_context
 
     return {
         "event_risk_status": level.title(),
         "event_risk_level": level,
         "event_risk_reason": reason,
-        "next_known_event": event_name or (headlines[0]["title"] if headlines else ""),
+        "next_known_event": event_name or "No high-impact U.S. event detected",
         "event_window_active": inside_event_buffer,
         "event_trading_mode": mode,
         "event_name": event_name,
@@ -10424,7 +10641,10 @@ def build_event_risk_context(
         "headline_shock_risk": headline_shock_risk,
         "shock_window_active": bool(political_titles and inside_event_buffer),
         "headlines": headlines,
-        "source_status": "live" if headlines else "manual_news_day",
+        "source_status": "live" if headlines else "calendar_only" if normalized_calendar_events else "unavailable",
+        "calendar_events": normalized_calendar_events,
+        "high_impact_events": high_impact_events,
+        "calendar_source_status": "live" if normalized_calendar_events and calendar_events is None else "provided" if calendar_events is not None else "unavailable",
     }
 
 
@@ -16165,7 +16385,7 @@ def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_conte
 
 
 def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
-    """Premium market intelligence panel: event risk + live news feed for 0DTE."""
+    """Premium market intelligence panel: economic calendar + relevant market headlines."""
 
     context = event_risk_context or {}
     level = str(context.get("event_risk_level", "unknown")).lower()
@@ -16177,6 +16397,8 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
     window_active = bool(context.get("event_window_active", False))
     headlines = list(context.get("headlines", []) or [])[:NEWS_FEED_MAX_ITEMS]
     source_status = str(context.get("source_status", ""))
+    high_impact_events = list(context.get("high_impact_events", []) or [])[:4]
+    calendar_status = str(context.get("calendar_source_status", ""))
 
     # Inline style maps — no CSS class dependency
     _risk_styles = {
@@ -16195,7 +16417,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
     _default_cat = {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.08)", "icon": "📰", "label": "News"}
 
     rs = _risk_styles.get(level, {"bg": "rgba(255,215,64,0.12)", "border": "rgba(255,215,64,0.35)", "color": "#ffd740", "icon": "⚪", "label": status, "glow": "rgba(255,215,64,0.10)"})
-    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:3px 10px;border-radius:20px;'
+    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.72rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:4px 10px;border-radius:20px;'
     _risk_bs   = f'{_badge_s}background:{rs["bg"]};border:1px solid {rs["border"]};color:{rs["color"]};'
     _mode_bs   = f'{_badge_s}background:rgba(0,230,118,0.10);border:1px solid rgba(0,230,118,0.28);color:#00e676;' if mode.lower() == "normal" else f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
     _window_bs = f'{_badge_s}background:rgba(255,109,64,0.13);border:1px solid rgba(255,109,64,0.35);color:#ff7043;'
@@ -16229,6 +16451,53 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
         )
 
     # News cards — 100% inline, flexbox two-column
+    calendar_cards = ""
+    for event in high_impact_events:
+        _name = str(event.get("event_name", "") or "High-impact event").strip()
+        _time = str(event.get("event_time_display", "") or "").strip()
+        _importance = str(event.get("importance", "") or "High").strip()
+        _forecast = str(event.get("forecast", "") or "").strip()
+        _previous = str(event.get("previous", "") or "").strip()
+        _detail_bits = [bit for bit in [f"Forecast {_forecast}" if _forecast else "", f"Previous {_previous}" if _previous else ""] if bit]
+        _detail = " · ".join(_detail_bits) or "High-impact U.S. economic release"
+        calendar_cards += (
+            f'<div style="flex:1;min-width:220px;padding:11px 13px;border-radius:10px;'
+            f'background:rgba(255,215,64,0.07);border:1px solid rgba(255,215,64,0.18);'
+            f'border-left:3px solid #ffd740;">'
+            f'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px;">'
+            f'<span style="font-size:0.76rem;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;color:#ffd740;">Economic Data</span>'
+            f'<span style="font-size:0.76rem;color:rgba(224,238,255,0.55);">{escape(_time)}</span>'
+            f'</div>'
+            f'<div style="font-size:0.9rem;font-weight:700;color:#f4f7ff;line-height:1.3;">{escape(_name)}</div>'
+            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.62);line-height:1.45;margin-top:4px;">'
+            f'{escape(_importance.title())} impact · {escape(_detail)}</div>'
+            f'</div>'
+        )
+    if calendar_cards:
+        calendar_html = (
+            f'<div style="padding:14px 18px 4px 18px;">'
+            f'<div style="font-size:0.78rem;color:rgba(106,230,255,0.72);font-weight:800;'
+            f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:9px;">High-Risk Economic Calendar</div>'
+            f'<div style="display:flex;flex-wrap:wrap;gap:10px;">{calendar_cards}</div>'
+            f'</div>'
+        )
+    elif calendar_status == "unavailable":
+        calendar_html = (
+            f'<div style="padding:14px 18px 4px 18px;">'
+            f'<div style="padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.025);'
+            f'border:1px solid rgba(255,255,255,0.06);color:rgba(224,238,255,0.58);font-size:0.84rem;">'
+            f'Economic calendar unavailable. Configure a Trading Economics API key to show daily high-impact releases.</div>'
+            f'</div>'
+        )
+    else:
+        calendar_html = (
+            f'<div style="padding:14px 18px 4px 18px;">'
+            f'<div style="padding:12px 14px;border-radius:10px;background:rgba(0,230,118,0.06);'
+            f'border:1px solid rgba(0,230,118,0.13);color:rgba(224,238,255,0.62);font-size:0.84rem;">'
+            f'No high-impact U.S. economic event detected for this session.</div>'
+            f'</div>'
+        )
+
     from datetime import timezone as _tz
     cards_html = ""
     for item in headlines:
@@ -16253,12 +16522,12 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
 
         _card_inner = (
             f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px;">'
-            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-weight:700;'
+            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.74rem;font-weight:700;'
             f'letter-spacing:0.08em;text-transform:uppercase;padding:2px 8px;border-radius:20px;'
             f'background:{_cs["bg"]};color:{_cs["accent"]};">{_cs["icon"]} {escape(_cs["label"])}</span>'
-            f'<span style="font-size:0.68rem;color:rgba(224,238,255,0.3);flex-shrink:0;">{escape(_tstr)}</span>'
+            f'<span style="font-size:0.74rem;color:rgba(224,238,255,0.38);flex-shrink:0;">{escape(_tstr)}</span>'
             f'</div>'
-            f'<div style="font-size:0.84rem;color:rgba(224,238,255,0.88);line-height:1.48;font-weight:500;">'
+            f'<div style="font-size:0.9rem;color:rgba(224,238,255,0.9);line-height:1.48;font-weight:500;">'
             f'{escape(_title)}</div>'
         )
         _card_style = (
@@ -16314,8 +16583,8 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
         f'<div style="flex:1;min-width:0;">'
         f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;'
         f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">Market Intelligence</div>'
-        f'<div style="font-size:0.74rem;color:rgba(106,230,255,0.6);margin-top:3px;letter-spacing:0.04em;">'
-        f'0DTE event risk · economic data · breaking headlines</div>'
+        f'<div style="font-size:0.86rem;color:rgba(106,230,255,0.72);margin-top:3px;letter-spacing:0.04em;font-weight:650;">'
+        f'Economic Data · Breaking Headlines</div>'
         f'</div>'
 
         # Badges
@@ -16329,6 +16598,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
 
         # News feed
         f'<div style="background:rgba(4,8,20,0.97);">'
+        f'{calendar_html}'
         f'{feed_html}'
         f'</div>'
 
@@ -16843,6 +17113,9 @@ def render_live_mode_shell(
         event_risk_context = build_event_risk_context(
             news_day=bool(inputs.get("news_day")),
             current_time_ct=current_central_time(),
+            trading_date=inputs.get("next_trading_date"),
+            manual_event_risk_level=str(inputs.get("manual_event_risk_level", "None")),
+            manual_event_label=str(inputs.get("manual_event_label", "")),
         )
         line_values_spx = {name: float(details["projected_price"]) for name, details in final_projected_lines.items()}
         live_signal_package = None
