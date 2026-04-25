@@ -47,6 +47,8 @@ def _normalize_price_frame(frame):
     }.items():
         if source_name in lowered_to_original:
             rename_map[lowered_to_original[source_name]] = target_name
+    if "volume" in lowered_to_original:
+        rename_map[lowered_to_original["volume"]] = "volume"
     normalized = normalized.rename(columns=rename_map)
 
     missing = [name for name in ["open", "high", "low", "close"] if name not in normalized.columns]
@@ -57,7 +59,10 @@ def _normalize_price_frame(frame):
         )
 
     normalized["timestamp"] = pd.to_datetime(normalized.index).map(market_time_to_central)
-    normalized = normalized.loc[:, ["timestamp", "open", "high", "low", "close"]]
+    columns = ["timestamp", "open", "high", "low", "close"]
+    if "volume" in normalized.columns:
+        columns.append("volume")
+    normalized = normalized.loc[:, columns]
     normalized = normalized.dropna().reset_index(drop=True)
     return normalized
 
@@ -380,6 +385,17 @@ def fetch_es_hourly_candles(prior_session_date=None, next_trading_date=None, per
             or "Yahoo returned no usable intraday ES=F data."
         )
     return normalized
+
+
+def fetch_es_5m_candles(next_trading_date=None, period: str = "1d"):
+    """Fetch ES 5-minute candles for live VWAP context."""
+
+    if next_trading_date is None:
+        return fetch_market_candles(ES_FUTURES_SYMBOL, interval="5m", period=period)
+
+    start = at_central(next_trading_date, 0, 0)
+    end = at_central(next_trading_date, 15, 0) + timedelta(hours=1)
+    return fetch_market_candles(ES_FUTURES_SYMBOL, interval="5m", start=start, end=end)
 
 
 def fetch_spx_confirmation_candles(next_trading_date):

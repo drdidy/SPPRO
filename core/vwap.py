@@ -17,7 +17,9 @@ from core.time_utils import to_central_time
 def compute_vwap_5m(candles: pd.DataFrame) -> pd.DataFrame:
     """Compute 5-minute VWAP from an OHLC dataframe with timestamp column.
 
-    Expected columns: timestamp, open, high, low, close
+    Expected columns: timestamp, open, high, low, close. If volume is present,
+    true volume-weighted VWAP is used; otherwise the function falls back to an
+    equal-weight proxy so the execution layer can still degrade gracefully.
     """
 
     if candles is None or candles.empty:
@@ -27,13 +29,23 @@ def compute_vwap_5m(candles: pd.DataFrame) -> pd.DataFrame:
     df["timestamp"] = pd.to_datetime(df["timestamp"]).map(to_central_time)
 
     typical_price = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
-    volume_proxy = 1.0
+    if "volume" in df.columns:
+        volume = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
+        if float(volume.sum()) <= 0:
+            volume = pd.Series([1.0] * len(df), index=df.index)
+            quality = "proxy"
+        else:
+            quality = "volume"
+    else:
+        volume = pd.Series([1.0] * len(df), index=df.index)
+        quality = "proxy"
 
-    cumulative_tp_vol = (typical_price * volume_proxy).cumsum()
-    cumulative_vol = pd.Series([volume_proxy] * len(df)).cumsum()
+    cumulative_tp_vol = (typical_price * volume).cumsum()
+    cumulative_vol = volume.cumsum().replace(0, pd.NA).ffill().fillna(1.0)
 
     df["vwap"] = cumulative_tp_vol / cumulative_vol
-    return df.loc[:, ["timestamp", "vwap"]]
+    df["vwap_quality"] = quality
+    return df.loc[:, ["timestamp", "vwap", "vwap_quality"]]
 
 
 def extract_latest_vwap_context(vwap_frame: pd.DataFrame) -> dict[str, Any] | None:
@@ -52,4 +64,5 @@ def extract_latest_vwap_context(vwap_frame: pd.DataFrame) -> dict[str, Any] | No
         "timestamp": str(latest["timestamp"]),
         "vwap": round_price(float(latest["vwap"])),
         "slope_points": round_price(slope),
+        "quality": str(latest.get("vwap_quality", "unknown")),
     }

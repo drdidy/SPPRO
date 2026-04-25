@@ -23,6 +23,7 @@ from app import (
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
+    build_vwap_context_from_candles,
     build_live_play_trade_prefill,
     build_selected_contract_binding,
     build_stop_target_authority,
@@ -46,6 +47,7 @@ from app import (
     resolve_play_display_values,
     resolve_recommended_contract_row,
     resolve_trade_direction_display,
+    resolve_vwap_display,
     normalize_result_value,
     normalize_trade_record,
     resolve_locked_anchor_bundle,
@@ -565,6 +567,42 @@ class AppUnitTests(unittest.TestCase):
             css_source,
         )
         self.assertIn('span[data-testid="stIconMaterial"]', css_source)
+
+    def test_vwap_context_uses_volume_when_available(self) -> None:
+        candles = pd.DataFrame(
+            [
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 30), "open": 100.0, "high": 102.0, "low": 98.0, "close": 101.0, "volume": 1},
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 35), "open": 101.0, "high": 104.0, "low": 100.0, "close": 103.0, "volume": 3},
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 40), "open": 103.0, "high": 106.0, "low": 102.0, "close": 105.0, "volume": 6},
+            ]
+        )
+
+        context = build_vwap_context_from_candles(candles)
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["quality"], "volume")
+        self.assertAlmostEqual(context["vwap"], 103.33, places=2)
+
+    def test_vwap_context_falls_back_to_proxy_without_volume(self) -> None:
+        candles = pd.DataFrame(
+            [
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 30), "open": 100.0, "high": 102.0, "low": 98.0, "close": 101.0},
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 35), "open": 101.0, "high": 104.0, "low": 100.0, "close": 103.0},
+                {"timestamp": app_module.at_central(date(2026, 4, 23), 8, 40), "open": 103.0, "high": 106.0, "low": 102.0, "close": 105.0},
+            ]
+        )
+
+        context = build_vwap_context_from_candles(candles)
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["quality"], "proxy")
+
+    def test_vwap_display_compacts_alignment_and_value(self) -> None:
+        display = resolve_vwap_display({"vwap": 7125.25, "slope_points": -1.25, "quality": "volume"}, "CONFIRMED")
+
+        self.assertEqual(display["label"], "Confirmed")
+        self.assertEqual(display["value"], "7,125.25")
+        self.assertIn("falling", display["detail"])
 
     def test_trade_record_preserves_forward_pricing_and_anchor_metadata(self) -> None:
         record = normalize_trade_record(

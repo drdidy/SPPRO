@@ -29,6 +29,7 @@ try:
 
     extract_spx_830_candle = core_data_fetch.extract_spx_830_candle
     fetch_spx_confirmation_candles = core_data_fetch.fetch_spx_confirmation_candles
+    fetch_es_5m_candles = getattr(core_data_fetch, "fetch_es_5m_candles", None)
     fetch_es_hourly_candles_with_diagnostics = getattr(core_data_fetch, "fetch_es_hourly_candles_with_diagnostics", None)
     fetch_es_hourly_candles = getattr(core_data_fetch, "fetch_es_hourly_candles", None)
     from core.pivots import build_six_line_anchors
@@ -47,12 +48,14 @@ try:
         evaluate_trading_scenario,
     )
     from core.time_utils import at_central, build_session_windows, current_central_time, filter_time_range, to_central_time
+    from core.vwap import compute_vwap_5m, extract_latest_vwap_context
     from core import intelligence as _intelligence
     CORE_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     extract_spx_830_candle = None
     fetch_es_hourly_candles_with_diagnostics = None
     fetch_es_hourly_candles = None
+    fetch_es_5m_candles = None
     fetch_spx_confirmation_candles = None
     build_six_line_anchors = None
     LINE_DISPLAY_ORDER = []
@@ -69,6 +72,8 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     build_session_windows = None
     current_central_time = None
     filter_time_range = None
+    compute_vwap_5m = None
+    extract_latest_vwap_context = None
     _intelligence = None
     to_central_time = None
     CORE_IMPORT_ERROR = f"Core import failed: {exc.__class__.__name__}: {exc}"
@@ -917,6 +922,34 @@ def fetch_es_candles_for_app(prior_session_date: date, next_trading_date: date) 
     raise ImportError(
         "Neither fetch_es_hourly_candles_with_diagnostics nor fetch_es_hourly_candles is available in core.data_fetch."
     )
+
+
+def build_vwap_context_from_candles(candles: pd.DataFrame | None) -> dict[str, Any] | None:
+    """Build the latest 5m ES VWAP context from normalized candles."""
+
+    if compute_vwap_5m is None or extract_latest_vwap_context is None or candles is None or candles.empty:
+        return None
+    context = extract_latest_vwap_context(compute_vwap_5m(candles))
+    if not context:
+        return None
+    context["source"] = "ES 5m"
+    return context
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_live_es_vwap_context(next_trading_date: date) -> tuple[dict[str, Any] | None, str]:
+    """Fetch live ES 5-minute VWAP context for execution confluence."""
+
+    if fetch_es_5m_candles is None:
+        return None, "5m ES VWAP helper unavailable"
+    try:
+        candles = fetch_es_5m_candles(next_trading_date)
+        context = build_vwap_context_from_candles(candles)
+        if context is None:
+            return None, "5m ES VWAP unavailable"
+        return context, "5m ES VWAP"
+    except Exception as exc:
+        return None, f"5m ES VWAP unavailable: {exc.__class__.__name__}"
 
 
 def inject_app_styles() -> None:
@@ -8649,6 +8682,7 @@ def build_play_decision_authority(
     projected_lines_spx: dict[str, dict[str, Any]] | None = None,
     current_candle: dict[str, Any] | None = None,
     vwap_value: float | None = None,
+    vwap_context: dict[str, Any] | None = None,
     anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one authoritative operator decision without changing strategy logic."""
@@ -8927,6 +8961,7 @@ def build_play_decision_authority(
         "line_polarity_conflict": execution_state.get("line_polarity_conflict"),
         "line_polarity_reason": execution_state.get("line_polarity_reason"),
         "line_polarity_vwap_alignment": execution_state.get("line_polarity_vwap_alignment"),
+        "vwap_context": dict(vwap_context or ({"vwap": vwap_value} if _to_float_or_none(vwap_value) is not None else {})),
         "line_polarity_distance_to_line": execution_state.get("line_polarity_distance_to_line"),
         "line_polarity_close_distance": execution_state.get("line_polarity_close_distance"),
         "line_polarity_line_used": execution_state.get("line_polarity_line_used"),
@@ -11814,6 +11849,25 @@ def classify_quote_failure(es_status: str, spx_status: str) -> str:
     return "provider failure or deployment environment issue"
 
 
+def resolve_vwap_display(context: dict[str, Any] | None, alignment: str | None = None) -> dict[str, str]:
+    """Return compact operator-safe VWAP display labels."""
+
+    if not context:
+        return {"label": "VWAP unavailable", "detail": "5m ES VWAP not available", "value": "-"}
+    value = _to_float_or_none(context.get("vwap"))
+    slope = _to_float_or_none(context.get("slope_points"))
+    quality = str(context.get("quality", "unknown")).title()
+    alignment_text = str(alignment or "").replace("_", " ").title()
+    if not alignment_text or alignment_text == "Unavailable":
+        alignment_text = "Context Only"
+    slope_label = "flat" if slope is None or abs(slope) < 0.01 else "rising" if slope > 0 else "falling"
+    return {
+        "label": alignment_text,
+        "detail": f"5m ES VWAP {quality} | {slope_label}",
+        "value": format_price(value) if value is not None else "-",
+    }
+
+
 def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
     """Collect sidebar inputs for Tab 1."""
 
@@ -11905,6 +11959,10 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             st.caption(f"Next trading day: {next_trading_date}")
         historical_defaults = fetch_historical_input_defaults(prior_session_date, next_trading_date, configured_offset) if historical_mode else None
         sync_projection_price_inputs(next_trading_date, historical_mode, live_defaults, historical_defaults)
+        vwap_context: dict[str, Any] | None = None
+        vwap_source = "Historical mode"
+        if not historical_mode:
+            vwap_context, vwap_source = fetch_live_es_vwap_context(next_trading_date)
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])), label_visibility="collapsed")
 
@@ -11989,6 +12047,8 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                         st.caption("Manual offset override is active.")
                 else:
                     st.caption("Live inferred offset unavailable.")
+                vwap_display = resolve_vwap_display(vwap_context)
+                st.caption(f"5m VWAP: {vwap_display['value']} ({vwap_source})")
             price_space_options = ["SPX", "ES"]
             manual_price_space = st.selectbox("Manual input price space", price_space_options, index=safe_option_index(price_space_options, settings.get("manual_price_space", DEFAULT_SETTINGS["manual_price_space"])))
             session_lock_options = list(SESSION_PLAN_LOCK_CUTOFFS.keys())
@@ -12130,6 +12190,9 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "session_plan_lock_cutoff": session_plan_lock_cutoff,
         "max_estimated_entry_cost": max_estimated_entry_cost,
         "anchor_source_override": anchor_source_override,
+        "vwap": _to_float_or_none((vwap_context or {}).get("vwap")),
+        "vwap_context": vwap_context or {},
+        "vwap_source": vwap_source,
         "options_mode_enabled": options_mode_enabled,
         "options_provider": options_provider,
         "pivot_high_time": at_central(prior_session_date, pivot_high_hour, 0),
@@ -15453,6 +15516,7 @@ def render_live_decision_center(
     expected_fill = _to_float_or_none(active_contract_quote.get("projected_fill_at_entry")) or _to_float_or_none(active_contract_quote.get("expected_fill_mark"))
     estimate_quality = str(active_contract_quote.get("premium_projection_confidence", "") or "Insufficient")
     budget_status = str(active_contract_quote.get("budget_status", "") or "Unknown")
+    vwap_display = resolve_vwap_display((authority or {}).get("vwap_context"), (authority or {}).get("line_polarity_vwap_alignment"))
     scenario_changed = bool((live_context or {}).get("live_scenario") and (live_context or {}).get("scenario_origin") and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin"))
     direction_headline = str(direction_display.get("headline") or direction_display.get("setup") or direction_display.get("bias") or "WAIT")
     direction_arrow = str(direction_display.get("arrow") or "")
@@ -15597,6 +15661,10 @@ def render_live_decision_center(
         f'<div style="{_chip_lbl}">Timing</div>'
         f'<div style="{_chip_val}">{escape(timing_bucket)}</div>'
         f'</div>'
+        f'<div style="{_chip_cell}">'
+        f'<div style="{_chip_lbl}">5m VWAP</div>'
+        f'<div style="{_chip_val}">{escape(vwap_display["label"])}</div>'
+        f'</div>'
         f'<div style="display:inline-block;flex:1;min-width:0;padding:10px 18px;">'
         f'<div style="{_chip_lbl}">Event Risk</div>'
         f'<div style="{_chip_val}">{_event_risk_status}</div>'
@@ -15607,6 +15675,7 @@ def render_live_decision_center(
         f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
         f'{escape(_lock_display)}'
         f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
+        f'&nbsp;&middot;&nbsp;VWAP:&nbsp;{escape(vwap_display["value"])}'
         f'&nbsp;&middot;&nbsp;EV:&nbsp;{escape(_ev_display)}'
         f'&nbsp;&middot;&nbsp;Evidence:&nbsp;{escape(evidence_label if evidence_label else "None")}'
         f'</div>'
@@ -16629,6 +16698,7 @@ def render_live_mode_shell(
             projected_lines_spx=final_projected_lines,
             current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
             vwap_value=inputs.get("vwap"),
+            vwap_context=inputs.get("vwap_context"),
             anchor_bundle=anchor_bundle,
         )
         alternate_authority = build_play_decision_authority(
@@ -16649,6 +16719,7 @@ def render_live_mode_shell(
             projected_lines_spx=final_projected_lines,
             current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
             vwap_value=inputs.get("vwap"),
+            vwap_context=inputs.get("vwap_context"),
             anchor_bundle=anchor_bundle,
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
