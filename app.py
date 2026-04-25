@@ -6571,6 +6571,26 @@ def resolve_locked_anchor_bundle(
         lock_store[store_key] = deepcopy(current_bundle)
     return current_bundle
 
+
+def build_historical_session_anchor_bundle(
+    candles: pd.DataFrame,
+    prior_session_date: date,
+    next_trading_date: date,
+    *,
+    current_es_price: float | None = None,
+    anchor_source_override: str = "Auto",
+) -> dict[str, Any]:
+    """Build historical/backtest anchors with the same candidate engine as live mode."""
+
+    return _build_session_aware_anchor_bundle(
+        candles=candles,
+        prior_session_date=prior_session_date,
+        next_trading_date=next_trading_date,
+        current_es_price=current_es_price,
+        anchor_source_override=anchor_source_override,
+    )
+
+
 def load_trades() -> tuple[list[dict[str, Any]], str | None]:
     """Load saved trades from local JSON storage."""
 
@@ -13069,13 +13089,20 @@ def render_historical_projection_panel(
 
     overnight_start = at_central(inputs["prior_session_date"], 17, 0)
     overnight_end = projection_target
+    anchor_labels = summarize_selected_anchor_sources(anchor_bundle)
     details = {
         "Prior Session Date": str(inputs["prior_session_date"]),
         "Next Trading Date": str(inputs["next_trading_date"]),
         "Projection Target Timestamp": format_timestamp(projection_target),
         "Data Mode": inputs["data_mode"],
-        "Anchor Source": "manual_anchor_bundle" if inputs["data_mode"] == "Manual input" else "auto_fetch_anchor_bundle",
-        "Prior Afternoon Pivot Window": f"{format_timestamp(at_central(inputs['prior_session_date'], 11, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 16, 0))}",
+        "Anchor Engine": anchor_bundle.get("source", "manual_anchor_bundle" if inputs["data_mode"] == "Manual input" else "session_aware_anchor_bundle"),
+        "Selected Anchor Sources": " | ".join(anchor_labels) if anchor_labels else "Unavailable",
+        "Candidate Windows": (
+            f"PM {format_timestamp(at_central(inputs['prior_session_date'], 12, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 15, 0))} | "
+            f"Asian {format_timestamp(at_central(inputs['next_trading_date'] - timedelta(days=1), 17, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 0, 0))} | "
+            f"London {format_timestamp(at_central(inputs['next_trading_date'], 0, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 7, 0))} | "
+            f"Pre-NY {format_timestamp(at_central(inputs['next_trading_date'], 7, 0))} -> {format_timestamp(at_central(inputs['next_trading_date'], 8, 25))}"
+        ),
         "Prior Session Wick Window": f"{format_timestamp(at_central(inputs['prior_session_date'], 8, 0))} -> {format_timestamp(at_central(inputs['prior_session_date'], 16, 0))}",
         "Overnight Window": f"{format_timestamp(overnight_start)} -> {format_timestamp(overnight_end)}",
     }
@@ -16630,7 +16657,12 @@ def _resolve_one_intelligence_date(trading_date: date, prior_date: date, effecti
         es_candles, _ = fetch_es_candles_for_app(prior_date, trading_date)
         if es_candles is None or es_candles.empty:
             return False
-        anchor_bundle = build_six_line_anchors(es_candles, prior_date)
+        anchor_bundle = build_historical_session_anchor_bundle(
+            es_candles,
+            prior_date,
+            trading_date,
+            anchor_source_override="Auto",
+        )
         nine_am_target = build_projection_target(trading_date)
         projected_es = project_six_lines(anchor_bundle["anchors"], nine_am_target)
         projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
@@ -16740,7 +16772,12 @@ def run_intelligence_backfill(start_date: date, end_date: date, effective_offset
                 es_candles, _ = fetch_es_candles_for_app(prior, trading_date)
                 if es_candles is None or es_candles.empty:
                     continue
-                anchor_bundle = build_six_line_anchors(es_candles, prior)
+                anchor_bundle = build_historical_session_anchor_bundle(
+                    es_candles,
+                    prior,
+                    trading_date,
+                    anchor_source_override="Auto",
+                )
                 nine_am_target = build_projection_target(trading_date)
                 projected_es = project_six_lines(anchor_bundle["anchors"], nine_am_target)
                 projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
@@ -17029,7 +17066,12 @@ def render_historical_backtest_tab(inputs: dict[str, Any], effective_offset: flo
             if es_candles is None or es_candles.empty:
                 cursor += timedelta(days=1)
                 continue
-            anchor_bundle = build_six_line_anchors(es_candles, prior_session_date)
+            anchor_bundle = build_historical_session_anchor_bundle(
+                es_candles,
+                prior_session_date,
+                cursor,
+                anchor_source_override=str(inputs.get("anchor_source_override", "Auto")),
+            )
             projected_es = project_six_lines(anchor_bundle["anchors"], build_projection_target(cursor))
             projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
             next_session_spx = build_synthetic_spx_session(get_next_day_session_candles(es_candles, cursor), effective_offset)
