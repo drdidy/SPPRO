@@ -1,3 +1,4 @@
 *.pyc
 **/__pycache__/
 intelligence.db
+research_calibration.json

@@ -169,6 +169,7 @@ APP_TITLE = "SPX PROPHET"
 APP_VERSION = "v3.2"
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "trade_log.json"
 SNAPSHOT_LOG_PATH = Path(__file__).resolve().parent / "daily_snapshots.json"
+RESEARCH_CALIBRATION_PATH = Path(__file__).resolve().parent / "research_calibration.json"
 SETTINGS_PATH = Path(__file__).resolve().parent / "settings.json"
 QUICK_TAG_OPTIONS = [
     "Green Day",
@@ -6989,6 +6990,12 @@ def load_snapshots() -> tuple[list[dict[str, Any]], str | None]:
     return load_json_list_store(SNAPSHOT_LOG_PATH, "snapshot")
 
 
+def load_research_calibration_records(path: Path | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Load synthetic research-calibration rows from their own store."""
+
+    return load_json_list_store(path or RESEARCH_CALIBRATION_PATH, "research calibration")
+
+
 def save_trades(trades: list[dict[str, Any]]) -> tuple[bool, str | None]:
     """Persist the full trade list to local JSON storage."""
 
@@ -6999,6 +7006,46 @@ def save_snapshots(snapshots: list[dict[str, Any]]) -> tuple[bool, str | None]:
     """Persist the full snapshot list to local JSON storage."""
 
     return save_json_list_store(SNAPSHOT_LOG_PATH, snapshots, "snapshots")
+
+
+def save_research_calibration_records(records: list[dict[str, Any]], path: Path | None = None) -> tuple[bool, str | None]:
+    """Persist synthetic research-calibration rows without touching the trade log."""
+
+    return save_json_list_store(path or RESEARCH_CALIBRATION_PATH, records, "research calibration")
+
+
+def research_calibration_record_key(record: dict[str, Any]) -> str:
+    """Stable key for replacing one synthetic row per date/engine/offset."""
+
+    return "|".join(
+        [
+            str(record.get("trading_date", "")),
+            str(record.get("engine_version", "")),
+            str(record.get("anchor_source_override", "Auto")),
+            str(record.get("effective_offset", "")),
+        ]
+    )
+
+
+def upsert_research_calibration_records(existing: list[dict[str, Any]], incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge synthetic research rows while preserving separation from reviewed trade records."""
+
+    merged = [dict(row) for row in existing if isinstance(row, dict)]
+    index = {research_calibration_record_key(row): idx for idx, row in enumerate(merged)}
+    for raw in incoming:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        row["record_source"] = "research_backtest"
+        row["synthetic_research_only"] = True
+        row["reviewed_trade_outcome"] = False
+        key = research_calibration_record_key(row)
+        if key in index:
+            merged[index[key]] = row
+        else:
+            index[key] = len(merged)
+            merged.append(row)
+    return sorted(merged, key=lambda row: str(row.get("trading_date", "")), reverse=True)
 
 
 def append_trade(trade: dict[str, Any]) -> tuple[bool, str | None]:
@@ -17991,6 +18038,198 @@ def run_intelligence_backfill(start_date: date, end_date: date, effective_offset
     return attempted, succeeded
 
 
+def build_historical_research_calibration_record(
+    trading_date: date,
+    effective_offset: float,
+    *,
+    anchor_source_override: str = "Auto",
+) -> dict[str, Any] | None:
+    """Build one synthetic research row for a completed historical session.
+
+    This intentionally does not write to trade_log.json or the reviewed-trade learning loop.
+    """
+
+    prior = previous_business_day(trading_date)
+    es_candles, _ = fetch_es_candles_for_app(prior, trading_date)
+    if es_candles is None or es_candles.empty:
+        return None
+    anchor_bundle = build_historical_session_anchor_bundle(
+        es_candles,
+        prior,
+        trading_date,
+        anchor_source_override=anchor_source_override,
+    )
+    nine_am_target = build_projection_target(trading_date)
+    projected_es = project_six_lines(anchor_bundle["anchors"], nine_am_target)
+    projected_spx = convert_projected_lines(projected_es, effective_offset, "spx")
+    next_session_spx = build_synthetic_spx_session(get_next_day_session_candles(es_candles, trading_date), effective_offset)
+    nine_am_bar = next_session_spx.loc[next_session_spx["timestamp"] == at_central(trading_date, 9, 0)]
+    if nine_am_bar.empty:
+        return None
+    nine_am_row = nine_am_bar.iloc[0]
+    line_values = {name: details["projected_price"] for name, details in projected_spx.items()}
+    seed_scenario = evaluate_trading_scenario(
+        current_price=float(nine_am_row["close"]),
+        line_values=line_values,
+        open_price=float(nine_am_row["open"]),
+        confirmation_confirmed=False,
+    )
+    primary_seed = seed_scenario.get("primary_play")
+    spx_candles = fetch_spx_confirmation_candles(trading_date)
+    spx_830_candle = extract_spx_830_candle(spx_candles, trading_date)
+    confirmation = evaluate_830_confirmation(
+        spx_830_candle,
+        primary_seed["entry"]["price"] if primary_seed else float(nine_am_row["close"]),
+        primary_seed["direction"] if primary_seed else "CALL",
+    )
+    signal_package = build_signal_package(
+        current_price=float(nine_am_row["close"]),
+        line_values=line_values,
+        confirmation=confirmation,
+        news_day=False,
+        current_time=nine_am_target,
+        open_price=float(nine_am_row["open"]),
+    )
+    primary_review = evaluate_play_outcome(signal_package["scenario"].get("primary_play"), projected_spx, next_session_spx)
+    alternate_review = evaluate_play_outcome(signal_package["scenario"].get("alternate_play"), projected_spx, next_session_spx)
+    trade_taken = bool(primary_review["entry_triggered"] or alternate_review["entry_triggered"])
+    chosen = primary_review if primary_review["entry_triggered"] else alternate_review
+    chosen_path = "Primary" if primary_review["entry_triggered"] else ("Alternate" if alternate_review["entry_triggered"] else "None")
+    integrity = sorted(set(primary_review.get("integrity_flags", [])) | set(alternate_review.get("integrity_flags", [])))
+    result_class = chosen["result_classification"] if (trade_taken or "invalid_stop" in integrity) else "No Trade"
+    selected_sources = summarize_selected_anchor_sources(anchor_bundle)
+
+    return {
+        "record_source": "research_backtest",
+        "synthetic_research_only": True,
+        "reviewed_trade_outcome": False,
+        "trading_date": trading_date.isoformat(),
+        "prior_session_date": prior.isoformat(),
+        "generated_at": current_central_time().isoformat(),
+        "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
+        "anchor_source_override": anchor_source_override,
+        "anchor_sources": selected_sources,
+        "effective_offset": round_price(effective_offset),
+        "scenario": signal_package["scenario"]["scenario_name"],
+        "market_bias": signal_package["scenario"].get("market_bias", ""),
+        "confirmation": confirmation_status_label(confirmation),
+        "sit_out": bool(signal_package["sit_out"]["sit_out"]),
+        "sit_out_reason": signal_package["sit_out"].get("reason", ""),
+        "primary_direction": (signal_package["scenario"].get("primary_play") or {}).get("direction", ""),
+        "alternate_direction": (signal_package["scenario"].get("alternate_play") or {}).get("direction", ""),
+        "primary_entry_triggered": bool(primary_review["entry_triggered"]),
+        "alternate_entry_triggered": bool(alternate_review["entry_triggered"]),
+        "primary_result_classification": primary_review["result_classification"],
+        "alternate_result_classification": alternate_review["result_classification"],
+        "primary_estimated_pnl": float(primary_review["estimated_pnl"]),
+        "alternate_estimated_pnl": float(alternate_review["estimated_pnl"]),
+        "trade_taken": trade_taken,
+        "chosen_path": chosen_path,
+        "result_classification": result_class,
+        "estimated_pnl": float(chosen["estimated_pnl"]) if trade_taken else 0.0,
+        "stop_hit": bool(chosen["stop_hit"]) if trade_taken else False,
+        "tp1_hit": bool(chosen["tp1_hit"]) if trade_taken else False,
+        "tp2_hit": bool(chosen.get("tp2_hit", False)) if trade_taken else False,
+        "first_outcome": classify_first_outcome(chosen) if trade_taken else ("Invalid Stop" if "invalid_stop" in integrity else "No Trade"),
+        "integrity_flags": integrity,
+    }
+
+
+def run_research_calibration_bootstrap(
+    start_date: date,
+    end_date: date,
+    effective_offset: float,
+    *,
+    anchor_source_override: str = "Auto",
+    progress_placeholder=None,
+    store_path: Path | None = None,
+) -> dict[str, Any]:
+    """Build a separate YTD research-calibration dataset without polluting reviewed trades."""
+
+    if end_date < start_date:
+        return {"attempted": 0, "succeeded": 0, "failed": 0, "records": [], "errors": ["End date before start date"]}
+    existing, load_error = load_research_calibration_records(store_path)
+    all_dates: list[date] = []
+    cursor = start_date
+    while cursor <= end_date:
+        if cursor.weekday() < 5:
+            all_dates.append(cursor)
+        cursor += timedelta(days=1)
+
+    records: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for idx, trading_date in enumerate(all_dates):
+        if progress_placeholder is not None:
+            try:
+                pct = int((idx / max(len(all_dates), 1)) * 100)
+                progress_placeholder.progress(pct, text=f"Research bootstrap {trading_date.isoformat()} ({idx + 1}/{len(all_dates)})")
+            except Exception:
+                pass
+        try:
+            record = build_historical_research_calibration_record(
+                trading_date,
+                effective_offset,
+                anchor_source_override=anchor_source_override,
+            )
+            if record is not None:
+                records.append(record)
+        except Exception as exc:
+            if len(errors) < 5:
+                errors.append(f"{trading_date.isoformat()}: {type(exc).__name__}")
+            continue
+
+    merged = upsert_research_calibration_records(existing, records)
+    saved, save_error = save_research_calibration_records(merged, store_path)
+    if progress_placeholder is not None:
+        try:
+            progress_placeholder.progress(100, text="Research bootstrap complete.")
+        except Exception:
+            pass
+    if load_error:
+        errors.append(load_error)
+    if not saved and save_error:
+        errors.append(save_error)
+    return {
+        "attempted": len(all_dates),
+        "succeeded": len(records) if saved else 0,
+        "failed": max(0, len(all_dates) - len(records)),
+        "records": records,
+        "errors": errors,
+        "store_path": str(store_path or RESEARCH_CALIBRATION_PATH),
+    }
+
+
+def build_research_calibration_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize synthetic research evidence separately from reviewed trade outcomes."""
+
+    rows = [row for row in records if isinstance(row, dict)]
+    if not rows:
+        return {
+            "sessions": 0,
+            "trades": 0,
+            "win_rate": None,
+            "avg_pnl": 0.0,
+            "total_pnl": 0.0,
+            "start_date": "",
+            "end_date": "",
+            "source_label": "Research evidence only",
+        }
+    trade_rows = [row for row in rows if bool(row.get("trade_taken"))]
+    wins = [row for row in trade_rows if str(row.get("first_outcome", "")).startswith("TP") or float(row.get("estimated_pnl", 0.0) or 0.0) > 0]
+    pnl_values = [float(row.get("estimated_pnl", 0.0) or 0.0) for row in trade_rows]
+    dates = sorted(str(row.get("trading_date", "")) for row in rows if row.get("trading_date"))
+    return {
+        "sessions": len(rows),
+        "trades": len(trade_rows),
+        "win_rate": round_price((len(wins) / len(trade_rows)) * 100.0) if trade_rows else None,
+        "avg_pnl": round_price(float(pd.Series(pnl_values).mean())) if pnl_values else 0.0,
+        "total_pnl": round_price(float(pd.Series(pnl_values).sum())) if pnl_values else 0.0,
+        "start_date": dates[0] if dates else "",
+        "end_date": dates[-1] if dates else "",
+        "source_label": "Synthetic YTD research evidence",
+    }
+
+
 def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> None:
     """Render the Adaptive Intelligence Engine dashboard."""
     st.markdown(
@@ -18018,22 +18257,34 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
         st.error("Intelligence module unavailable — core import failed.")
         return
 
+    research_records, research_load_error = load_research_calibration_records()
+    research_metrics = build_research_calibration_metrics(research_records)
+    research_bootstrap_meta = _intelligence.get_backfill_meta("last_research_bootstrap_run")
+
     # Auto-initialize on first visit
-    if _intelligence.get_backfill_meta("last_backfill_run") is None:
+    if not research_records and research_bootstrap_meta is None:
         st.markdown(
             '<div style="background:rgba(130,80,255,0.08);border:1px solid rgba(130,80,255,0.22);'
             'border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:0.82rem;'
             'color:rgba(200,180,255,0.85);line-height:1.6;">'
-            '<b>First-time setup</b> — Loading year-to-date historical signals and outcomes. '
-            'This runs once and takes about 1–3 minutes.'
+            '<b>First-time research bootstrap</b> — Loading year-to-date synthetic research evidence into '
+            'a separate calibration store. Real reviewed trades remain the live-learning authority.'
             '</div>',
             unsafe_allow_html=True,
         )
-        _auto_end = date.today() - timedelta(days=1)
-        _auto_start = date(date.today().year, 1, 1)
+        _today = current_central_time().date()
+        _auto_end = previous_business_day(_today)
+        _auto_start = date(_today.year, 1, 1)
         _prog = st.empty()
-        with st.spinner("Initializing intelligence engine from historical data..."):
-            run_intelligence_backfill(start_date=_auto_start, end_date=_auto_end, effective_offset=effective_offset, progress_placeholder=_prog)
+        with st.spinner("Building YTD research calibration evidence..."):
+            run_research_calibration_bootstrap(
+                start_date=_auto_start,
+                end_date=_auto_end,
+                effective_offset=effective_offset,
+                anchor_source_override=str(inputs.get("anchor_source_override", "Auto")),
+                progress_placeholder=_prog,
+            )
+        _intelligence.set_backfill_meta("last_research_bootstrap_run", _today.isoformat())
         _prog.empty()
         st.rerun()
         return
@@ -18057,8 +18308,51 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     )
     st.markdown(_chip_row, unsafe_allow_html=True)
 
+    if research_load_error:
+        st.warning(research_load_error)
+
+    with st.container(border=True):
+        st.markdown("#### YTD Research Calibration")
+        st.caption("Synthetic historical evidence is stored separately from reviewed trade outcomes and never writes to Trade Log.")
+        rc1, rc2, rc3, rc4, rc5 = st.columns(5)
+        rc1.metric("Research Sessions", research_metrics["sessions"])
+        rc2.metric("Research Trades", research_metrics["trades"])
+        rc3.metric("Research Win Rate", f"{research_metrics['win_rate']:.1f}%" if research_metrics["win_rate"] is not None else "—")
+        rc4.metric("Avg P&L", format_price(research_metrics["avg_pnl"]))
+        rc5.metric("Total P&L", format_price(research_metrics["total_pnl"]))
+        if research_metrics["sessions"]:
+            st.caption(f"Coverage: {research_metrics['start_date']} to {research_metrics['end_date']} | Source: {research_metrics['source_label']}")
+        else:
+            st.info("No YTD research evidence has been generated yet.")
+        with st.expander("Run / Refresh YTD Research Bootstrap", expanded=False):
+            _today = current_central_time().date()
+            ytd_col1, ytd_col2 = st.columns(2)
+            with ytd_col1:
+                ytd_start = st.date_input("Research from", value=date(_today.year, 1, 1), key="research_bootstrap_start")
+            with ytd_col2:
+                ytd_end = st.date_input("Research to", value=previous_business_day(_today), key="research_bootstrap_end")
+            if st.button("Run YTD Research Bootstrap", use_container_width=True, key="run_ytd_research_bootstrap", type="primary"):
+                if ytd_end < ytd_start:
+                    st.error("Research end date must be on or after the start date.")
+                else:
+                    progress = st.empty()
+                    with st.spinner("Refreshing separate YTD research calibration evidence..."):
+                        result = run_research_calibration_bootstrap(
+                            ytd_start,
+                            ytd_end,
+                            effective_offset,
+                            anchor_source_override=str(inputs.get("anchor_source_override", "Auto")),
+                            progress_placeholder=progress,
+                        )
+                    progress.empty()
+                    _intelligence.set_backfill_meta("last_research_bootstrap_run", _today.isoformat())
+                    if result["errors"]:
+                        st.warning("Research bootstrap finished with notes: " + "; ".join(result["errors"][:3]))
+                    st.success(f"Research bootstrap complete — {result['succeeded']} of {result['attempted']} sessions processed.")
+                    st.rerun()
+
     with st.expander("Historical Backfill", expanded=False):
-        st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Extend the intelligence DB beyond the initial year-to-date seed. Yahoo Finance provides up to 2 years of ES=F data.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Optional: extend the separate signal/outcome analytics DB. Reviewed Trade Log outcomes remain separate and higher authority.</div>', unsafe_allow_html=True)
         bf_col1, bf_col2 = st.columns(2)
         with bf_col1:
             bf_start = st.date_input("Backfill from", value=date(date.today().year, 1, 1), key="intel_bf_start")

@@ -32,6 +32,7 @@ from app import (
     build_contract_selection_key,
     build_option_display_state,
     build_option_crowding_context,
+    build_research_calibration_metrics,
     choose_execution_contract_from_ladder,
     classify_trigger_state,
     classify_budget_status,
@@ -53,6 +54,7 @@ from app import (
     normalize_result_value,
     normalize_trade_record,
     normalize_market_headlines,
+    upsert_research_calibration_records,
     resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
     summarize_event_risk,
@@ -1164,6 +1166,58 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn("Economic Data", source)
         self.assertIn("Breaking Headlines", source)
         self.assertIn("High-Risk Economic Calendar", source)
+
+    def test_research_calibration_upsert_marks_rows_as_synthetic_and_separate(self) -> None:
+        existing = [
+            {
+                "trading_date": "2026-01-02",
+                "engine_version": "old",
+                "anchor_source_override": "Auto",
+                "effective_offset": 20.0,
+                "estimated_pnl": -1.0,
+            }
+        ]
+        incoming = [
+            {
+                "trading_date": "2026-01-02",
+                "engine_version": "old",
+                "anchor_source_override": "Auto",
+                "effective_offset": 20.0,
+                "estimated_pnl": 4.0,
+            },
+            {
+                "trading_date": "2026-01-03",
+                "engine_version": "old",
+                "anchor_source_override": "Auto",
+                "effective_offset": 20.0,
+                "estimated_pnl": 2.0,
+            },
+        ]
+
+        merged = upsert_research_calibration_records(existing, incoming)
+
+        self.assertEqual(len(merged), 2)
+        self.assertTrue(all(row["synthetic_research_only"] for row in merged))
+        self.assertTrue(all(row["record_source"] == "research_backtest" for row in merged))
+        self.assertTrue(all(row["reviewed_trade_outcome"] is False for row in merged))
+        updated = next(row for row in merged if row["trading_date"] == "2026-01-02")
+        self.assertEqual(updated["estimated_pnl"], 4.0)
+
+    def test_research_calibration_metrics_are_separate_research_evidence(self) -> None:
+        metrics = build_research_calibration_metrics(
+            [
+                {"trading_date": "2026-01-02", "trade_taken": True, "estimated_pnl": 3.0, "first_outcome": "TP1 Hit First"},
+                {"trading_date": "2026-01-03", "trade_taken": True, "estimated_pnl": -2.0, "first_outcome": "Stop Hit First"},
+                {"trading_date": "2026-01-04", "trade_taken": False, "estimated_pnl": 0.0, "first_outcome": "No Trade"},
+            ]
+        )
+
+        self.assertEqual(metrics["sessions"], 3)
+        self.assertEqual(metrics["trades"], 2)
+        self.assertEqual(metrics["win_rate"], 50.0)
+        self.assertEqual(metrics["avg_pnl"], 0.5)
+        self.assertEqual(metrics["total_pnl"], 1.0)
+        self.assertEqual(metrics["source_label"], "Synthetic YTD research evidence")
 
     def test_option_crowding_detects_put_heavy_pressure_with_both_sides(self) -> None:
         candidates = [
