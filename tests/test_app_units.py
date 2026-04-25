@@ -54,6 +54,7 @@ from app import (
     normalize_result_value,
     normalize_trade_record,
     normalize_market_headlines,
+    pin_option_projection_timing_to_nine_am,
     upsert_research_calibration_records,
     resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
@@ -962,6 +963,24 @@ class AppUnitTests(unittest.TestCase):
         self.assertIsNotNone(projection["projected_mark_at_entry"])
         self.assertIn(projection["projection_confidence"], {"low", "speculative"})
         self.assertTrue(projection["projection_warning"])
+
+    def test_option_projection_timing_is_pinned_to_nine_am_ct(self) -> None:
+        session_date = date(2026, 4, 22)
+        moving_timing = {
+            "expected_entry_time_ct": app_module.at_central(session_date, 8, 37).isoformat(),
+            "time_to_entry_minutes": 22,
+            "entry_time_bucket": "near",
+            "entry_time_reason": "Price is close enough to the planned zone to prepare",
+        }
+
+        pinned = pin_option_projection_timing_to_nine_am(moving_timing, session_date)
+
+        self.assertEqual(
+            pinned["expected_entry_time_ct"],
+            app_module.at_central(session_date, 9, 0).isoformat(),
+        )
+        self.assertEqual(pinned["option_projection_target_basis"], "fixed_9am_ct")
+        self.assertIn("9:00 AM CT", pinned["entry_time_reason"])
 
     def test_time_target_pricing_applies_theta_and_keeps_fill_conservative(self) -> None:
         now_ct = app_module.at_central(date(2026, 4, 22), 8, 20)

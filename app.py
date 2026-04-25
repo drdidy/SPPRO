@@ -10222,6 +10222,23 @@ def estimate_entry_timing(
     }
 
 
+def pin_option_projection_timing_to_nine_am(
+    timing_estimate: dict[str, Any] | None,
+    next_trading_date: date,
+) -> dict[str, Any]:
+    """Use the session's fixed 9:00 AM CT target for option at-entry pricing."""
+
+    result = dict(timing_estimate or {})
+    target_time = build_projection_target(next_trading_date)
+    result["expected_entry_time_ct"] = target_time.isoformat()
+    result["option_projection_target_ct"] = target_time.isoformat()
+    result["option_projection_target_basis"] = "fixed_9am_ct"
+    reason = str(result.get("entry_time_reason") or "").strip()
+    fixed_reason = "Option pricing target fixed to 9:00 AM CT."
+    result["entry_time_reason"] = f"{reason} {fixed_reason}".strip() if reason else fixed_reason
+    return result
+
+
 def estimate_contract_value_at_planned_entry(
     *,
     current_underlying_price: float | None,
@@ -11171,6 +11188,7 @@ def build_option_display_state(
         move_completion_pct=None,
         regime=str((live_context or {}).get("transition_type", "")),
     )
+    timing_estimate = pin_option_projection_timing_to_nine_am(timing_estimate, next_trading_date)
     for candidate in candidates or []:
         candidate_quote = extract_lead_option_quote([candidate])
         if candidate_quote is None or play_spx is None:
