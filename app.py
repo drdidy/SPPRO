@@ -1578,18 +1578,47 @@ def inject_app_styles() -> None:
         .spx-play-footer {
             display: grid;
             gap: 0.36rem;
-            margin-top: 0.82rem;
-            padding-top: 0.72rem;
+            margin: -0.58rem 0 0.92rem 0;
+            padding: 0.74rem 0.95rem 0.82rem 0.95rem;
+            border: 1px solid rgba(167,191,255,0.10);
+            border-top: 0;
+            border-radius: 0 0 22px 22px;
+            background: linear-gradient(180deg, rgba(8,12,24,0.92), rgba(7,10,20,0.96));
+            box-shadow: 0 14px 34px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+        .spx-play-footer.primary {
+            border-left: 4px solid rgba(106,230,255,0.72);
+        }
+        .spx-play-footer.alternate {
+            border-left: 4px solid rgba(176,150,255,0.68);
+        }
+        .spx-play-footer-row {
+            display: flex;
+            gap: 0.4rem;
+            align-items: baseline;
+            flex-wrap: wrap;
+            padding-top: 0.28rem;
             border-top: 1px solid rgba(167,191,255,0.10);
+        }
+        .spx-play-footer-row:first-child {
+            border-top: 0;
+            padding-top: 0;
         }
         .spx-play-footer-line {
             color: #b9cbe0;
             font-size: 0.82rem;
             line-height: 1.42;
         }
-        .spx-play-footer-line strong {
+        .spx-play-footer-label {
             color: #f4f8ff;
             font-weight: 850;
+            font-size: 0.78rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .spx-play-footer-value {
+            color: #b9cbe0;
+            font-size: 0.82rem;
         }
         .spx-plan-box {
             border: 1px solid rgba(255,255,255,0.06);
@@ -18066,37 +18095,33 @@ def render_operator_play_card(
     if not developer_mode and visible_reason_note == "Line confirmation unavailable without candle data.":
         visible_reason_note = ""
     reason_note_html = f'<div class="spx-play-note">{escape(visible_reason_note)}</div>' if visible_reason_note else ""
-    footer_lines: list[str] = []
+    footer_rows: list[tuple[str, str]] = []
     if projected_entry_value is not None and projected_fill_at_entry is not None:
         projection_footer = (
-            f"<strong>At planned entry</strong>: est premium {escape(format_price(projected_entry_value))} "
-            f"| likely fill {escape(format_price(projected_fill_at_entry))}"
+            f"est premium {format_price(projected_entry_value)} | likely fill {format_price(projected_fill_at_entry)}"
         )
         if developer_mode and estimate_reason:
-            projection_footer += f" | {escape(estimate_reason[:1].upper() + estimate_reason[1:])}"
-        footer_lines.append(projection_footer)
+            projection_footer += f" | {estimate_reason[:1].upper() + estimate_reason[1:]}"
+        footer_rows.append(("At planned entry", projection_footer))
     elif estimate_quality == "Insufficient":
-        footer_lines.append("<strong>At planned entry</strong>: premium estimate unavailable")
+        footer_rows.append(("At planned entry", "premium estimate unavailable"))
 
     _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
     if manual_override_active:
         _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
-        footer_lines.append(
-            f"<strong>Selected</strong>: {escape(_selected_label)} | by you"
-            f"{f' | Mark {escape(format_price(_sel_mark))}' if _sel_mark is not None else ''}"
-        )
+        footer_rows.append(("Selected", f"{_selected_label} | by you{f' | Mark {format_price(_sel_mark)}' if _sel_mark is not None else ''}"))
     elif auto_execution_shift:
         _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
-        footer_lines.append(f"<strong>Selected</strong>: {escape(_selected_label)} | {escape(_shift_reason)}")
+        footer_rows.append(("Selected", f"{_selected_label} | {_shift_reason}"))
     elif selected_symbol:
-        footer_lines.append(f"<strong>Selected</strong>: {escape(_selected_label)} | System pick")
+        footer_rows.append(("Selected", f"{_selected_label} | System pick"))
     elif recommended_contract_symbol and developer_mode:
         _recommended_label = format_contract_short_label(
             recommended_contract_symbol,
             (recommended_contract_quote or {}).get("strike"),
             (recommended_contract_quote or {}).get("option_type"),
         )
-        footer_lines.append(f"<strong>System pick</strong>: {escape(_recommended_label)}")
+        footer_rows.append(("System pick", _recommended_label))
 
     if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
         _cost_parts: list[str] = []
@@ -18106,19 +18131,23 @@ def render_operator_play_card(
             _cost_parts.append(f"Fill estimate {format_money(selected_estimated_fill_cost)}")
         if max_affordable_fill is not None:
             _cost_parts.append(f"Max premium {format_price(max_affordable_fill)}")
-        footer_lines.append(f"<strong>Cost</strong>: {escape(' | '.join(_cost_parts))}")
+        footer_rows.append(("Cost", " | ".join(_cost_parts)))
 
     _projection_warning_is_event_noise = "headline shock" in projection_warning.lower() or "event risk" in projection_warning.lower()
     _projection_warning_is_generic = projection_warning == "Line confirmation unavailable without candle data."
     if developer_mode and projection_warning and not _projection_warning_is_generic and projection_warning not in {reason_line, decision_sentence}:
-        footer_lines.append(f"<strong>Warning</strong>: {escape(projection_warning)}")
+        footer_rows.append(("Warning", projection_warning))
     elif projection_warning and not _projection_warning_is_event_noise and not _projection_warning_is_generic:
-        footer_lines.append(f"<strong>Note</strong>: {escape(projection_warning)}")
+        footer_rows.append(("Note", projection_warning))
     footer_html = (
-        '<div class="spx-play-footer">'
-        + "".join(f'<div class="spx-play-footer-line">{line}</div>' for line in footer_lines)
+        f'<div class="spx-play-footer {"primary" if is_primary else "alternate"}">'
+        + "".join(
+            f'<div class="spx-play-footer-row"><span class="spx-play-footer-label">{escape(label)}</span>'
+            f'<span class="spx-play-footer-value">{escape(value)}</span></div>'
+            for label, value in footer_rows
+        )
         + "</div>"
-        if footer_lines
+        if footer_rows
         else ""
     )
     card_subline = f"{direction_display['bias']} bias"
@@ -18173,12 +18202,13 @@ def render_operator_play_card(
             </div>
             {execution_diagnostic_blocks}
             {reason_note_html}
-            {footer_html}
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if footer_html:
+        st.markdown(footer_html, unsafe_allow_html=True)
     if binding_error:
         st.error("Contract binding error")
     # Best Contract — premium styled card, only actionable contract data
