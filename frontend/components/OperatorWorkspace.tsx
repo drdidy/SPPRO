@@ -307,33 +307,84 @@ function SignalTheater({
   levels: Array<{ label: string; value: number | null; tone: string }>;
   plannedEntry: number | null;
 }) {
+  const chartTop = 46;
+  const chartHeight = 308;
+  const chartLeft = 72;
+  const chartRight = 444;
+  const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
+  const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
+  const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
+  const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
+  const pad = Math.max((rawMax - rawMin) * 0.16, 10);
+  const minPrice = rawMin - pad;
+  const maxPrice = rawMax + pad;
+  const yFor = (price: number | null) => {
+    if (price == null || maxPrice === minPrice) {
+      return chartTop + chartHeight / 2;
+    }
+    return chartTop + ((maxPrice - price) / (maxPrice - minPrice)) * chartHeight;
+  };
+  const currentY = yFor(currentEs);
+  const entryY = yFor(plannedEntry);
+  const routeD = `M ${chartRight - 42} ${currentY} C ${chartRight - 104} ${(currentY + entryY) / 2 - 36}, ${chartLeft + 116} ${(currentY + entryY) / 2 + 34}, ${chartLeft + 26} ${entryY}`;
+  const mapStatus = currentEs != null && plannedEntry != null
+    ? currentEs > plannedEntry
+      ? "Price above planned retest"
+      : currentEs < plannedEntry
+        ? "Price below planned retest"
+        : "Price at planned entry"
+    : "Waiting for structure data";
+
   return (
-    <section className="signal-theater" aria-label="Animated structure map">
+    <section className="signal-theater execution-map" aria-label="Animated execution structure map">
       <div className="stage-orbit orbit-one" />
       <div className="stage-orbit orbit-two" />
-      <svg className="cone-svg" viewBox="0 0 520 420" role="img" aria-label="Asian polarity lines and retest zone">
+      <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
-          <linearGradient id="coneLine" x1="0" x2="1" y1="0" y2="1">
-            <stop stopColor="#71c7df" stopOpacity="0.12" />
-            <stop offset="0.48" stopColor="#71c7df" stopOpacity="0.86" />
-            <stop offset="1" stopColor="#d8aa57" stopOpacity="0.26" />
+          <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
+            <stop stopColor="#d8aa57" stopOpacity="0" />
+            <stop offset="0.5" stopColor="#d8aa57" stopOpacity="0.34" />
+            <stop offset="1" stopColor="#d8aa57" stopOpacity="0" />
           </linearGradient>
-          <radialGradient id="coreGlow">
-            <stop stopColor="#71c7df" stopOpacity="0.9" />
+          <radialGradient id="currentGlow">
+            <stop stopColor="#71c7df" stopOpacity="0.72" />
             <stop offset="1" stopColor="#71c7df" stopOpacity="0" />
           </radialGradient>
+          <marker id="routeArrow" markerHeight="8" markerWidth="8" orient="auto" refX="5" refY="3">
+            <path d="M0,0 L0,6 L6,3 z" fill="#d8aa57" opacity="0.84" />
+          </marker>
         </defs>
-        <path className="cone-fill" d="M80 335 C185 235 280 170 445 70 L445 340 C285 276 180 278 80 335Z" />
-        <path className="cone-line line-a" d="M74 336 C175 240 286 164 448 70" />
-        <path className="cone-line line-b" d="M84 335 C195 292 300 296 448 340" />
-        <path className="entry-band" d="M95 230 C210 224 332 214 455 198" />
-        <circle className="pulse-core" cx="282" cy="218" r="64" fill="url(#coreGlow)" />
-        <circle className="stage-node node-a" cx="282" cy="218" r="5" />
-        <circle className="stage-node node-b" cx="448" cy="70" r="4" />
-        <circle className="stage-node node-c" cx="448" cy="340" r="4" />
+        {[0, 1, 2, 3, 4].map((tick) => {
+          const y = chartTop + (chartHeight / 4) * tick;
+          const price = maxPrice - ((maxPrice - minPrice) / 4) * tick;
+          return (
+            <g key={tick}>
+              <line className="map-grid-line" x1={chartLeft} x2={chartRight} y1={y} y2={y} />
+              <text className="map-axis-label" x={chartRight + 12} y={y + 4}>{formatPrice(price)}</text>
+            </g>
+          );
+        })}
+        <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
+        <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
+        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>Planned retest / entry</text>
+        {pricedLevels.map((level) => {
+          const y = yFor(level.value);
+          return (
+            <g key={level.label}>
+              <line className={`structure-level-line tone-${level.tone}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
+              <circle className={`level-dot tone-${level.tone}`} cx={chartLeft} cy={y} r="4" />
+              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{level.label}</text>
+            </g>
+          );
+        })}
+        <path className="retest-route" d={routeD} markerEnd="url(#routeArrow)" />
+        <line className="current-price-line" x1={chartLeft} x2={chartRight} y1={currentY} y2={currentY} />
+        <circle className="current-price-glow" cx={chartRight - 42} cy={currentY} r="42" fill="url(#currentGlow)" />
+        <circle className="current-price-node" cx={chartRight - 42} cy={currentY} r="6" />
+        <text className="current-price-label" x={chartRight - 36} y={currentY - 12}>Current ES</text>
       </svg>
       <div className="stage-readout top-left">
-        <span>Current ES</span>
+        <span>{mapStatus}</span>
         <strong>{formatPrice(currentEs)}</strong>
       </div>
       <div className="stage-readout bottom-left">
@@ -345,7 +396,7 @@ function SignalTheater({
         <strong>{formatPrice(expectedFill)} fill</strong>
       </div>
       <div className="stage-levels">
-        {levels.map((level) => (
+        {pricedLevels.slice(0, 3).map((level) => (
           <span key={level.label}>{level.label}: {formatPrice(level.value)}</span>
         ))}
       </div>

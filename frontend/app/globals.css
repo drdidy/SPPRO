@@ -595,6 +595,111 @@ button {
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
 }
 
+.execution-map-svg {
+  position: relative;
+  z-index: 2;
+  width: min(96%, 620px);
+  height: 100%;
+  filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
+}
+
+.map-grid-line {
+  stroke: rgba(242,239,231,0.075);
+  stroke-width: 1;
+  stroke-dasharray: 3 8;
+}
+
+.map-axis-label,
+.map-entry-label,
+.structure-level-label,
+.current-price-label {
+  fill: rgba(242,239,231,0.54);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.map-entry-label,
+.current-price-label {
+  fill: var(--text);
+}
+
+.entry-zone-fill {
+  fill: url(#entryGlow);
+  animation: entry-zone-breathe 2.8s ease-in-out infinite;
+}
+
+.entry-zone-line {
+  stroke: var(--amber);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 10 9;
+  animation: band-flow 1.8s linear infinite;
+}
+
+.structure-level-line {
+  stroke: rgba(242,239,231,0.22);
+  stroke-width: 1.35;
+}
+
+.structure-level-line.tone-danger,
+.level-dot.tone-danger {
+  stroke: var(--red);
+  fill: var(--red);
+}
+
+.structure-level-line.tone-accent,
+.level-dot.tone-accent {
+  stroke: var(--amber);
+  fill: var(--amber);
+}
+
+.structure-level-line.tone-positive,
+.level-dot.tone-positive {
+  stroke: var(--green);
+  fill: var(--green);
+}
+
+.structure-level-line.tone-neutral,
+.level-dot.tone-neutral {
+  stroke: rgba(242,239,231,0.3);
+  fill: rgba(242,239,231,0.55);
+}
+
+.level-dot {
+  filter: drop-shadow(0 0 9px currentColor);
+}
+
+.retest-route {
+  fill: none;
+  stroke: rgba(216,170,87,0.82);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 7 10;
+  animation: route-flow 2.4s linear infinite;
+}
+
+.current-price-line {
+  stroke: var(--cyan);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 12px rgba(122,215,223,0.42));
+  animation: current-line-pulse 2.4s ease-in-out infinite;
+}
+
+.current-price-glow {
+  opacity: 0.42;
+  animation: core-pulse 3.4s ease-in-out infinite;
+}
+
+.current-price-node {
+  fill: var(--cyan);
+  filter: drop-shadow(0 0 14px rgba(122,215,223,0.7));
+  animation: node-breathe 2.4s ease-in-out infinite;
+}
+
 .cone-fill {
   fill: rgba(122,215,223,0.045);
   stroke: rgba(122,215,223,0.08);
@@ -1130,6 +1235,21 @@ button {
 @keyframes node-breathe {
   0%, 100% { opacity: 0.72; transform: scale(1); transform-origin: center; }
   50% { opacity: 1; transform: scale(1.45); transform-origin: center; }
+}
+
+@keyframes route-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -34; }
+}
+
+@keyframes current-line-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+@keyframes entry-zone-breathe {
+  0%, 100% { opacity: 0.54; }
+  50% { opacity: 0.92; }
 }
 
 @keyframes orbit-one {
