@@ -15306,18 +15306,36 @@ def render_trade_log_tab(
             bias_tab1, bias_tab2 = st.tabs(["Prediction Bias", "Slippage Bias"])
             with bias_tab1:
                 st.markdown("**By Scenario**")
-                st.dataframe(prediction_bias_by_scenario, use_container_width=True, hide_index=True) if not prediction_bias_by_scenario.empty else st.info("Insufficient scenario bias data.")
+                if prediction_bias_by_scenario.empty:
+                    st.info("Insufficient scenario bias data.")
+                else:
+                    st.dataframe(prediction_bias_by_scenario, use_container_width=True, hide_index=True)
                 st.markdown("**By Direction**")
-                st.dataframe(prediction_bias_by_direction, use_container_width=True, hide_index=True) if not prediction_bias_by_direction.empty else st.info("Insufficient direction bias data.")
+                if prediction_bias_by_direction.empty:
+                    st.info("Insufficient direction bias data.")
+                else:
+                    st.dataframe(prediction_bias_by_direction, use_container_width=True, hide_index=True)
                 st.markdown("**By Regime**")
-                st.dataframe(prediction_bias_by_regime, use_container_width=True, hide_index=True) if not prediction_bias_by_regime.empty else st.info("Insufficient regime bias data.")
+                if prediction_bias_by_regime.empty:
+                    st.info("Insufficient regime bias data.")
+                else:
+                    st.dataframe(prediction_bias_by_regime, use_container_width=True, hide_index=True)
             with bias_tab2:
                 st.markdown("**By Scenario**")
-                st.dataframe(slippage_bias_by_scenario, use_container_width=True, hide_index=True) if not slippage_bias_by_scenario.empty else st.info("Insufficient scenario slippage data.")
+                if slippage_bias_by_scenario.empty:
+                    st.info("Insufficient scenario slippage data.")
+                else:
+                    st.dataframe(slippage_bias_by_scenario, use_container_width=True, hide_index=True)
                 st.markdown("**By Regime**")
-                st.dataframe(slippage_bias_by_regime, use_container_width=True, hide_index=True) if not slippage_bias_by_regime.empty else st.info("Insufficient regime slippage data.")
+                if slippage_bias_by_regime.empty:
+                    st.info("Insufficient regime slippage data.")
+                else:
+                    st.dataframe(slippage_bias_by_regime, use_container_width=True, hide_index=True)
                 st.markdown("**By Chase Status**")
-                st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True) if not slippage_bias_by_chase.empty else st.info("Insufficient chase slippage data.")
+                if slippage_bias_by_chase.empty:
+                    st.info("Insufficient chase slippage data.")
+                else:
+                    st.dataframe(slippage_bias_by_chase, use_container_width=True, hide_index=True)
 
         render_section_header("Strategy Intelligence", "Compare outcomes by scenario, confluence, session, confirmation, and tags.", icon="🧠", icon_gradient="linear-gradient(135deg,#b39ddb,#7b2ff7)")
         st.caption("Analytics update live from the filtered trade set below.")

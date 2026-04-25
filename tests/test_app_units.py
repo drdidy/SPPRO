@@ -565,6 +565,12 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(build_live_mode_tab_labels(), ["SIGNAL & LEVELS", "PRE-MARKET PREP"])
         self.assertEqual(build_historical_mode_tab_labels(), ["Historical Projection", "Historical Review", "Backtest"])
 
+    def test_edge_lab_rendering_does_not_use_streamlit_magic_conditionals(self) -> None:
+        source = inspect.getsource(app_module.render_trade_log_tab)
+        self.assertNotIn(" else st.", source)
+        self.assertNotIn("st.write(st.", source)
+        self.assertNotIn("st.markdown(st.", source)
+
     def test_streamlit_material_icons_are_not_overridden_by_body_font_css(self) -> None:
         css_source = inspect.getsource(app_module.inject_app_styles)
         self.assertIn(
