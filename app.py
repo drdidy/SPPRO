@@ -1416,14 +1416,17 @@ def inject_app_styles() -> None:
         .spx-pill.scenario-warning { background: rgba(255,212,64,0.14); border-color: rgba(255,212,64,0.24); color: #fff4c5; }
         .spx-pill.scenario-compression { background: rgba(179,136,255,0.14); border-color: rgba(179,136,255,0.24); }
         .spx-play-shell {
+            --play-accent: rgba(106,230,255,0.92);
+            --play-accent-soft: rgba(106,230,255,0.12);
+            --play-accent-secondary: rgba(143,125,255,0.10);
             position: relative;
             overflow: hidden;
             border: 1px solid rgba(140,175,255,0.13);
             border-radius: 26px;
             padding: 1.02rem 1.06rem 1.08rem 1.06rem;
             background:
-                radial-gradient(circle at top right, rgba(106,230,255,0.11), transparent 30%),
-                radial-gradient(circle at 8% 4%, rgba(143,125,255,0.08), transparent 24%),
+                radial-gradient(circle at top right, var(--play-accent-soft), transparent 30%),
+                radial-gradient(circle at 8% 4%, var(--play-accent-secondary), transparent 24%),
                 linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.98));
             box-shadow: 0 24px 56px rgba(0,0,0,0.26), inset 0 1px 0 rgba(255,255,255,0.04);
             margin-bottom: 0.95rem;
@@ -1433,18 +1436,19 @@ def inject_app_styles() -> None:
             position: absolute;
             inset: 0 auto 0 0;
             width: 4px;
-            background: linear-gradient(180deg, rgba(106,230,255,0.95), rgba(143,125,255,0.45));
+            background: linear-gradient(180deg, var(--play-accent), rgba(143,125,255,0.44));
             opacity: 0.9;
         }
         .spx-play-shell.alternate {
-            opacity: 0.96;
+            --play-accent: rgba(176,150,255,0.86);
+            --play-accent-soft: rgba(176,150,255,0.105);
+            --play-accent-secondary: rgba(106,230,255,0.075);
+            opacity: 1;
             border-color: rgba(167,191,255,0.10);
             background:
-                radial-gradient(circle at top right, rgba(179,136,255,0.08), transparent 28%),
-                linear-gradient(180deg, rgba(10,14,26,0.94), rgba(8,11,21,0.97));
-        }
-        .spx-play-shell.alternate::before {
-            background: linear-gradient(180deg, rgba(179,136,255,0.75), rgba(106,230,255,0.30));
+                radial-gradient(circle at top right, var(--play-accent-soft), transparent 30%),
+                radial-gradient(circle at 8% 4%, var(--play-accent-secondary), transparent 24%),
+                linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.98));
         }
         .spx-play-topline {
             display: flex;
@@ -1460,8 +1464,8 @@ def inject_app_styles() -> None:
             letter-spacing: 0.01em;
         }
         .spx-play-title.alt {
-            font-size: 0.94rem;
-            color: #bfd0e2;
+            font-size: 1rem;
+            color: #e3edf9;
         }
         .spx-play-topline-note {
             display: flex;
@@ -1482,24 +1486,32 @@ def inject_app_styles() -> None:
             margin-bottom: 0.82rem;
         }
         .spx-decision-banner.enter {
-            background: linear-gradient(135deg, rgba(0,230,118,0.18), rgba(0,230,118,0.08));
-            border-color: rgba(0,230,118,0.28);
-            box-shadow: 0 0 20px rgba(0,230,118,0.08);
+            background:
+                radial-gradient(circle at 12% 0%, rgba(53,255,180,0.20), transparent 40%),
+                linear-gradient(135deg, rgba(0,194,140,0.19), rgba(0,116,106,0.10));
+            border-color: rgba(58,255,192,0.28);
+            box-shadow: 0 0 24px rgba(0,230,172,0.08), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-decision-banner.wait {
-            background: linear-gradient(135deg, rgba(0,212,255,0.16), rgba(0,212,255,0.08));
-            border-color: rgba(0,212,255,0.24);
-            box-shadow: 0 0 20px rgba(0,212,255,0.07);
+            background:
+                radial-gradient(circle at 12% 0%, rgba(106,230,255,0.18), transparent 42%),
+                linear-gradient(135deg, rgba(24,143,255,0.16), rgba(80,73,220,0.095));
+            border-color: rgba(106,230,255,0.25);
+            box-shadow: 0 0 24px rgba(71,182,255,0.075), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-decision-banner.caution {
-            background: linear-gradient(135deg, rgba(255,193,7,0.18), rgba(255,193,7,0.08));
-            border-color: rgba(255,193,7,0.28);
-            box-shadow: 0 0 20px rgba(255,193,7,0.08);
+            background:
+                radial-gradient(circle at 12% 0%, rgba(255,212,93,0.18), transparent 42%),
+                linear-gradient(135deg, rgba(255,173,61,0.17), rgba(139,91,26,0.09));
+            border-color: rgba(255,203,94,0.27);
+            box-shadow: 0 0 24px rgba(255,177,61,0.075), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-decision-banner.skip {
-            background: linear-gradient(135deg, rgba(255,82,82,0.22), rgba(255,82,82,0.09));
-            border-color: rgba(255,82,82,0.3);
-            box-shadow: 0 0 20px rgba(255,82,82,0.08);
+            background:
+                radial-gradient(circle at 12% 0%, rgba(255,124,148,0.17), transparent 42%),
+                linear-gradient(135deg, rgba(190,64,96,0.17), rgba(92,36,60,0.10));
+            border-color: rgba(255,124,148,0.23);
+            box-shadow: 0 0 24px rgba(255,92,127,0.065), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-decision-main {
             font-family: var(--spx-font-sans);
@@ -2508,17 +2520,23 @@ def inject_app_styles() -> None:
             border-radius: 28px;
             border-color: rgba(140,175,255,0.14);
             background:
-                radial-gradient(circle at 100% 0%, rgba(106,230,255,0.12), transparent 28%),
-                radial-gradient(circle at 0% 0%, rgba(143,125,255,0.08), transparent 24%),
+                radial-gradient(circle at 100% 0%, var(--play-accent-soft), transparent 28%),
+                radial-gradient(circle at 0% 0%, var(--play-accent-secondary), transparent 24%),
                 linear-gradient(180deg, rgba(12,18,33,0.96), rgba(7,11,22,0.985));
             box-shadow: 0 26px 60px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.045);
         }
         .spx-play-shell.filtered {
             background:
-                radial-gradient(circle at top right, rgba(255,109,139,0.08), transparent 24%),
-                radial-gradient(circle at 0% 0%, rgba(143,125,255,0.055), transparent 24%),
+                radial-gradient(circle at top right, rgba(255,109,139,0.07), transparent 24%),
+                radial-gradient(circle at 0% 0%, var(--play-accent-secondary), transparent 24%),
                 linear-gradient(180deg, rgba(18,14,24,0.94), rgba(10,10,18,0.985));
             border-color: rgba(255,109,139,0.14);
+        }
+        .spx-play-shell.alternate.filtered {
+            background:
+                radial-gradient(circle at top right, rgba(176,150,255,0.095), transparent 25%),
+                radial-gradient(circle at 0% 0%, rgba(255,109,139,0.055), transparent 24%),
+                linear-gradient(180deg, rgba(18,14,24,0.94), rgba(10,10,18,0.985));
         }
         .spx-decision-banner {
             border-radius: 22px;
