@@ -51,6 +51,7 @@ from app import (
     estimate_option_price_at_time,
     estimate_contract_value_at_planned_entry,
     format_contract_short_label,
+    format_money,
     get_structure_assertion_warnings,
     resolve_effective_offset,
     resolve_hero_action_label,
@@ -1004,6 +1005,11 @@ class AppUnitTests(unittest.TestCase):
     def test_contract_short_label_formats_tastytrade_symbols(self) -> None:
         self.assertEqual(format_contract_short_label("SPXW 260427P07155000"), "7155P")
         self.assertEqual(format_contract_short_label("", 7140, "CALL"), "7140C")
+
+    def test_money_formatter_distinguishes_costs_from_premiums(self) -> None:
+        self.assertEqual(format_money(1284.0), "$1,284")
+        self.assertEqual(format_money(2.5), "$2.50")
+        self.assertEqual(format_money(-12.0), "$0.00")
 
     def test_live_data_health_surfaces_quote_quality_and_feed_status(self) -> None:
         report = build_live_data_health_report(

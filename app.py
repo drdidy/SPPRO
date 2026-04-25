@@ -6342,6 +6342,18 @@ def format_price(value: float | None) -> str:
     return f"{round_price(value):,.2f}"
 
 
+def format_money(value: Any) -> str:
+    """Format an estimated dollar cost without making it look like an option premium."""
+
+    number = _to_float_or_none(value)
+    if number is None:
+        return "-"
+    rounded = round_price(max(number, 0.0))
+    if abs(rounded) >= 100:
+        return f"${rounded:,.0f}"
+    return f"${rounded:,.2f}"
+
+
 def format_contract_short_label(
     contract_symbol: str | None,
     strike: Any = None,
@@ -12064,18 +12076,25 @@ def render_options_provider_preview(
                 st.caption(
                     f"Nearby strikes within budget: {display_state.get('nearby_within_budget_count', 0)} of {display_state.get('nearby_contract_count', 0)}"
                     f" | Recommended strike: {recommended_row.get('budget_status') if recommended_row else 'Unknown'}"
-                    f" | Cheapest valid nearby strike: {str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or 'No nearby contract fits budget') if display_state.get('cheapest_within_budget') else 'No nearby contract fits budget'}"
+                    f" | Cheapest valid nearby strike: {format_contract_short_label(str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or ''), display_state.get('cheapest_within_budget', {}).get('strike'), display_state.get('cheapest_within_budget', {}).get('option_type')) if display_state.get('cheapest_within_budget') else 'No nearby contract fits budget'}"
                 )
                 crowding_context = display_state.get("crowding_context") or {}
                 crowding_display = resolve_crowding_display(crowding_context)
                 st.caption(f"Crowding proxy: {crowding_display['label']} | {crowding_display['reason']}")
                 if recommended_quote:
+                    recommended_label = format_contract_short_label(
+                        recommended_quote.get("contract_symbol"),
+                        recommended_quote.get("strike"),
+                        recommended_quote.get("option_type") or request_payload.get("direction"),
+                    )
                     st.caption(
-                        f"System Recommended: {recommended_quote.get('contract_symbol', '-')}"
+                        f"System Recommended: {recommended_label}"
                         f" | Mark {format_price(recommended_quote.get('price')) if recommended_quote.get('price') is not None else '-'}"
                         f" | At Entry {format_price(recommended_quote.get('projected_mark_at_entry')) if recommended_quote.get('projected_mark_at_entry') is not None else format_price(recommended_quote.get('predicted_entry_price')) if recommended_quote.get('predicted_entry_price') is not None else '-'}"
                         f" | Fill {format_price(recommended_quote.get('projected_fill_at_entry')) if recommended_quote.get('projected_fill_at_entry') is not None else format_price(recommended_quote.get('expected_fill_mark')) if recommended_quote.get('expected_fill_mark') is not None else '-'}"
                     )
+                    if developer_mode and recommended_quote.get("contract_symbol"):
+                        st.caption(f"Raw recommended symbol: {recommended_quote.get('contract_symbol')}")
                 elif display_state.get("recommended_unavailable"):
                     fallback_symbol = str(fallback_contract.get("symbol", "") or fallback_contract.get("contract_symbol", "") or "-")
                     fallback_strike = _to_float_or_none(fallback_contract.get("strike"))
@@ -12086,16 +12105,23 @@ def render_options_provider_preview(
                         f"{f' @ {format_price(fallback_strike)}' if fallback_strike is not None else ''}"
                     )
                 if selected_quote:
+                    selected_label = format_contract_short_label(
+                        selected_quote.get("contract_symbol"),
+                        selected_quote.get("strike"),
+                        selected_quote.get("option_type") or request_payload.get("direction"),
+                    )
                     st.caption(
-                        f"Selected for Entry: {selected_quote.get('contract_symbol', '-')}"
+                        f"Selected for Entry: {selected_label}"
                         f" | Mark {format_price(selected_quote.get('price')) if selected_quote.get('price') is not None else '-'}"
                         f" | At Entry {format_price(selected_quote.get('projected_mark_at_entry')) if selected_quote.get('projected_mark_at_entry') is not None else format_price(selected_quote.get('predicted_entry_price')) if selected_quote.get('predicted_entry_price') is not None else '-'}"
                         f" | Fill {format_price(selected_quote.get('projected_fill_at_entry')) if selected_quote.get('projected_fill_at_entry') is not None else format_price(selected_quote.get('expected_fill_mark')) if selected_quote.get('expected_fill_mark') is not None else '-'}"
-                        f" | Est Cost {format_price(selected_quote.get('estimated_entry_cost')) if selected_quote.get('estimated_entry_cost') is not None else '-'}"
-                        f" | Fill Cost {format_price(selected_quote.get('estimated_fill_cost')) if selected_quote.get('estimated_fill_cost') is not None else '-'}"
+                        f" | Est Position {format_money(selected_quote.get('estimated_entry_cost')) if selected_quote.get('estimated_entry_cost') is not None else '-'}"
+                        f" | Fill Estimate {format_money(selected_quote.get('estimated_fill_cost')) if selected_quote.get('estimated_fill_cost') is not None else '-'}"
                         f" | {selected_quote.get('budget_status') or 'Unknown'}"
                         f" | {selected_quote.get('premium_projection_confidence') or 'Speculative'}"
                     )
+                    if developer_mode and selected_quote.get("contract_symbol"):
+                        st.caption(f"Raw selected symbol: {selected_quote.get('contract_symbol')}")
             if developer_mode:
                 st.caption(f"Connection/data status: {chain_snapshot.get('status', 'unavailable')}")
             if developer_mode and chain_snapshot.get("message"):
@@ -14424,9 +14450,13 @@ def render_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning(f"Operator override enabled | State: {setup_state}")
+        _blocked_reason = str((authority or {}).get("setup_state_reason") or authority_reason or decision_reason or "Execution guard is blocking this play.").strip()
+        if st.session_state.get(override_intent_key, False):
+            st.warning(f"Trade guard override pending | {setup_state}")
+        else:
+            st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
         _clr_col, _ovr_col = st.columns(2)
-        if _clr_col.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
+        if _clr_col.button("Clear Trade Guard Override", key=f"{button_key}_clear_override", use_container_width=True):
             st.session_state.pop(override_intent_key, None)
             st.session_state.pop(override_reason_key, None)
             st.rerun()
@@ -17706,12 +17736,19 @@ def render_operator_play_card(
     # Contract selection status (brief single line)
     if manual_override_active:
         _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
-        st.caption(f"Manual override · Strike {format_price(selected_strike) if selected_strike is not None else '-'} · Mark {format_price(_sel_mark) if _sel_mark is not None else '-'}")
+        _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
+        st.caption(f"Selected by you: {_selected_label} | Mark {format_price(_sel_mark) if _sel_mark is not None else '-'}")
     elif auto_execution_shift:
         _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
-        st.caption(f"Auto-selected: {selected_symbol or '-'} · {_shift_reason}")
+        _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
+        st.caption(f"Auto-selected: {_selected_label} | {_shift_reason}")
     elif recommended_contract_symbol:
-        st.caption(f"System recommended: {recommended_contract_symbol}")
+        _recommended_label = format_contract_short_label(
+            recommended_contract_symbol,
+            (recommended_contract_quote or {}).get("strike"),
+            (recommended_contract_quote or {}).get("option_type"),
+        )
+        st.caption(f"System recommended: {_recommended_label}")
 
     # Condition gate — only shown for CONDITIONAL BUY
     if decision == "CONDITIONAL BUY" and condition_required:
@@ -17721,15 +17758,16 @@ def render_operator_play_card(
     if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
         _cost_parts: list[str] = []
         if selected_estimated_entry_cost is not None:
-            _cost_parts.append(f"Est cost {format_price(selected_estimated_entry_cost)}")
+            _cost_parts.append(f"Est position {format_money(selected_estimated_entry_cost)}")
         if selected_estimated_fill_cost is not None:
-            _cost_parts.append(f"Fill cost {format_price(selected_estimated_fill_cost)}")
+            _cost_parts.append(f"Fill estimate {format_money(selected_estimated_fill_cost)}")
         if max_affordable_fill is not None:
-            _cost_parts.append(f"Max fill {format_price(max_affordable_fill)}")
-        st.caption(" · ".join(_cost_parts))
+            _cost_parts.append(f"Max premium {format_price(max_affordable_fill)}")
+        st.caption(" | ".join(_cost_parts))
 
-    # Projection warning (risk flag — always show if present)
-    if projection_warning and projection_warning not in {reason_line, decision_sentence}:
+    # Projection warnings stay visible in Edge Lab; Production keeps event-risk warnings in the main risk badge.
+    _projection_warning_is_event_noise = "headline shock" in projection_warning.lower() or "event risk" in projection_warning.lower()
+    if projection_warning and projection_warning not in {reason_line, decision_sentence} and (developer_mode or not _projection_warning_is_event_noise):
         st.caption(projection_warning)
 
     # Developer-only diagnostics
@@ -17775,9 +17813,13 @@ def render_operator_play_card(
             )
             st.success("Trade Log prefilled from this play.")
     elif not use_allowed:
-        st.warning(f"Operator override enabled | State: {setup_state}")
+        _blocked_reason = str(setup_state_reason or reason_line or "Execution guard is blocking this play.").strip()
+        if st.session_state.get(override_intent_key, False):
+            st.warning(f"Trade guard override pending | {setup_state}")
+        else:
+            st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
         _clr_col2, _ovr_col2 = st.columns(2)
-        if _clr_col2.button("Clear Override", key=f"{button_key}_clear_override", use_container_width=True):
+        if _clr_col2.button("Clear Trade Guard Override", key=f"{button_key}_clear_override", use_container_width=True):
             st.session_state.pop(override_intent_key, None)
             st.session_state.pop(override_reason_key, None)
             st.rerun()
