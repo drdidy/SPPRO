@@ -1575,6 +1575,22 @@ def inject_app_styles() -> None:
             font-size: 0.78rem;
             margin-top: 0.2rem;
         }
+        .spx-play-footer {
+            display: grid;
+            gap: 0.36rem;
+            margin-top: 0.82rem;
+            padding-top: 0.72rem;
+            border-top: 1px solid rgba(167,191,255,0.10);
+        }
+        .spx-play-footer-line {
+            color: #b9cbe0;
+            font-size: 0.82rem;
+            line-height: 1.42;
+        }
+        .spx-play-footer-line strong {
+            color: #f4f8ff;
+            font-weight: 850;
+        }
         .spx-plan-box {
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 16px;
@@ -18050,6 +18066,61 @@ def render_operator_play_card(
     if not developer_mode and visible_reason_note == "Line confirmation unavailable without candle data.":
         visible_reason_note = ""
     reason_note_html = f'<div class="spx-play-note">{escape(visible_reason_note)}</div>' if visible_reason_note else ""
+    footer_lines: list[str] = []
+    if projected_entry_value is not None and projected_fill_at_entry is not None:
+        projection_footer = (
+            f"<strong>At planned entry</strong>: est premium {escape(format_price(projected_entry_value))} "
+            f"| likely fill {escape(format_price(projected_fill_at_entry))}"
+        )
+        if developer_mode and estimate_reason:
+            projection_footer += f" | {escape(estimate_reason[:1].upper() + estimate_reason[1:])}"
+        footer_lines.append(projection_footer)
+    elif estimate_quality == "Insufficient":
+        footer_lines.append("<strong>At planned entry</strong>: premium estimate unavailable")
+
+    _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
+    if manual_override_active:
+        _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
+        footer_lines.append(
+            f"<strong>Selected</strong>: {escape(_selected_label)} | by you"
+            f"{f' | Mark {escape(format_price(_sel_mark))}' if _sel_mark is not None else ''}"
+        )
+    elif auto_execution_shift:
+        _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
+        footer_lines.append(f"<strong>Selected</strong>: {escape(_selected_label)} | {escape(_shift_reason)}")
+    elif selected_symbol:
+        footer_lines.append(f"<strong>Selected</strong>: {escape(_selected_label)} | System pick")
+    elif recommended_contract_symbol and developer_mode:
+        _recommended_label = format_contract_short_label(
+            recommended_contract_symbol,
+            (recommended_contract_quote or {}).get("strike"),
+            (recommended_contract_quote or {}).get("option_type"),
+        )
+        footer_lines.append(f"<strong>System pick</strong>: {escape(_recommended_label)}")
+
+    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
+        _cost_parts: list[str] = []
+        if selected_estimated_entry_cost is not None:
+            _cost_parts.append(f"Est position {format_money(selected_estimated_entry_cost)}")
+        if selected_estimated_fill_cost is not None:
+            _cost_parts.append(f"Fill estimate {format_money(selected_estimated_fill_cost)}")
+        if max_affordable_fill is not None:
+            _cost_parts.append(f"Max premium {format_price(max_affordable_fill)}")
+        footer_lines.append(f"<strong>Cost</strong>: {escape(' | '.join(_cost_parts))}")
+
+    _projection_warning_is_event_noise = "headline shock" in projection_warning.lower() or "event risk" in projection_warning.lower()
+    _projection_warning_is_generic = projection_warning == "Line confirmation unavailable without candle data."
+    if developer_mode and projection_warning and not _projection_warning_is_generic and projection_warning not in {reason_line, decision_sentence}:
+        footer_lines.append(f"<strong>Warning</strong>: {escape(projection_warning)}")
+    elif projection_warning and not _projection_warning_is_event_noise and not _projection_warning_is_generic:
+        footer_lines.append(f"<strong>Note</strong>: {escape(projection_warning)}")
+    footer_html = (
+        '<div class="spx-play-footer">'
+        + "".join(f'<div class="spx-play-footer-line">{line}</div>' for line in footer_lines)
+        + "</div>"
+        if footer_lines
+        else ""
+    )
     card_subline = f"{direction_display['bias']} bias"
     if decision != "NO TRADE":
         card_subline = f"{card_subline} | {execution_display}"
@@ -18102,6 +18173,7 @@ def render_operator_play_card(
             </div>
             {execution_diagnostic_blocks}
             {reason_note_html}
+            {footer_html}
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
         </div>
         """,
@@ -18109,17 +18181,6 @@ def render_operator_play_card(
     )
     if binding_error:
         st.error("Contract binding error")
-    if projected_entry_value is not None and projected_fill_at_entry is not None:
-        projection_sentence = (
-            f"If price returns to planned entry, estimated premium is {format_price(projected_entry_value)} "
-            f"and likely fill is {format_price(projected_fill_at_entry)}."
-        )
-        if estimate_reason:
-            projection_sentence += f" {estimate_reason[:1].upper() + estimate_reason[1:]}"
-        st.caption(projection_sentence)
-    elif estimate_quality == "Insufficient":
-        st.caption("Insufficient data for reliable estimate.")
-
     # Best Contract — premium styled card, only actionable contract data
     if show_best_contract_box and best_contract_symbol_for_box:
         _bc_pred = (preferred_contract_row or {}).get("projected_mark_at_entry") or best_contract_pred
@@ -18161,42 +18222,9 @@ def render_operator_play_card(
             unsafe_allow_html=True,
         )
 
-    # Contract selection status (brief single line)
-    if manual_override_active:
-        _sel_mark = _to_float_or_none(display_contract_quote.get("price")) if display_contract_quote else None
-        _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
-        st.caption(f"Selected by you: {_selected_label} | Mark {format_price(_sel_mark) if _sel_mark is not None else '-'}")
-    elif auto_execution_shift:
-        _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
-        _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
-        st.caption(f"Auto-selected: {_selected_label} | {_shift_reason}")
-    elif recommended_contract_symbol and developer_mode:
-        _recommended_label = format_contract_short_label(
-            recommended_contract_symbol,
-            (recommended_contract_quote or {}).get("strike"),
-            (recommended_contract_quote or {}).get("option_type"),
-        )
-        st.caption(f"System recommended: {_recommended_label}")
-
     # Condition gate — only shown for CONDITIONAL BUY
     if decision == "CONDITIONAL BUY" and condition_required:
         st.warning(condition_required)
-
-    # Cost summary (budget is critical for 0DTE sizing)
-    if selected_estimated_entry_cost is not None or selected_estimated_fill_cost is not None:
-        _cost_parts: list[str] = []
-        if selected_estimated_entry_cost is not None:
-            _cost_parts.append(f"Est position {format_money(selected_estimated_entry_cost)}")
-        if selected_estimated_fill_cost is not None:
-            _cost_parts.append(f"Fill estimate {format_money(selected_estimated_fill_cost)}")
-        if max_affordable_fill is not None:
-            _cost_parts.append(f"Max premium {format_price(max_affordable_fill)}")
-        st.caption(" | ".join(_cost_parts))
-
-    # Projection warnings stay visible in Edge Lab; Production keeps event-risk warnings in the main risk badge.
-    _projection_warning_is_event_noise = "headline shock" in projection_warning.lower() or "event risk" in projection_warning.lower()
-    if projection_warning and projection_warning not in {reason_line, decision_sentence} and (developer_mode or not _projection_warning_is_event_noise):
-        st.caption(projection_warning)
 
     # Developer-only diagnostics
     if developer_mode:
