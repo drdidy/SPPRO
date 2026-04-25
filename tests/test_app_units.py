@@ -16,7 +16,10 @@ from app import (
     build_ladder_display_dataframe,
     build_line_polarity_decision,
     build_render_fallback_payload,
+    build_historical_mode_tab_labels,
+    build_live_mode_tab_labels,
     build_top_level_tab_labels,
+    build_trade_log_tab_labels,
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
@@ -548,6 +551,12 @@ class AppUnitTests(unittest.TestCase):
     def test_intelligence_tab_is_edge_lab_only(self) -> None:
         self.assertEqual(build_top_level_tab_labels("Production Mode"), ["LIVE MODE", "HISTORICAL", "TRADE LOG"])
         self.assertEqual(build_top_level_tab_labels("Edge Lab"), ["LIVE MODE", "HISTORICAL", "TRADE LOG", "INTELLIGENCE"])
+
+    def test_production_navigation_hides_edge_diagnostics(self) -> None:
+        self.assertEqual(build_trade_log_tab_labels("Production Mode"), ["Log Trade", "Review Outcomes"])
+        self.assertEqual(build_trade_log_tab_labels("Edge Lab"), ["Log Trade", "Review Outcomes", "Analytics / Edge"])
+        self.assertEqual(build_live_mode_tab_labels(), ["SIGNAL & LEVELS", "PRE-MARKET PREP"])
+        self.assertEqual(build_historical_mode_tab_labels(), ["Historical Projection", "Historical Review", "Backtest"])
 
     def test_streamlit_material_icons_are_not_overridden_by_body_font_css(self) -> None:
         css_source = inspect.getsource(app_module.inject_app_styles)

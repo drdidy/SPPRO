@@ -481,6 +481,27 @@ def build_top_level_tab_labels(visibility_mode: str) -> list[str]:
     return labels
 
 
+def build_trade_log_tab_labels(visibility_mode: str) -> list[str]:
+    """Return Trade Log subtabs while keeping analytics out of Production Mode."""
+
+    labels = ["Log Trade", "Review Outcomes"]
+    if str(visibility_mode or "") == "Edge Lab":
+        labels.append("Analytics / Edge")
+    return labels
+
+
+def build_live_mode_tab_labels() -> list[str]:
+    """Return stable live-mode tab labels without decorative icon ligatures."""
+
+    return ["SIGNAL & LEVELS", "PRE-MARKET PREP"]
+
+
+def build_historical_mode_tab_labels() -> list[str]:
+    """Return stable historical tab labels without decorative icon ligatures."""
+
+    return ["Historical Projection", "Historical Review", "Backtest"]
+
+
 def normalize_tags(tags: Any) -> list[str]:
     """Normalize tags into a stable list format."""
 
@@ -3122,7 +3143,7 @@ def render_section_header(title: str, subtitle: str | None = None, icon: str = "
     ) if icon else ""
     _sub_html = (
         f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.55);margin-top:3px;letter-spacing:0.03em;">'
-        f'{subtitle}</div>'
+        f'{escape(subtitle)}</div>'
     ) if subtitle else ""
     st.markdown(
         f'<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(0,212,255,0.12);'
@@ -10737,12 +10758,13 @@ def render_options_provider_preview(
                     "contract_score",
                 ]
                 visible_columns = [column for column in full_chain_columns if column in preview_df.columns]
-                with st.expander("Full Chain View", expanded=False):
-                    st.dataframe(
-                        preview_df[visible_columns] if visible_columns else preview_df,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+                if developer_mode:
+                    with st.expander("Full Chain View", expanded=False):
+                        st.dataframe(
+                            preview_df[visible_columns] if visible_columns else preview_df,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
             if developer_mode:
                 st.markdown("**Prepared Lookup Request**")
                 st.json(request_payload, expanded=False)
@@ -11835,27 +11857,47 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 options_provider = DEFAULT_OPTIONS_PROVIDER
                 st.caption(f"Options provider: {options_provider}")
 
-        with st.expander("Manual Anchors", expanded=False):
-            pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
-            pivot_low_hour = st.selectbox("Bounce pivot time", options=[12, 13, 14, 15, 16], index=2)
-            pivot_green_high = st.number_input("Rejection green candle high", value=6857.70, step=0.25, format="%.2f")
-            pivot_red_high = st.number_input("Rejection red candle high", value=6859.50, step=0.25, format="%.2f")
-            pivot_red_low = st.number_input("Bounce red candle low", value=6848.75, step=0.25, format="%.2f")
-            pivot_green_low = st.number_input("Bounce green candle low", value=6851.00, step=0.25, format="%.2f")
-            hw_hour = st.selectbox("Highest wick time", options=list(range(9, 17)), index=4)
-            hw_price = st.number_input("Highest wick price", value=6864.50, step=0.25, format="%.2f")
-            lw_hour = st.selectbox("Lowest wick time", options=list(range(9, 17)), index=1)
-            lw_price = st.number_input("Lowest wick price", value=6840.25, step=0.25, format="%.2f")
+        pivot_high_hour = 12
+        pivot_low_hour = 14
+        pivot_green_high = 6857.70
+        pivot_red_high = 6859.50
+        pivot_red_low = 6848.75
+        pivot_green_low = 6851.00
+        hw_hour = 13
+        hw_price = 6864.50
+        lw_hour = 10
+        lw_price = 6840.25
+        if data_mode == "Manual input" or visibility_mode == "Edge Lab":
+            with st.expander("Manual Anchors", expanded=False):
+                pivot_high_hour = st.selectbox("Rejection pivot time", options=[12, 13, 14, 15, 16], index=0)
+                pivot_low_hour = st.selectbox("Bounce pivot time", options=[12, 13, 14, 15, 16], index=2)
+                pivot_green_high = st.number_input("Rejection green candle high", value=6857.70, step=0.25, format="%.2f")
+                pivot_red_high = st.number_input("Rejection red candle high", value=6859.50, step=0.25, format="%.2f")
+                pivot_red_low = st.number_input("Bounce red candle low", value=6848.75, step=0.25, format="%.2f")
+                pivot_green_low = st.number_input("Bounce green candle low", value=6851.00, step=0.25, format="%.2f")
+                hw_hour = st.selectbox("Highest wick time", options=list(range(9, 17)), index=4)
+                hw_price = st.number_input("Highest wick price", value=6864.50, step=0.25, format="%.2f")
+                lw_hour = st.selectbox("Lowest wick time", options=list(range(9, 17)), index=1)
+                lw_price = st.number_input("Lowest wick price", value=6840.25, step=0.25, format="%.2f")
 
-        with st.expander("Overnight Overrides", expanded=False):
-            use_asc_ceiling_override = st.checkbox("Override ASC Ceiling")
-            asc_ceiling_override = st.number_input("ASC Ceiling override value", value=0.00, step=0.25, format="%.2f")
-            use_desc_ceiling_override = st.checkbox("Override DESC Ceiling")
-            desc_ceiling_override = st.number_input("DESC Ceiling override value", value=0.00, step=0.25, format="%.2f")
-            use_asc_floor_override = st.checkbox("Override ASC Floor")
-            asc_floor_override = st.number_input("ASC Floor override value", value=0.00, step=0.25, format="%.2f")
-            use_desc_floor_override = st.checkbox("Override DESC Floor")
-            desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
+        use_asc_ceiling_override = False
+        asc_ceiling_override = 0.0
+        use_desc_ceiling_override = False
+        desc_ceiling_override = 0.0
+        use_asc_floor_override = False
+        asc_floor_override = 0.0
+        use_desc_floor_override = False
+        desc_floor_override = 0.0
+        if visibility_mode == "Edge Lab":
+            with st.expander("Overnight Overrides", expanded=False):
+                use_asc_ceiling_override = st.checkbox("Override ASC Ceiling")
+                asc_ceiling_override = st.number_input("ASC Ceiling override value", value=0.00, step=0.25, format="%.2f")
+                use_desc_ceiling_override = st.checkbox("Override DESC Ceiling")
+                desc_ceiling_override = st.number_input("DESC Ceiling override value", value=0.00, step=0.25, format="%.2f")
+                use_asc_floor_override = st.checkbox("Override ASC Floor")
+                asc_floor_override = st.number_input("ASC Floor override value", value=0.00, step=0.25, format="%.2f")
+                use_desc_floor_override = st.checkbox("Override DESC Floor")
+                desc_floor_override = st.number_input("DESC Floor override value", value=0.00, step=0.25, format="%.2f")
 
         if not historical_mode and visibility_mode == "Edge Lab":
             with st.expander("Diagnostics", expanded=False):
@@ -13835,8 +13877,10 @@ def render_trade_log_tab(
         available_snapshot_options.append(option_label)
         snapshot_lookup[option_label] = (snapshot["id"], snapshot["snapshot_date"])
 
-    journal_tabs = st.tabs(["📝  Log Trade", "📊  Review Outcomes", "🔬  Analytics / Edge"])
-    log_tab, review_tab, analytics_tab = journal_tabs
+    journal_tab_labels = build_trade_log_tab_labels(settings.get("visibility_mode", "Production Mode"))
+    journal_tabs = st.tabs(journal_tab_labels)
+    log_tab, review_tab = journal_tabs[:2]
+    analytics_tab = journal_tabs[2] if len(journal_tabs) > 2 else None
 
     with log_tab:
         render_section_header("Log Trade", "Capture the exact decision snapshot fast, then add execution details only if needed.", icon="📝", icon_gradient="linear-gradient(135deg,#00b4d8,#0077b6)")
@@ -14292,6 +14336,9 @@ def render_trade_log_tab(
                 else:
                     result_counts = history_dataframe["result"].value_counts()
                     st.bar_chart(result_counts)
+
+    if analytics_tab is None:
+        return
 
     with analytics_tab:
         render_section_header("Analytics / Edge", "Performance, calibration, learning, and strategy intelligence in one place.", icon="⚡", icon_gradient="linear-gradient(135deg,#ffd740,#ff9100)")
@@ -16146,7 +16193,7 @@ def render_live_mode_shell(
     """Render the live operator workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    live_signal_tab, live_asian_tab = st.tabs(["⚡  SIGNAL & LEVELS", "📋  PRE-MARKET PREP"])
+    live_signal_tab, live_asian_tab = st.tabs(build_live_mode_tab_labels())
 
     with live_signal_tab:
         if not inputs.get("live_spx_available", True) and not is_valid_price_input(inputs["current_spx_price"]):
@@ -17435,7 +17482,7 @@ def render_historical_projection_mode(
     """Render the historical analysis workflow."""
 
     developer_mode = bool(inputs.get("developer_mode"))
-    projection_tab, review_tab, backtest_tab = st.tabs(["📈  Historical Projection", "🔍  Historical Review", "🧪  Backtest"])
+    projection_tab, review_tab, backtest_tab = st.tabs(build_historical_mode_tab_labels())
     synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
 
     with projection_tab:
