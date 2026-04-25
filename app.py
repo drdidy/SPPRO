@@ -17314,10 +17314,10 @@ def render_live_decision_center(
     _play_kicker = f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""
     _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:15px 19px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
     _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:11px 18px;border-right:1px solid rgba(255,255,255,0.04);"
-    _lbl_s       = "display:block;font-size:0.74rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.38);margin-bottom:6px;font-weight:700;"
-    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.16rem;font-weight:650;color:#e0eeff;"
-    _chip_lbl    = "display:block;font-size:0.72rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.36);margin-bottom:4px;font-weight:700;"
-    _chip_val    = "display:block;font-size:0.92rem;font-weight:650;color:rgba(244,247,255,0.84);"
+    _lbl_s       = "display:block;font-size:0.78rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.44);margin-bottom:6px;font-weight:750;"
+    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.22rem;font-weight:700;color:#e0eeff;"
+    _chip_lbl    = "display:block;font-size:0.75rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.42);margin-bottom:4px;font-weight:750;"
+    _chip_val    = "display:block;font-size:0.96rem;font-weight:680;color:rgba(244,247,255,0.86);"
     _gauge_w     = max(0, min(100, confidence))
 
     st.markdown(
@@ -17326,12 +17326,12 @@ def render_live_decision_center(
         f'background:linear-gradient(180deg,rgba(3,10,26,0.99),rgba(1,6,18,1));'
         f'box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
 
-        f'<div style="font-size:0.76rem;letter-spacing:0.15em;text-transform:uppercase;font-weight:800;'
-        f'color:rgba(106,230,255,0.68);padding:17px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
+        f'<div style="font-size:0.82rem;letter-spacing:0.14em;text-transform:uppercase;font-weight:850;'
+        f'color:rgba(106,230,255,0.76);padding:17px 24px 0;">Decision Center{_play_kicker}</div>'
 
         f'<div style="display:flex;align-items:center;justify-content:space-between;'
         f'gap:16px;flex-wrap:wrap;padding:10px 24px 8px;">'
-        f'<div style="font-family:Outfit,sans-serif;font-size:1.72rem;font-weight:850;'
+        f'<div style="font-family:Outfit,sans-serif;font-size:1.88rem;font-weight:850;'
         f'color:#f4f7ff;line-height:1.2;">{escape(_display_headline)}</div>'
         f'<div style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;'
         f'border-radius:30px;font-size:0.88rem;font-weight:800;letter-spacing:0.07em;'
@@ -17365,7 +17365,7 @@ def render_live_decision_center(
         f'</div>'
         f'<div style="{_stat_cell}">'
         f'<div style="{_lbl_s}">Confidence</div>'
-        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.16rem;font-weight:650;color:{_conf_color};">{confidence}%</div>'
+        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.22rem;font-weight:700;color:{_conf_color};">{confidence}%</div>'
         f'<div style="height:4px;margin-top:6px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
         f'<div style="height:100%;width:{_gauge_w}%;background:linear-gradient(90deg,#ef5350,#ffd740 50%,#00e676);border-radius:2px;"></div>'
         f'</div>'
@@ -17403,14 +17403,10 @@ def render_live_decision_center(
         f'</div>'
         f'</div>'
 
-        f'<div style="padding:10px 24px;font-size:0.82rem;color:rgba(244,247,255,0.46);'
+        f'<div style="padding:10px 24px;font-size:0.88rem;color:rgba(244,247,255,0.55);'
         f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
         f'{escape(_lock_display)}'
         f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
-        f'&nbsp;&middot;&nbsp;VWAP:&nbsp;{escape(vwap_display["value"])}'
-        f'&nbsp;&middot;&nbsp;Crowding:&nbsp;{escape(crowding_display["level"])}'
-        f'&nbsp;&middot;&nbsp;EV:&nbsp;{escape(_ev_display)}'
-        f'&nbsp;&middot;&nbsp;Evidence:&nbsp;{escape(evidence_label if evidence_label else "None")}'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -18063,17 +18059,17 @@ def render_operator_play_card(
             f'box-shadow:0 14px 34px rgba(0,0,0,0.24);border-radius:14px;padding:15px 18px;margin:12px 0;">'
             f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">'
             f'<div>'
-            f'<div style="font-size:0.74rem;text-transform:uppercase;letter-spacing:0.10em;color:#8eb8d4;font-weight:800;margin-bottom:4px;">{escape(_bc_header)}</div>'
-            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:1.34rem;line-height:1.1;font-weight:900;color:#f4f7ff;letter-spacing:0.01em;">{escape(_bc_short_label)}</div>'
+            f'<div style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.10em;color:#8eb8d4;font-weight:850;margin-bottom:5px;">{escape(_bc_header)}</div>'
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:1.48rem;line-height:1.08;font-weight:900;color:#f4f7ff;letter-spacing:0.01em;">{escape(_bc_short_label)}</div>'
             f'{_bc_raw_symbol_line}'
             f'</div>'
-            f'<div style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.045);border:1px solid {_bc_budget_col}55;color:{_bc_budget_col};font-size:0.76rem;font-weight:850;white-space:nowrap;">{escape(_bc_budget)}</div>'
+            f'<div style="padding:6px 11px;border-radius:999px;background:rgba(255,255,255,0.045);border:1px solid {_bc_budget_col}55;color:{_bc_budget_col};font-size:0.82rem;font-weight:850;white-space:nowrap;">{escape(_bc_budget)}</div>'
             f'</div>'
             f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;">'
-            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">Current Mark</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
-            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">{escape(_bc_target_label)}</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
-            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">{escape(_bc_fill_label)}</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
-            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">RR</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:10px 11px;"><div style="font-size:0.78rem;color:#8eb8d4;margin-bottom:4px;font-weight:750;">Current Mark</div><div style="font-size:1.16rem;font-weight:850;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:10px 11px;"><div style="font-size:0.78rem;color:#8eb8d4;margin-bottom:4px;font-weight:750;">{escape(_bc_target_label)}</div><div style="font-size:1.16rem;font-weight:850;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:10px 11px;"><div style="font-size:0.78rem;color:#8eb8d4;margin-bottom:4px;font-weight:750;">{escape(_bc_fill_label)}</div><div style="font-size:1.16rem;font-weight:850;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:10px 11px;"><div style="font-size:0.78rem;color:#8eb8d4;margin-bottom:4px;font-weight:750;">RR</div><div style="font-size:1.16rem;font-weight:850;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
             f'</div>'
             f'<div style="margin-top:10px;font-size:0.76rem;color:#7f9db6;line-height:1.45;">{escape(strike_profile)} | {escape(projection_reason or best_contract_basis or "-")} | {escape(preferred_contract_mode)}</div>'
             f'</div>',
