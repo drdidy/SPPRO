@@ -32,6 +32,11 @@ from app import (
     build_contract_selection_key,
     build_option_display_state,
     build_option_crowding_context,
+    build_quote_quality_report,
+    build_live_data_health_report,
+    build_open_smoke_test_report,
+    build_replay_review_summary,
+    build_end_of_day_review_prompts,
     build_research_calibration_metrics,
     choose_execution_contract_from_ladder,
     classify_trigger_state,
@@ -981,6 +986,59 @@ class AppUnitTests(unittest.TestCase):
         )
         self.assertEqual(pinned["option_projection_target_basis"], "fixed_9am_ct")
         self.assertIn("9:00 AM CT", pinned["entry_time_reason"])
+
+    def test_quote_quality_blocks_no_bid_and_thin_contracts(self) -> None:
+        report = build_quote_quality_report(
+            {"price": 0.05, "bid": 0.0, "ask": 0.15, "lookup_timestamp": app_module.current_central_time().isoformat()}
+        )
+
+        self.assertEqual(report["quote_quality_status"], "BLOCKED")
+        self.assertFalse(report["quote_execution_allowed"])
+        self.assertIn("too_thin", report["quote_quality_flags"])
+        self.assertIn("no_bid", report["quote_quality_flags"])
+
+    def test_live_data_health_surfaces_quote_quality_and_feed_status(self) -> None:
+        report = build_live_data_health_report(
+            inputs={"current_spx_price": 7100.0, "current_es_price": 7120.0, "live_spx_available": True, "live_es_available": True},
+            options_provider_status={"configured": True, "credentials_detected": True},
+            option_sections=[{"chain_snapshot": {"contracts": [{"symbol": "SPXW", "price": 1.2}]}}],
+            event_risk_context={"source_status": "live", "next_known_event": "CPI 7:30 AM CT", "high_impact_events": [{"event_name": "CPI"}]},
+            primary_quote={"price": 1.2, "bid": 1.1, "ask": 1.3},
+            alternate_quote={"price": 0.05, "bid": 0.0, "ask": 0.10},
+        )
+
+        self.assertEqual(report["overall_status"], "BLOCKED")
+        self.assertEqual(report["alternate_quote_quality"]["quote_quality_status"], "BLOCKED")
+
+    def test_open_smoke_requires_fixed_option_target(self) -> None:
+        report = build_open_smoke_test_report(
+            inputs={},
+            anchor_bundle={"anchors": {"asc_floor": {"projected_price": 7100.0}}},
+            option_display_states=[{"timing_estimate": {"option_projection_target_basis": "fixed_9am_ct"}}],
+            data_health={"overall_status": "OK", "summary": "All critical feeds usable"},
+            primary_authority={"decision": "CONDITIONAL BUY"},
+            alternate_authority={"decision": "NO TRADE"},
+        )
+
+        self.assertEqual(report["status"], "PASS")
+
+    def test_replay_review_summary_keeps_research_separate_from_reviewed_trades(self) -> None:
+        summary = build_replay_review_summary(
+            [
+                {"selected_anchor_sources": "Asian", "scenario_name": "SCENARIO 3", "trade_taken": True, "result_classification": "Win", "estimated_pnl": 120.0},
+                {"selected_anchor_sources": "PM", "scenario_name": "SCENARIO 2", "trade_taken": False, "result_classification": "No Trade", "estimated_pnl": 0.0},
+            ],
+            [{"scenario_name": "SCENARIO 3", "result": "Win", "pnl_preview": 50.0}],
+        )
+
+        self.assertEqual(summary["research_sessions"], 2)
+        self.assertEqual(summary["reviewed_trades"], 1)
+        self.assertTrue(summary["by_anchor_source"])
+
+    def test_end_of_day_prompts_include_loss_specific_stop_review(self) -> None:
+        prompts = build_end_of_day_review_prompts({"result": "Loss"})
+
+        self.assertTrue(any("stop authority" in prompt.lower() for prompt in prompts))
 
     def test_time_target_pricing_applies_theta_and_keeps_fill_conservative(self) -> None:
         now_ct = app_module.at_central(date(2026, 4, 22), 8, 20)

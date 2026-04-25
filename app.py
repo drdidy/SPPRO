@@ -4465,6 +4465,245 @@ def build_alert_state(
     return {"alert_state": "QUIET", "alert_message": "No live execution edge", "alert_priority": "LOW"}
 
 
+def build_quote_quality_report(
+    quote: dict[str, Any] | None,
+    *,
+    now_ct: datetime | None = None,
+    max_age_minutes: int = 5,
+) -> dict[str, Any]:
+    """Classify whether a selected option quote is usable for execution display."""
+
+    quote = quote or {}
+    now_value = _parse_datetime_or_none(now_ct) or current_central_time()
+    bid = _non_negative_option_price(quote.get("bid"))
+    ask = _non_negative_option_price(quote.get("ask"))
+    mark = _non_negative_option_price(quote.get("price")) or _non_negative_option_price(quote.get("mark")) or _non_negative_option_price(quote.get("current_mark"))
+    spread = _to_float_or_none(quote.get("spread_width"))
+    if spread is None and bid is not None and ask is not None:
+        spread = max(0.0, ask - bid)
+    quote_ts = _parse_datetime_or_none(quote.get("lookup_timestamp") or quote.get("quote_timestamp") or quote.get("timestamp"))
+    age_minutes = None
+    if quote_ts is not None:
+        age_minutes = max(0.0, (now_value - quote_ts).total_seconds() / 60.0)
+
+    flags: list[str] = []
+    if not quote:
+        flags.append("missing_quote")
+    if mark is None:
+        flags.append("missing_mark")
+    elif mark < MIN_EXECUTION_MARK:
+        flags.append("too_thin")
+    if bid is None or ask is None:
+        flags.append("missing_bid_ask")
+    elif ask < bid:
+        flags.append("crossed_market")
+    elif bid <= 0:
+        flags.append("no_bid")
+    if spread is not None and mark is not None and spread > max(0.75, mark * 0.35):
+        flags.append("wide_spread")
+    if age_minutes is not None and age_minutes > max_age_minutes:
+        flags.append("stale_quote")
+
+    terminal_flags = {"missing_quote", "missing_mark", "crossed_market", "no_bid", "too_thin"}
+    caution_flags = {"missing_bid_ask", "wide_spread", "stale_quote"}
+    if any(flag in terminal_flags for flag in flags):
+        status = "BLOCKED"
+        message = "Options quote is not execution-grade."
+        execution_allowed = False
+    elif any(flag in caution_flags for flag in flags):
+        status = "CAUTION"
+        message = "Options quote needs caution before execution."
+        execution_allowed = True
+    else:
+        status = "OK"
+        message = "Options quote is execution-grade."
+        execution_allowed = True
+
+    return {
+        "quote_quality_status": status,
+        "quote_quality_message": message,
+        "quote_quality_flags": flags,
+        "quote_execution_allowed": execution_allowed,
+        "quote_age_minutes": round_price(age_minutes) if age_minutes is not None else None,
+        "quote_spread_width": round_price(spread) if spread is not None else None,
+    }
+
+
+def build_live_data_health_report(
+    *,
+    inputs: dict[str, Any] | None,
+    options_provider_status: dict[str, Any] | None,
+    option_sections: list[dict[str, Any]] | None,
+    event_risk_context: dict[str, Any] | None,
+    primary_quote: dict[str, Any] | None,
+    alternate_quote: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a compact live-input health report for the operator surface."""
+
+    inputs = inputs or {}
+    options_provider_status = options_provider_status or {}
+    option_sections = option_sections or []
+    event_risk_context = event_risk_context or {}
+    components: list[dict[str, Any]] = []
+
+    def add(name: str, status: str, message: str) -> None:
+        components.append({"name": name, "status": status, "message": message})
+
+    add("SPX", "OK" if is_valid_price_input(inputs.get("current_spx_price")) or bool(inputs.get("live_spx_available")) else "BLOCKED", "Live or manual SPX available" if is_valid_price_input(inputs.get("current_spx_price")) or bool(inputs.get("live_spx_available")) else "SPX input unavailable")
+    add("ES", "OK" if is_valid_price_input(inputs.get("current_es_price")) or bool(inputs.get("live_es_available")) else "BLOCKED", "Live or manual ES available" if is_valid_price_input(inputs.get("current_es_price")) or bool(inputs.get("live_es_available")) else "ES input unavailable")
+    provider_ready = bool(options_provider_status.get("configured") or options_provider_status.get("credentials_detected") or options_provider_status.get("live_mode_available"))
+    chain_count = sum(len((section.get("chain_snapshot") or {}).get("contracts", []) or []) for section in option_sections)
+    add("Options", "OK" if chain_count else "CAUTION" if provider_ready else "BLOCKED", f"{chain_count} contracts loaded" if chain_count else "Options chain unavailable")
+    news_status = str(event_risk_context.get("source_status") or event_risk_context.get("calendar_source_status") or "").lower()
+    add("News", "CAUTION" if "unavailable" in news_status else "OK", "Market context loaded" if "unavailable" not in news_status else "Live news unavailable")
+    add("Calendar", "OK" if event_risk_context.get("high_impact_events") or event_risk_context.get("next_known_event") else "CAUTION", "Economic calendar context present" if event_risk_context.get("high_impact_events") or event_risk_context.get("next_known_event") else "No high-impact event loaded")
+
+    primary_quality = build_quote_quality_report(primary_quote)
+    alternate_quality = build_quote_quality_report(alternate_quote)
+    quote_statuses = [primary_quality["quote_quality_status"], alternate_quality["quote_quality_status"]]
+    if "BLOCKED" in quote_statuses:
+        add("Quote Quality", "BLOCKED", "Selected contract quote is not execution-grade")
+    elif "CAUTION" in quote_statuses:
+        add("Quote Quality", "CAUTION", "Selected contract quote has caution flags")
+    else:
+        add("Quote Quality", "OK", "Selected contract quotes look usable")
+
+    severity = {"OK": 0, "CAUTION": 1, "BLOCKED": 2}
+    worst = max(components, key=lambda item: severity.get(str(item["status"]), 1)) if components else {"status": "CAUTION"}
+    overall = str(worst.get("status", "CAUTION"))
+    return {
+        "overall_status": overall,
+        "components": components,
+        "primary_quote_quality": primary_quality,
+        "alternate_quote_quality": alternate_quality,
+        "summary": "All critical feeds usable" if overall == "OK" else "One or more live inputs need attention",
+    }
+
+
+def build_open_smoke_test_report(
+    *,
+    inputs: dict[str, Any] | None,
+    anchor_bundle: dict[str, Any] | None,
+    option_display_states: list[dict[str, Any]] | None,
+    data_health: dict[str, Any] | None,
+    primary_authority: dict[str, Any] | None,
+    alternate_authority: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Check the small set of conditions that should be true around the open."""
+
+    inputs = inputs or {}
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, passed: bool, message: str) -> None:
+        checks.append({"name": name, "passed": bool(passed), "message": message})
+
+    add("Anchors", bool((anchor_bundle or {}).get("anchors")), "Session anchors are available" if (anchor_bundle or {}).get("anchors") else "Session anchors missing")
+    add("9 AM Projection", True, "Projection target is fixed to 9:00 AM CT")
+    fixed_target_ok = all(
+        str((state or {}).get("timing_estimate", {}).get("option_projection_target_basis", "")) == "fixed_9am_ct"
+        for state in (option_display_states or [])
+        if state
+    )
+    add("Option Target", fixed_target_ok, "Option at-entry pricing is pinned to 9:00 AM CT" if fixed_target_ok else "Option target timing needs review")
+    add("Data Health", str((data_health or {}).get("overall_status", "BLOCKED")) != "BLOCKED", str((data_health or {}).get("summary", "Data health unavailable")))
+    decisions = {str((primary_authority or {}).get("decision", "")), str((alternate_authority or {}).get("decision", ""))}
+    add("Decision State", bool(decisions - {""}), "Decision authority generated" if decisions - {""} else "No decision authority available")
+    pass_count = sum(1 for check in checks if check["passed"])
+    status = "PASS" if pass_count == len(checks) else "WARN" if pass_count >= max(1, len(checks) - 1) else "FAIL"
+    return {"status": status, "checks": checks, "pass_count": pass_count, "fail_count": len(checks) - pass_count}
+
+
+def build_decision_audit_snapshot(
+    *,
+    play_label: str,
+    authority: dict[str, Any] | None,
+    option_display_state: dict[str, Any] | None,
+    selected_quote: dict[str, Any] | None,
+    live_context: dict[str, Any] | None,
+    anchor_bundle: dict[str, Any] | None,
+    data_health: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Capture the operator decision chain without changing live logic."""
+
+    authority = authority or {}
+    option_display_state = option_display_state or {}
+    selected_quote = selected_quote or {}
+    selected_sources = summarize_selected_anchor_sources(anchor_bundle) if anchor_bundle else []
+    quote_key = "alternate_quote_quality" if str(play_label).lower() == "alternate" else "primary_quote_quality"
+    return {
+        "audit_generated_at": current_central_time().isoformat(),
+        "play_label": str(play_label or ""),
+        "anchor_sources": selected_sources,
+        "scenario_origin": str((live_context or {}).get("scenario_origin", "")),
+        "live_scenario": str((live_context or {}).get("live_scenario", "")),
+        "line_polarity_state": str(authority.get("line_polarity_state", "")),
+        "line_polarity_reason": str(authority.get("line_polarity_reason", "")),
+        "entry_zone_status": str(authority.get("entry_zone_status", "")),
+        "selected_contract_symbol": str(selected_quote.get("contract_symbol") or selected_quote.get("symbol") or option_display_state.get("selected_for_entry_symbol", "")),
+        "projected_mark_at_entry": _to_float_or_none(selected_quote.get("projected_mark_at_entry")),
+        "projected_fill_at_entry": _to_float_or_none(selected_quote.get("projected_fill_at_entry") or selected_quote.get("expected_fill_mark")),
+        "budget_status": str(selected_quote.get("budget_status", "")),
+        "quote_quality_status": str((data_health or {}).get(quote_key, {}).get("quote_quality_status", "")),
+        "execution_action": str(authority.get("execution_action", "")),
+        "setup_state": str(authority.get("setup_state", "")),
+        "alert_state": str(authority.get("alert_state", "")),
+        "final_reason": str(authority.get("execution_action_reason") or authority.get("reason_line") or ""),
+    }
+
+
+def build_replay_review_summary(
+    research_records: list[dict[str, Any]] | None,
+    reviewed_trades: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Summarize historical research evidence without mixing it into reviewed learning."""
+
+    records = [row for row in (research_records or []) if isinstance(row, dict)]
+    trades = [row for row in (reviewed_trades or []) if isinstance(row, dict)]
+
+    def summarize_group(rows: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            key = str(row.get(field, "") or "Unknown")
+            grouped.setdefault(key, []).append(row)
+        output = []
+        for key, group_rows in grouped.items():
+            taken = [row for row in group_rows if bool(row.get("trade_taken")) or str(row.get("result", "")).lower() in {"win", "loss", "breakeven", "time stop"}]
+            wins = sum(1 for row in group_rows if str(row.get("result_classification") or row.get("primary_result_classification") or row.get("result", "")).lower() == "win")
+            total_pnl = sum(float(row.get("estimated_pnl", row.get("primary_estimated_pnl", row.get("pnl_preview", 0.0))) or 0.0) for row in group_rows)
+            output.append({
+                "group": key,
+                "sessions": len(group_rows),
+                "trades": len(taken),
+                "win_rate": round((wins / len(group_rows)) * 100, 1) if group_rows else None,
+                "total_pnl": round_price(total_pnl),
+            })
+        return sorted(output, key=lambda item: (-int(item["sessions"]), str(item["group"])))[:8]
+
+    return {
+        "research_sessions": len(records),
+        "reviewed_trades": len(trades),
+        "by_anchor_source": summarize_group(records, "selected_anchor_sources"),
+        "by_scenario": summarize_group(records, "scenario_name"),
+        "reviewed_by_scenario": summarize_group(trades, "scenario_name"),
+    }
+
+
+def build_end_of_day_review_prompts(trade: dict[str, Any] | None = None) -> list[str]:
+    """Questions that keep live learning clean and operator-reviewed."""
+
+    trade = trade or {}
+    prompts = [
+        "Was the active anchor source actually respected by NY price action?",
+        "Was the entry trigger clean, extended, or never confirmed?",
+        "Did the expected fill match the real fill closely enough?",
+        "Did event/news risk distort the structure or premium estimate?",
+        "What should the app learn from this session without treating it as automatic truth?",
+    ]
+    if str(trade.get("result", "")).lower() in {"loss", "time stop"}:
+        prompts.insert(2, "Was the stop authority valid, or did the setup weaken before entry?")
+    return prompts
+
+
 def build_execution_state(
     *,
     play: dict[str, Any] | None,
@@ -4681,6 +4920,12 @@ def build_execution_state(
         action = {"action": "WAIT FOR EVENT PASS", "reason": event_risk_context.get("event_risk_reason") or "Major event risk is active"}
     elif action["action"] in {"ENTER NOW", "WAIT FOR RETEST"} and event_mode in {"caution", "reduced confidence"}:
         action = {"action": "PREPARE WITH CAUTION", "reason": event_risk_context.get("event_risk_reason") or "Event risk reduces execution confidence"}
+    quote_quality = build_quote_quality_report(selected_contract_quote)
+    if not quote_quality["quote_execution_allowed"] and action["action"] in {"ENTER NOW", "DOWNGRADE STRIKE", "REDUCE SIZE", "PREPARE WITH CAUTION"}:
+        action = {
+            "action": "SKIP TRADE",
+            "reason": quote_quality["quote_quality_message"],
+        }
 
     if plan_validity["label"] in {"invalid", "stale"}:
         retest_summary = "If price returns to entry: still no trade, structure no longer supports the original thesis."
@@ -4845,6 +5090,7 @@ def build_execution_state(
         "estimated_contract_cost": _to_float_or_none((selected_contract_quote or {}).get("estimated_entry_cost")),
         "estimated_position_cost": estimated_position_cost,
         "affordable_contract_count": affordable_contract_count,
+        **quote_quality,
         **checklist,
         "locked_selected_contract_symbol": str((option_display_state or {}).get("locked_selected_contract_symbol") or recommended_symbol or selected_symbol),
         "locked_selected_strike": _to_float_or_none((option_display_state or {}).get("locked_selected_strike")),
@@ -7220,6 +7466,11 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "alert_state": str(raw_trade.get("alert_state", "")),
         "alert_message": str(raw_trade.get("alert_message", "")),
         "alert_priority": str(raw_trade.get("alert_priority", "")),
+        "quote_quality_status": str(raw_trade.get("quote_quality_status", "")),
+        "quote_quality_message": str(raw_trade.get("quote_quality_message", "")),
+        "quote_quality_flags": list(raw_trade.get("quote_quality_flags", [])) if isinstance(raw_trade.get("quote_quality_flags", []), list) else [],
+        "decision_audit_snapshot": dict(raw_trade.get("decision_audit_snapshot", {})) if isinstance(raw_trade.get("decision_audit_snapshot", {}), dict) else {},
+        "end_of_day_review_prompts": list(raw_trade.get("end_of_day_review_prompts", [])) if isinstance(raw_trade.get("end_of_day_review_prompts", []), list) else build_end_of_day_review_prompts(raw_trade),
         "event_risk_level": str(raw_trade.get("event_risk_level", "")),
         "event_risk_reason": str(raw_trade.get("event_risk_reason", "")),
         "event_trading_mode": str(raw_trade.get("event_trading_mode", "")),
@@ -7554,6 +7805,11 @@ def get_trade_form_prefill(signal_package: dict[str, Any] | None) -> dict[str, A
         "alert_state": "",
         "alert_message": "",
         "alert_priority": "",
+        "quote_quality_status": "",
+        "quote_quality_message": "",
+        "quote_quality_flags": [],
+        "decision_audit_snapshot": {},
+        "end_of_day_review_prompts": [],
         "event_risk_level": "",
         "event_risk_reason": "",
         "event_trading_mode": "",
@@ -7833,6 +8089,11 @@ def build_live_play_trade_prefill(
         "alert_state": str((authority or {}).get("alert_state", "")),
         "alert_message": str((authority or {}).get("alert_message", "")),
         "alert_priority": str((authority or {}).get("alert_priority", "")),
+        "quote_quality_status": str((authority or {}).get("quote_quality_status", "")),
+        "quote_quality_message": str((authority or {}).get("quote_quality_message", "")),
+        "quote_quality_flags": list((authority or {}).get("quote_quality_flags", [])) if isinstance((authority or {}).get("quote_quality_flags", []), list) else [],
+        "decision_audit_snapshot": dict(st.session_state.get("latest_decision_audit_snapshot", {})) if st is not None and hasattr(st, "session_state") else {},
+        "end_of_day_review_prompts": build_end_of_day_review_prompts({}),
         "event_risk_level": str((authority or {}).get("event_risk_level", "")),
         "event_risk_reason": str((authority or {}).get("event_risk_reason", "")),
         "event_trading_mode": str((authority or {}).get("event_trading_mode", "")),
@@ -14913,6 +15174,11 @@ def render_trade_log_tab(
                     "alert_state": str(prefill.get("alert_state", "")),
                     "alert_message": str(prefill.get("alert_message", "")),
                     "alert_priority": str(prefill.get("alert_priority", "")),
+                    "quote_quality_status": str(prefill.get("quote_quality_status", "")),
+                    "quote_quality_message": str(prefill.get("quote_quality_message", "")),
+                    "quote_quality_flags": list(prefill.get("quote_quality_flags", [])),
+                    "decision_audit_snapshot": dict(prefill.get("decision_audit_snapshot", {})),
+                    "end_of_day_review_prompts": list(prefill.get("end_of_day_review_prompts", build_end_of_day_review_prompts(prefill))),
                     "invalidation_code": str(prefill.get("invalidation_code", "")),
                     "invalidation_message": str(prefill.get("invalidation_message", "")),
                     "expiry_status": str(prefill.get("expiry_status", "")),
@@ -15041,6 +15307,12 @@ def render_trade_log_tab(
 
     with review_tab:
         render_section_header("Review Outcomes", "Compare the plan, the trade, and what actually happened.", icon="🔍", icon_gradient="linear-gradient(135deg,#7b2ff7,#b39ddb)")
+        with st.container(border=True):
+            st.markdown("#### End-of-Day Operator Review")
+            latest_trade = normalized_trades[-1] if normalized_trades else {}
+            prompts = latest_trade.get("end_of_day_review_prompts") if latest_trade else None
+            for prompt in (prompts or build_end_of_day_review_prompts(latest_trade)):
+                st.write(f"- {prompt}")
         with st.container(border=True):
             filter_col1, filter_col2, filter_col3 = st.columns(3)
             with filter_col1:
@@ -16444,6 +16716,46 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
     )
 
 
+def render_live_data_health_panel(data_health: dict[str, Any] | None, smoke_report: dict[str, Any] | None = None) -> None:
+    """Render a compact reliability strip for live execution inputs."""
+
+    data_health = data_health or {"overall_status": "CAUTION", "components": [], "summary": "Data health unavailable"}
+    smoke_report = smoke_report or {}
+    status_styles = {
+        "OK": ("#00e676", "rgba(0,230,118,0.10)", "Ready"),
+        "CAUTION": ("#ffd740", "rgba(255,215,64,0.10)", "Check"),
+        "BLOCKED": ("#ef5350", "rgba(239,83,80,0.12)", "Blocked"),
+    }
+    overall = str(data_health.get("overall_status", "CAUTION")).upper()
+    color, bg, label = status_styles.get(overall, status_styles["CAUTION"])
+    chips = ""
+    for component in list(data_health.get("components", []) or [])[:6]:
+        comp_status = str(component.get("status", "CAUTION")).upper()
+        comp_color, comp_bg, comp_label = status_styles.get(comp_status, status_styles["CAUTION"])
+        chips += (
+            f'<span title="{escape(str(component.get("message", "")))}" '
+            f'style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;'
+            f'background:{comp_bg};border:1px solid {comp_color}44;color:{comp_color};font-size:0.72rem;font-weight:700;">'
+            f'{escape(str(component.get("name", "Feed")))} · {escape(comp_label)}</span>'
+        )
+    smoke_status = str(smoke_report.get("status", "WARN")).upper() if smoke_report else "WARN"
+    smoke_color = {"PASS": "#00e676", "WARN": "#ffd740", "FAIL": "#ef5350"}.get(smoke_status, "#ffd740")
+    st.markdown(
+        f'<div style="border-radius:14px;border:1px solid rgba(0,212,255,0.10);'
+        f'background:rgba(4,8,20,0.82);padding:12px 14px;margin:0 0 14px 0;">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:9px;">'
+        f'<div style="font-size:0.72rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(106,230,255,0.64);font-weight:800;">Live Data Health</div>'
+        f'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        f'<span style="padding:4px 10px;border-radius:999px;background:{bg};border:1px solid {color}55;color:{color};font-size:0.7rem;font-weight:800;">{escape(label)}</span>'
+        f'<span style="padding:4px 10px;border-radius:999px;background:rgba(255,255,255,0.04);border:1px solid {smoke_color}55;color:{smoke_color};font-size:0.7rem;font-weight:800;">Open Smoke {escape(smoke_status)}</span>'
+        f'</div></div>'
+        f'<div style="display:flex;gap:7px;flex-wrap:wrap;">{chips}</div>'
+        f'<div style="margin-top:8px;font-size:0.74rem;color:rgba(224,238,255,0.55);">{escape(str(data_health.get("summary", "")))}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def resolve_hero_action_label(authority: dict[str, Any] | None, event_risk_context: dict[str, Any] | None) -> str:
     """Map the execution state into one premium operator label for the hero."""
 
@@ -17520,6 +17832,32 @@ def render_live_mode_shell(
             anchor_bundle=anchor_bundle,
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
+        live_data_health = build_live_data_health_report(
+            inputs=inputs,
+            options_provider_status=options_provider_status,
+            option_sections=option_sections,
+            event_risk_context=event_risk_context,
+            primary_quote=primary_selected_contract_quote,
+            alternate_quote=alternate_selected_contract_quote,
+        )
+        open_smoke_report = build_open_smoke_test_report(
+            inputs=inputs,
+            anchor_bundle=anchor_bundle,
+            option_display_states=[primary_option_display, alternate_option_display],
+            data_health=live_data_health,
+            primary_authority=primary_authority,
+            alternate_authority=alternate_authority,
+        )
+        active_audit_snapshot = build_decision_audit_snapshot(
+            play_label=hero_active_play,
+            authority=hero_authority,
+            option_display_state=primary_option_display if hero_active_play == "Primary" else alternate_option_display,
+            selected_quote=primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote,
+            live_context=live_context,
+            anchor_bundle=anchor_bundle,
+            data_health=live_data_health,
+        )
+        st.session_state["latest_decision_audit_snapshot"] = active_audit_snapshot
         safe_render_section(
             "Decision Center",
             lambda: render_live_decision_center(
@@ -17538,6 +17876,12 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
+        safe_render_section("Live Data Health", lambda: render_live_data_health_panel(live_data_health, open_smoke_report), developer_mode=developer_mode)
+        if developer_mode:
+            with st.expander("Decision Audit Trail", expanded=False):
+                st.json(active_audit_snapshot, expanded=False)
+            with st.expander("Open Smoke Test", expanded=False):
+                st.json(open_smoke_report, expanded=False)
         render_active_anchor_strip(anchor_bundle, compact=not developer_mode)
         safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
@@ -18386,6 +18730,26 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
                         st.warning("Research bootstrap finished with notes: " + "; ".join(result["errors"][:3]))
                     st.success(f"Research bootstrap complete — {result['succeeded']} of {result['attempted']} sessions processed.")
                     st.rerun()
+
+    replay_summary = build_replay_review_summary(research_records, trades)
+    with st.container(border=True):
+        st.markdown("#### Replay Review")
+        st.caption("Historical research evidence stays separate from reviewed trades; use this to see what the engine has observed, not as automatic live truth.")
+        r1, r2 = st.columns(2)
+        r1.metric("Research Sessions", replay_summary["research_sessions"])
+        r2.metric("Reviewed Trades", replay_summary["reviewed_trades"])
+        with st.expander("By Anchor Source", expanded=False):
+            anchor_frame = pd.DataFrame(replay_summary["by_anchor_source"])
+            if anchor_frame.empty:
+                st.info("No anchor-source replay evidence yet.")
+            else:
+                st.dataframe(anchor_frame, use_container_width=True, hide_index=True)
+        with st.expander("By Scenario", expanded=False):
+            scenario_frame = pd.DataFrame(replay_summary["by_scenario"])
+            if scenario_frame.empty:
+                st.info("No scenario replay evidence yet.")
+            else:
+                st.dataframe(scenario_frame, use_container_width=True, hide_index=True)
 
     with st.expander("Historical Backfill", expanded=False):
         st.markdown('<div style="font-size:0.82rem;color:rgba(180,205,240,0.60);margin-bottom:12px;line-height:1.6;">Optional: extend the separate signal/outcome analytics DB. Reviewed Trade Log outcomes remain separate and higher authority.</div>', unsafe_allow_html=True)
