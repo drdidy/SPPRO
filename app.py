@@ -2000,7 +2000,7 @@ def inject_app_styles() -> None:
 
         /* ── INTER BODY FONT ─────────────────────────────────────────── */
         p, li,
-        span:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-symbols-sharp),
+        span:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-symbols-sharp):not([data-testid="stIconMaterial"]),
         td, th, caption,
         div[data-testid="stMarkdownContainer"] p,
         div[data-testid="stMarkdownContainer"] li,
@@ -2855,6 +2855,11 @@ def inject_app_styles() -> None:
         }
         /* ══ MATERIAL SYMBOLS PROTECTION — must be last to win cascade ══ */
         /* Two-attribute selectors beat any single-attribute rule above    */
+        [data-testid="stExpander"] details summary span[data-testid="stIconMaterial"],
+        [data-testid="stSidebar"] span[data-testid="stIconMaterial"],
+        [data-testid="collapsedControl"] span[data-testid="stIconMaterial"],
+        button span[data-testid="stIconMaterial"],
+        span[data-testid="stIconMaterial"],
         [data-testid="stExpander"] details summary span.material-symbols-rounded,
         [data-testid="stExpander"] details summary span.material-symbols-outlined,
         [data-testid="stExpander"] details summary span.material-symbols-sharp,

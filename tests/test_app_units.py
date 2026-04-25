@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import inspect
 import unittest
 import app as app_module
 import pandas as pd
@@ -547,6 +548,14 @@ class AppUnitTests(unittest.TestCase):
     def test_intelligence_tab_is_edge_lab_only(self) -> None:
         self.assertEqual(build_top_level_tab_labels("Production Mode"), ["LIVE MODE", "HISTORICAL", "TRADE LOG"])
         self.assertEqual(build_top_level_tab_labels("Edge Lab"), ["LIVE MODE", "HISTORICAL", "TRADE LOG", "INTELLIGENCE"])
+
+    def test_streamlit_material_icons_are_not_overridden_by_body_font_css(self) -> None:
+        css_source = inspect.getsource(app_module.inject_app_styles)
+        self.assertIn(
+            'span:not(.material-symbols-rounded):not(.material-symbols-outlined):not(.material-symbols-sharp):not([data-testid="stIconMaterial"])',
+            css_source,
+        )
+        self.assertIn('span[data-testid="stIconMaterial"]', css_source)
 
     def test_trade_record_preserves_forward_pricing_and_anchor_metadata(self) -> None:
         record = normalize_trade_record(
