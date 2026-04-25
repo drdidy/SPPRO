@@ -17857,7 +17857,11 @@ def render_operator_play_card(
     confidence = int(authority.get("confidence_score", 0) or 0)
     risk_class = str(authority.get("risk_class", "HIGH"))
     expected_value = authority.get("expected_value")
-    reason_line = str(authority.get("reason_line", "No active setup"))
+    def _clean_operator_note(value: Any) -> str:
+        text = re.sub(r"<[^>]+>", "", str(value or "")).strip()
+        return re.sub(r"\s+", " ", text)
+
+    reason_line = _clean_operator_note(authority.get("reason_line", "No active setup"))
     top_reasons = list(authority.get("top_reasons", []))
     condition_required = str(authority.get("condition_required", ""))
     evidence_level = str(authority.get("evidence_level", "None"))
@@ -17943,10 +17947,10 @@ def render_operator_play_card(
     strike_profile = str(authority.get("strike_profile", "-")).replace("_", " ").title()
     retest_summary = str(authority.get("retest_summary", ""))
     setup_state = str(authority.get("setup_state", trade_state)).replace("_", " ").title()
-    setup_state_reason = str(authority.get("setup_state_reason", reason_line))
+    setup_state_reason = _clean_operator_note(authority.get("setup_state_reason", reason_line))
     trigger_type = str(authority.get("trigger_type", "NONE")).replace("_", " ").title()
     trigger_state = str(authority.get("trigger_state", "UNAVAILABLE")).replace("_", " ").title()
-    trigger_reason = str(authority.get("trigger_reason", ""))
+    trigger_reason = _clean_operator_note(authority.get("trigger_reason", ""))
     checklist_status = str(authority.get("checklist_status", "WAIT")).replace("_", " ").title()
     budget_execution_status = str(authority.get("budget_execution_status", "")).replace("_", " ").title()
     authoritative_stop_spx = _to_float_or_none(authority.get("authoritative_stop_spx"))
@@ -17988,6 +17992,10 @@ def render_operator_play_card(
         f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get("entry_zone_status", "-")))}</div></div>',
         f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else "-"}</div></div>',
     ]
+    if strike_profile and strike_profile != "-":
+        structure_metric_blocks.append(
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>'
+        )
     if show_budget_metric:
         structure_metric_blocks.insert(
             1,
@@ -18000,9 +18008,12 @@ def render_operator_play_card(
             f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>'
             f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>'
             f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>'
-            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>'
             '</div>'
         )
+    visible_reason_note = _clean_operator_note(reason_line if decision == "NO TRADE" else decision_sentence)
+    if not developer_mode and visible_reason_note == "Line confirmation unavailable without candle data.":
+        visible_reason_note = ""
+    reason_note_html = f'<div class="spx-play-note">{escape(visible_reason_note)}</div>' if visible_reason_note else ""
     badge_bits = [
         f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
@@ -18050,7 +18061,7 @@ def render_operator_play_card(
                 {''.join(structure_metric_blocks)}
             </div>
             {execution_diagnostic_blocks}
-            <div class="spx-play-note">{escape(reason_line if decision == 'NO TRADE' else decision_sentence)}</div>
+            {reason_note_html}
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
         </div>
         """,
