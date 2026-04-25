@@ -139,14 +139,26 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             plannedEntry={decision.planned_entry}
           />
 
-          <div className="hero-metrics">
-            <Metric label="Planned Entry" value={`${formatPrice(decision.planned_entry)} SPX`} />
-            <Metric label="Selected Strike" value={activeContract} tone="warning" />
-            <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
-            <Metric label="Current ES" value={formatPrice(structure.current_es)} />
-            <Metric label="Anchor Source" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
-            <Metric label="Confidence" value={`${decision.confidence}%`} tone={toneFor(String(decision.confidence))} />
-          </div>
+          <ExecutionTicket
+            activeContract={activeContract}
+            armed={armed}
+            currentMark={ticketMark}
+            expectedFill={ticketFill}
+            onArm={() => setArmed((value) => !value)}
+            onCommands={() => setCommandOpen(true)}
+            primary={primary}
+            rr={ticketRR}
+            atEntry={ticketAtEntry}
+          />
+        </motion.section>
+
+        <motion.section className="operator-strip" variants={panelVariants} aria-label="Operator summary">
+          <Metric label="Planned Entry" value={`${formatPrice(decision.planned_entry)} SPX`} />
+          <Metric label="Selected Strike" value={activeContract} tone="warning" />
+          <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
+          <Metric label="Current ES" value={formatPrice(structure.current_es)} />
+          <Metric label="Anchor Source" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
+          <Metric label="Confidence" value={`${decision.confidence}%`} tone={toneFor(String(decision.confidence))} />
         </motion.section>
 
         <div className="workspace studio-workspace">
@@ -180,37 +192,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
           </div>
 
           <aside className="right-stack">
-            <motion.section className={`panel execution-ticket ${armed ? "armed-ticket" : ""}`} variants={panelVariants}>
-              <div className="contract">
-                <div>
-                  <p className="kicker">Execution Ticket</p>
-                  <h2>{activeContract}</h2>
-                  <p>{primary.direction} | {armed ? "Retest Armed" : primary.status} | {primary.quality} estimate</p>
-                </div>
-                <span className={`pill tone-${armed ? "warning" : toneFor(primary.status)}`}>{armed ? "Armed" : primary.status}</span>
-              </div>
-              <div className="kv-grid">
-                <KV label="Current Mark" value={formatPrice(ticketMark)} />
-                <KV label="At Entry" value={formatPrice(ticketAtEntry)} />
-                <KV label="Expected Fill" value={formatPrice(ticketFill)} />
-              </div>
-              <p className="ticket-copy">
-                If price returns to planned entry, {activeContract} is estimated near {formatPrice(ticketAtEntry)} with likely fill near {formatPrice(ticketFill)}.
-              </p>
-              <div className="risk-block">
-                <Risk label="Max Loss If Filled" value={ticketFill == null ? "Unavailable" : `$${Math.round(ticketFill * 100)} est.`} tone="warning" />
-                <Risk label="RR at Entry" value={ticketRR == null ? "-" : ticketRR.toFixed(2)} />
-                <Risk label="Liquidity" value="Normal" tone="positive" />
-                <Risk label="Settlement" value="PM Cash | European" />
-              </div>
-              <div className="button-row">
-                <button className="button primary" onClick={() => setArmed((value) => !value)} type="button">
-                  {armed ? "Retest Armed" : "Arm Retest"}
-                </button>
-                <button className="button" onClick={() => setCommandOpen(true)} type="button">Open Commands</button>
-              </div>
-            </motion.section>
-
             <motion.section className="panel market-card" variants={panelVariants}>
               <div className="panel-header">
                 <div>
@@ -255,6 +236,61 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         ) : null}
       </AnimatePresence>
     </motion.main>
+  );
+}
+
+function ExecutionTicket({
+  activeContract,
+  armed,
+  atEntry,
+  currentMark,
+  expectedFill,
+  onArm,
+  onCommands,
+  primary,
+  rr
+}: {
+  activeContract: string;
+  armed: boolean;
+  atEntry: number | null;
+  currentMark: number | null;
+  expectedFill: number | null;
+  onArm: () => void;
+  onCommands: () => void;
+  primary: OperatorSnapshot["primary_play"];
+  rr: number | null;
+}) {
+  return (
+    <motion.section className={`panel execution-ticket hero-ticket ${armed ? "armed-ticket" : ""}`} variants={panelVariants}>
+      <div className="contract">
+        <div>
+          <p className="kicker">Execution Ticket</p>
+          <h2>{activeContract}</h2>
+          <p>{primary.direction} | {armed ? "Retest Armed" : primary.status} | {primary.quality} estimate</p>
+        </div>
+        <span className={`pill tone-${armed ? "warning" : toneFor(primary.status)}`}>{armed ? "Armed" : primary.status}</span>
+      </div>
+      <div className="kv-grid">
+        <KV label="Current Mark" value={formatPrice(currentMark)} />
+        <KV label="At Entry" value={formatPrice(atEntry)} />
+        <KV label="Expected Fill" value={formatPrice(expectedFill)} />
+      </div>
+      <p className="ticket-copy">
+        If price returns to planned entry, {activeContract} is estimated near {formatPrice(atEntry)} with likely fill near {formatPrice(expectedFill)}.
+      </p>
+      <div className="risk-block">
+        <Risk label="Max Loss If Filled" value={expectedFill == null ? "Unavailable" : `$${Math.round(expectedFill * 100)} est.`} tone="warning" />
+        <Risk label="RR at Entry" value={rr == null ? "-" : rr.toFixed(2)} />
+        <Risk label="Liquidity" value="Normal" tone="positive" />
+        <Risk label="Settlement" value="PM Cash | European" />
+      </div>
+      <div className="button-row">
+        <button className="button primary" onClick={onArm} type="button">
+          {armed ? "Retest Armed" : "Arm Retest"}
+        </button>
+        <button className="button" onClick={onCommands} type="button">Open Commands</button>
+      </div>
+    </motion.section>
   );
 }
 

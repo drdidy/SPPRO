@@ -316,10 +316,10 @@ button {
 .cinematic-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(520px, 1.24fr) minmax(320px, 0.82fr);
+  grid-template-columns: minmax(350px, 0.82fr) minmax(540px, 1.12fr) minmax(390px, 0.88fr);
   gap: 18px;
   align-items: stretch;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .hero-copy,
@@ -402,7 +402,7 @@ button {
 .decision-word {
   margin: 0 0 8px;
   font-family: var(--font-display);
-  font-size: clamp(5rem, 10vw, 11rem);
+  font-size: clamp(4.8rem, 8.6vw, 9.2rem);
   line-height: 0.78;
   letter-spacing: -0.095em;
 }
@@ -475,6 +475,27 @@ button {
   min-height: 86px;
 }
 
+.operator-strip {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(242,239,231,0.075);
+  border-radius: 18px;
+  background:
+    linear-gradient(90deg, rgba(122,215,223,0.055), rgba(255,255,255,0.024) 34%, rgba(214,164,72,0.045)),
+    rgba(7, 9, 10, 0.72);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.32);
+  padding: 10px;
+}
+
+.operator-strip .metric {
+  min-height: 72px;
+  background: rgba(255,255,255,0.024);
+}
+
 .metric {
   border: 1px solid rgba(255,255,255,0.075);
   border-radius: 14px;
@@ -524,7 +545,7 @@ button {
 }
 
 .signal-theater {
-  min-height: 410px;
+  min-height: 440px;
   isolation: isolate;
   display: grid;
   place-items: center;
@@ -642,14 +663,14 @@ button {
 }
 
 .top-left { left: 24px; top: 24px; }
-.bottom-left { left: 24px; bottom: 24px; }
-.right { right: 24px; top: 42%; }
+.bottom-left { left: 24px; bottom: 92px; }
+.right { right: 24px; top: 24px; }
 
 .stage-levels {
   position: absolute;
   left: 24px;
   right: 24px;
-  bottom: 92px;
+  bottom: 22px;
   z-index: 3;
   display: flex;
   flex-wrap: wrap;
@@ -768,6 +789,17 @@ button {
   padding: 16px 18px 18px;
 }
 
+.hero-ticket {
+  border-radius: 24px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-ticket .risk-block {
+  margin-top: auto;
+}
+
 .contract {
   display: flex;
   justify-content: space-between;
@@ -779,7 +811,7 @@ button {
 .contract h2 {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 2.25rem;
+  font-size: clamp(2.2rem, 3vw, 3.25rem);
   letter-spacing: -0.04em;
 }
 
@@ -1129,6 +1161,9 @@ button {
   .metric-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .operator-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (max-width: 760px) {
@@ -1150,6 +1185,7 @@ button {
     flex-direction: column;
   }
   .hero-metrics,
+  .operator-strip,
   .metric-grid,
   .kv-grid,
   .button-row {
