@@ -17809,6 +17809,8 @@ def render_operator_play_card(
 ) -> None:
     """Render a calmer operator-first play card for live mode."""
 
+    option_display_state = option_display_state or {}
+
     if play_spx is None:
         st.markdown(
             f'<div class="spx-card alternate" style="padding:18px 22px">'
@@ -17924,8 +17926,16 @@ def render_operator_play_card(
     manual_override_active = bool(option_display_state.get("manual_override"))
     auto_execution_shift = bool(option_display_state.get("auto_execution_shift"))
     ladder_rows = option_display_state.get("ladder_rows", [])
-    show_calibrated = developer_mode or any(row.get("calibrated_entry_mark") is not None for row in ladder_rows)
-    show_expected_fill = developer_mode or any((row.get("projected_fill_at_entry") is not None or row.get("expected_fill_mark") is not None) for row in ladder_rows)
+    show_calibrated = developer_mode and any(row.get("calibrated_entry_mark") is not None for row in ladder_rows)
+    show_expected_fill = (
+        developer_mode
+        or projected_fill_at_entry is not None
+        or any((row.get("projected_fill_at_entry") is not None or row.get("expected_fill_mark") is not None) for row in ladder_rows)
+    )
+    show_estimate_quality = developer_mode
+    show_budget_metric = developer_mode
+    show_execution_diagnostics = developer_mode
+    show_best_contract_box = developer_mode
     top_reason_summary = " | ".join(str(reason) for reason in top_reasons[:3] if str(reason).strip())
     plan_validity = str(authority.get("plan_validity", "-")).replace("_", " ").title()
     timing_bucket = str(authority.get("timing_bucket", "-")).replace("_", " ").title()
@@ -17958,6 +17968,41 @@ def render_operator_play_card(
 
     _t1_str = f" · T1 {format_price(target_1_spx)}" if target_1_spx is not None else ""
     _t2_str = f" · T2 {format_price(target_2_spx)}" if target_2_spx is not None else ""
+    pricing_metric_blocks = [
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(projection_target_label)}</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else "-"}</div></div>'
+    ]
+    if show_calibrated:
+        pricing_metric_blocks.append(
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else "-"}</div></div>'
+        )
+    if show_expected_fill:
+        pricing_metric_blocks.append(
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(expected_fill_target_label)}</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>'
+        )
+    if show_estimate_quality:
+        pricing_metric_blocks.append(
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate Quality</div><div class="spx-metric-value">{escape(estimate_quality)}</div></div>'
+        )
+    structure_metric_blocks = [
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else "-"}</div></div>',
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get("entry_zone_status", "-")))}</div></div>',
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else "-"}</div></div>',
+    ]
+    if show_budget_metric:
+        structure_metric_blocks.insert(
+            1,
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Budget</div><div class="spx-metric-value">{escape(budget_execution_status or selected_budget_status or "-")}</div></div>',
+        )
+    execution_diagnostic_blocks = ""
+    if show_execution_diagnostics:
+        execution_diagnostic_blocks = (
+            '<div class="spx-metric-grid secondary">'
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>'
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>'
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>'
+            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>'
+            '</div>'
+        )
     badge_bits = [
         f"<span class=\"spx-chip scenario-neutral\">{escape(live_scenario)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
@@ -17999,23 +18044,12 @@ def render_operator_play_card(
                 </div>
             </div>
             <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(projection_target_label)}</div><div class="spx-metric-value">{format_price(projected_entry_value) if projected_entry_value is not None else '-'}</div></div>
-                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Calibrated</div><div class="spx-metric-value">{format_price(calibrated_value) if calibrated_value is not None else "-"}</div></div>' if show_calibrated else ''}
-                {f'<div class="spx-metric-block layer2"><div class="spx-metric-label">{escape(expected_fill_target_label)}</div><div class="spx-metric-value">{format_price(projected_fill_at_entry) if projected_fill_at_entry is not None else "-"}</div></div>' if show_expected_fill else ''}
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Estimate Quality</div><div class="spx-metric-value">{escape(estimate_quality)}</div></div>
+                {''.join(pricing_metric_blocks)}
             </div>
             <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else '-'}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Budget</div><div class="spx-metric-value">{escape(budget_execution_status or selected_budget_status or '-')}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get('entry_zone_status', '-')))}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else '-'}</div></div>
+                {''.join(structure_metric_blocks)}
             </div>
-            <div class="spx-metric-grid secondary">
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>
-                <div class="spx-metric-block layer2"><div class="spx-metric-label">Strike Profile</div><div class="spx-metric-value">{escape(strike_profile)}</div></div>
-            </div>
+            {execution_diagnostic_blocks}
             <div class="spx-play-note">{escape(reason_line if decision == 'NO TRADE' else decision_sentence)}</div>
             {f'<div class="spx-play-note" style="margin-top:0.35rem;">{escape(transition_note)}</div>' if transition_note and developer_mode else ''}
         </div>
@@ -18036,7 +18070,7 @@ def render_operator_play_card(
         st.caption("Insufficient data for reliable estimate.")
 
     # Best Contract — premium styled card, only actionable contract data
-    if best_contract_symbol_for_box:
+    if show_best_contract_box and best_contract_symbol_for_box:
         _bc_pred = (preferred_contract_row or {}).get("projected_mark_at_entry") or best_contract_pred
         _bc_fill = (preferred_contract_row or {}).get("projected_fill_at_entry") or best_contract_fill
         _bc_target_label = str((preferred_contract_row or {}).get("projection_target_label") or projection_target_label or "At Entry")
@@ -18085,7 +18119,7 @@ def render_operator_play_card(
         _shift_reason = str(option_display_state.get("selected_for_entry_reason", "") or "Best budget / fill fit")
         _selected_label = format_contract_short_label(selected_symbol, selected_strike, (display_contract_quote or {}).get("option_type"))
         st.caption(f"Auto-selected: {_selected_label} | {_shift_reason}")
-    elif recommended_contract_symbol:
+    elif recommended_contract_symbol and developer_mode:
         _recommended_label = format_contract_short_label(
             recommended_contract_symbol,
             (recommended_contract_quote or {}).get("strike"),
