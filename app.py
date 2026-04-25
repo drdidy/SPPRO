@@ -1036,7 +1036,7 @@ def inject_app_styles() -> None:
         }
         [data-testid="stMetricLabel"] p {
             color: var(--spx-muted) !important;
-            font-size: 0.68rem !important;
+            font-size: 0.72rem !important;
             font-weight: 600 !important;
             letter-spacing: 0.08em !important;
             text-transform: uppercase;
@@ -1077,7 +1077,7 @@ def inject_app_styles() -> None:
             opacity: 0.45;
         }
         .spx-section-title {
-            font-size: 0.76rem;
+            font-size: 0.8rem;
             font-weight: 700;
             letter-spacing: 0.16em;
             text-transform: uppercase;
@@ -1151,7 +1151,7 @@ def inject_app_styles() -> None:
             color: var(--spx-muted);
             text-transform: uppercase;
             letter-spacing: 0.18em;
-            font-size: 0.75rem;
+            font-size: 0.78rem;
             font-weight: 800;
             margin-bottom: 0.35rem;
         }
@@ -1177,7 +1177,7 @@ def inject_app_styles() -> None:
             color: var(--spx-muted);
             text-transform: uppercase;
             letter-spacing: 0.14em;
-            font-size: 0.7rem;
+            font-size: 0.72rem;
             margin-bottom: 0.35rem;
             font-weight: 700;
         }
@@ -1263,7 +1263,7 @@ def inject_app_styles() -> None:
             color: var(--spx-muted);
             text-transform: uppercase;
             letter-spacing: 0.12em;
-            font-size: 0.68rem;
+            font-size: 0.72rem;
             font-weight: 700;
             margin-bottom: 0.18rem;
         }
@@ -1285,7 +1285,7 @@ def inject_app_styles() -> None:
             color: #7fe7ff;
             text-transform: uppercase;
             letter-spacing: 0.14em;
-            font-size: 0.68rem;
+            font-size: 0.72rem;
             font-weight: 800;
             margin-bottom: 0.28rem;
         }
@@ -1337,7 +1337,7 @@ def inject_app_styles() -> None:
             gap: 0.35rem;
             padding: 0.28rem 0.62rem;
             border-radius: 999px;
-            font-size: 0.7rem;
+            font-size: 0.72rem;
             font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
@@ -1444,7 +1444,7 @@ def inject_app_styles() -> None:
         }
         .spx-play-context-label {
             color: var(--spx-muted);
-            font-size: 0.64rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.12em;
         }
@@ -1469,7 +1469,7 @@ def inject_app_styles() -> None:
         }
         .spx-entry-card-label {
             color: var(--spx-muted);
-            font-size: 0.64rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.12em;
             margin-bottom: 0.2rem;
@@ -1539,7 +1539,7 @@ def inject_app_styles() -> None:
         }
         .spx-entry-compare-label {
             color: var(--spx-muted);
-            font-size: 0.63rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.12em;
         }
@@ -1620,7 +1620,7 @@ def inject_app_styles() -> None:
         }
         .spx-metric-label {
             color: var(--spx-muted);
-            font-size: 0.63rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.12em;
             margin-bottom: 0.16rem;
@@ -2036,7 +2036,7 @@ def inject_app_styles() -> None:
         }
         /* ── SIDEBAR CAPTION ─────────────────────────────────────────── */
         [data-testid="stSidebar"] div[data-testid="stCaptionContainer"] p {
-            font-size: 0.69rem !important;
+            font-size: 0.74rem !important;
             color: rgba(142,161,188,0.65) !important;
             line-height: 1.4 !important;
         }
@@ -2542,7 +2542,7 @@ def inject_app_styles() -> None:
             box-shadow: 0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04) inset;
         }
         .cockpit-kicker {
-            font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase;
+            font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase;
             color: rgba(106,230,255,0.55); padding: 16px 24px 0;
         }
         .cockpit-header-row {
@@ -2611,7 +2611,7 @@ def inject_app_styles() -> None:
         }
         .cockpit-stat:last-child { border-right: none; }
         .cockpit-stat-label {
-            font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase;
+            font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase;
             color: rgba(244,247,255,0.3); margin-bottom: 5px;
         }
         .cockpit-stat-value {
@@ -2633,15 +2633,15 @@ def inject_app_styles() -> None:
         }
         .cockpit-chip:last-child { border-right: none; }
         .cockpit-chip-label {
-            font-size: 0.57rem; letter-spacing: 0.09em; text-transform: uppercase;
+            font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase;
             color: rgba(244,247,255,0.28);
         }
         .cockpit-chip-value {
-            font-size: 0.79rem; font-weight: 600; color: rgba(244,247,255,0.78);
+            font-size: 0.82rem; font-weight: 600; color: rgba(244,247,255,0.78);
         }
         /* Cockpit footer */
         .cockpit-footer {
-            padding: 9px 24px; font-size: 0.68rem;
+            padding: 9px 24px; font-size: 0.72rem;
             color: rgba(244,247,255,0.3); background: rgba(0,0,0,0.25);
             letter-spacing: 0.02em;
         }
@@ -2662,7 +2662,7 @@ def inject_app_styles() -> None:
         }
         .spx-levels-badges { display: flex; gap: 8px; flex-wrap: wrap; }
         .spx-badge {
-            font-size: 0.67rem; padding: 3px 10px; border-radius: 20px;
+            font-size: 0.7rem; padding: 3px 10px; border-radius: 20px;
             color: rgba(244,247,255,0.5);
         }
         .spx-badge-price { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.16); color: #6ae6ff; }
@@ -2711,7 +2711,7 @@ def inject_app_styles() -> None:
         /* ── Alert panel ── */
         .spx-alert-slot { flex: 1; min-width: 0; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 16px; }
         .spx-alert-label { font-size: 0.67rem; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px; }
-        .spx-alert-msg { font-size: 0.81rem; color: rgba(244,247,255,0.72); line-height: 1.5; margin-top: 8px; }
+        .spx-alert-msg { font-size: 0.84rem; color: rgba(244,247,255,0.72); line-height: 1.5; margin-top: 8px; }
         /* ── Market Intel section ── */
         .spx-intel-wrap { border-radius: 18px; overflow: hidden; border: 1px solid rgba(0,212,255,0.12); margin-bottom: 16px; }
         .spx-intel-header {
@@ -2770,13 +2770,13 @@ def inject_app_styles() -> None:
         .spx-news-card.cat-politics { border-left-color: #ff7043; }
         .spx-news-card.cat-fed { border-left-color: #b39ddb; }
         .spx-news-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .spx-news-badge { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
+        .spx-news-badge { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
         .spx-news-badge.cat-macro { background: rgba(106,230,255,0.12); color: #6ae6ff; }
         .spx-news-badge.cat-markets { background: rgba(0,230,118,0.12); color: #00e676; }
         .spx-news-badge.cat-politics { background: rgba(255,112,67,0.12); color: #ff7043; }
         .spx-news-badge.cat-fed { background: rgba(179,157,219,0.12); color: #b39ddb; }
-        .spx-news-time { font-size: 0.6rem; color: rgba(244,247,255,0.3); flex-shrink: 0; }
-        .spx-news-headline { font-size: 0.79rem; color: rgba(244,247,255,0.85); line-height: 1.45; font-weight: 500; }
+        .spx-news-time { font-size: 0.66rem; color: rgba(244,247,255,0.3); flex-shrink: 0; }
+        .spx-news-headline { font-size: 0.82rem; color: rgba(244,247,255,0.85); line-height: 1.45; font-weight: 500; }
         a.spx-news-card .spx-news-headline { color: #c8e8ff; }
         .spx-intel-empty { text-align: center; padding: 24px; font-size: 0.8rem; color: rgba(244,247,255,0.3); font-style: italic; }
         /* Section icon bubble */
@@ -2821,13 +2821,13 @@ def inject_app_styles() -> None:
             color: #f4f7ff; letter-spacing: -0.01em; line-height: 1;
         }
         .cmd-title-version {
-            display: inline-block; margin-left: 8px; font-size: 0.62rem;
+            display: inline-block; margin-left: 8px; font-size: 0.68rem;
             font-weight: 700; color: #6ae6ff; padding: 2px 7px; border-radius: 6px;
             background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
             letter-spacing: 0.04em; vertical-align: middle;
         }
         .cmd-subtitle {
-            font-size: 0.64rem; letter-spacing: 0.13em; text-transform: uppercase;
+            font-size: 0.68rem; letter-spacing: 0.13em; text-transform: uppercase;
             color: rgba(142,161,188,0.65); margin-top: 3px; font-weight: 600;
         }
         .cmd-metrics { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; z-index: 1; }
@@ -2835,7 +2835,7 @@ def inject_app_styles() -> None:
             display: flex; flex-direction: column; gap: 2px; text-align: right;
         }
         .cmd-metric-label {
-            font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase;
+            font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
             color: rgba(142,161,188,0.5); font-weight: 600;
         }
         .cmd-metric-value {
@@ -2874,7 +2874,7 @@ def inject_app_styles() -> None:
         @keyframes cmdPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
         .cmd-mode-pill {
             display: inline-flex; align-items: center; gap: 6px;
-            padding: 5px 12px; border-radius: 20px; font-size: 0.66rem;
+            padding: 5px 12px; border-radius: 20px; font-size: 0.7rem;
             font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase;
         }
         .mode-production {
@@ -2985,7 +2985,7 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
         try:
             next_date_html = (
                 f'<div style="text-align:right;">'
-                f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Next Session</div>'
+                f'<div style="font-size:0.68rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Next Session</div>'
                 f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.9rem;color:rgba(244,247,255,0.85);">{escape(str(next_trading_date))}</div>'
                 f'</div>'
             )
@@ -3128,14 +3128,14 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
         f'animation:spxProphetGlow 4s ease-in-out infinite;">PROPHET</span>'
 
         # Version badge
-        f'<span style="font-size:0.58rem;font-weight:700;letter-spacing:0.06em;'
+        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.06em;'
         f'background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.28);'
         f'color:#6ae6ff;padding:2px 8px;border-radius:6px;'
         f'vertical-align:middle;align-self:center;">{escape(APP_VERSION)}</span>'
         f'</div>'
 
         # Subtitle tagline
-        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.63rem;font-weight:600;'
+        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:600;'
         f'letter-spacing:0.16em;text-transform:uppercase;'
         f'color:rgba(106,230,255,0.5);">ES Structure &nbsp;·&nbsp; Options Intelligence &nbsp;·&nbsp; 0DTE</div>'
         f'</div>'  # end name+subtitle
@@ -3146,13 +3146,13 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
 
         # Clock
         f'<div style="text-align:right;">'
-        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">New York</div>'
+        f'<div style="font-size:0.68rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">New York</div>'
         f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{clock}&nbsp;ET</div>'
         f'</div>'
 
         # Date
         f'<div style="text-align:right;">'
-        f'<div style="font-size:0.57rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Date</div>'
+        f'<div style="font-size:0.68rem;letter-spacing:0.11em;text-transform:uppercase;color:rgba(142,161,188,0.5);">Date</div>'
         f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:rgba(244,247,255,0.88);">{date_str}</div>'
         f'</div>'
 
@@ -5450,19 +5450,19 @@ def render_key_levels_card(
     price_badge_html = ""
     if current_price is not None:
         price_badge_html += (
-            f'<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'<span style="font-size:0.7rem;padding:3px 10px;border-radius:20px;'
             f'background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.16);color:#6ae6ff;">'
             f'ES&nbsp;<strong>{format_price(current_price)}</strong></span>'
         )
     if not compact:
         price_badge_html += (
-            f'&nbsp;<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'&nbsp;<span style="font-size:0.7rem;padding:3px 10px;border-radius:20px;'
             f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(244,247,255,0.5);">'
             f'Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
         )
     anchor_badges = "".join(
         [
-            f'<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'<span style="font-size:0.7rem;padding:3px 10px;border-radius:20px;'
             f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
             f'color:rgba(244,247,255,0.65);">{escape(label)}</span>'
             for label in summarize_selected_anchor_sources(anchor_bundle)[:3]
@@ -5478,7 +5478,7 @@ def render_key_levels_card(
         f'<div>'
         f'<div style="font-size:0.78rem;font-weight:700;color:rgba(244,247,255,0.68);'
         f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Active ES Structure</div>'
-        f'<div style="font-size:0.67rem;color:rgba(166,237,255,0.52);margin-top:2px;">'
+        f'<div style="font-size:0.72rem;color:rgba(166,237,255,0.52);margin-top:2px;">'
         f'Session-aware anchors drive these projected levels.</div>'
         f'</div>'
         f'<div>{price_badge_html}</div>'
@@ -5512,7 +5512,7 @@ def render_active_anchor_strip(anchor_bundle: dict[str, Any] | None, *, compact:
         f'background:linear-gradient(135deg,rgba(0,212,255,0.055),rgba(255,255,255,0.018));'
         f'border:1px solid rgba(0,212,255,0.12);box-shadow:inset 0 1px 0 rgba(255,255,255,0.035);'
         f'flex-wrap:wrap;">'
-        f'<div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.12em;'
+        f'<div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.12em;'
         f'font-weight:760;color:rgba(166,237,255,0.62);">{escape(engine_label)}</div>'
         f'<div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;">{chips}</div>'
         f'</div>',
@@ -12256,12 +12256,12 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
             f'<div>'
             f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.18rem;font-weight:800;color:#f4f8ff;letter-spacing:-0.01em;line-height:1.1;">{APP_TITLE}</div>'
-            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-top:0.2rem;">ES Structure · Options Intelligence</div>'
+            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-top:0.2rem;">ES Structure · Options Intelligence</div>'
             f'</div>'
             f'<div style="display:flex;align-items:center;gap:5px;padding:4px 8px;border-radius:8px;'
             f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);">'
             f'<div style="width:6px;height:6px;border-radius:50%;background:{_mode_color};box-shadow:{_mode_dot_shadow};flex-shrink:0;"></div>'
-            f'<span style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:800;letter-spacing:0.12em;color:{_mode_color};">{_mode_label}</span>'
+            f'<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.12em;color:{_mode_color};">{_mode_label}</span>'
             f'</div>'
             f'</div>'
             f'</div>',
@@ -12273,7 +12273,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             '<div style="display:flex;align-items:center;gap:8px;margin:10px 0 6px 0;">'
             '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,212,255,0.3),rgba(0,100,200,0.2));'
             'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,212,255,0.2);">⚙</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;'
             'text-transform:uppercase;color:rgba(0,212,255,0.7);">MODE</span>'
             '</div>',
             unsafe_allow_html=True,
@@ -12297,7 +12297,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
             '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(179,136,255,0.3),rgba(100,60,200,0.15));'
             'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(179,136,255,0.15);">📅</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;'
             'text-transform:uppercase;color:rgba(179,136,255,0.7);">SESSION</span>'
             '</div>',
             unsafe_allow_html=True,
@@ -12325,7 +12325,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
             '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(0,230,118,0.3),rgba(0,150,80,0.15));'
             'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(0,230,118,0.15);">$</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;'
             'text-transform:uppercase;color:rgba(0,230,118,0.7);">PRICES</span>'
             '</div>',
             unsafe_allow_html=True,
@@ -12366,7 +12366,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
             '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
             '<div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,rgba(255,212,64,0.3),rgba(200,140,0,0.15));'
             'display:flex;align-items:center;justify-content:center;font-size:0.7rem;flex-shrink:0;box-shadow:0 0 8px rgba(255,212,64,0.15);">⚡</div>'
-            '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:800;letter-spacing:0.14em;'
+            '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:800;letter-spacing:0.14em;'
             'text-transform:uppercase;color:rgba(255,212,64,0.7);">CONTROLS</span>'
             '</div>',
             unsafe_allow_html=True,
@@ -14265,19 +14265,19 @@ def render_evening_location_panel(current_es_price: float, selected_checkpoint: 
         f'{escape(_description)}</div>'
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">'
         f'<div style="display:flex;align-items:center;gap:6px;">'
-        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
         f'color:rgba(180,210,240,0.4);">Primary</span>'
         f'<span style="font-size:0.72rem;font-weight:700;color:{_dir_color(_primary_dir)};">{escape(_primary_dir)}</span>'
         f'</div>'
         f'<span style="color:rgba(255,255,255,0.1);">|</span>'
         f'<div style="display:flex;align-items:center;gap:6px;">'
-        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
         f'color:rgba(180,210,240,0.4);">Alternate</span>'
         f'<span style="font-size:0.72rem;font-weight:700;color:{_dir_color(_alt_dir)};">{escape(_alt_dir)}</span>'
         f'</div>'
         f'<span style="color:rgba(255,255,255,0.1);">|</span>'
         f'<div style="display:flex;align-items:center;gap:6px;">'
-        f'<span style="font-size:0.61rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
+        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;'
         f'color:rgba(180,210,240,0.4);">Confidence</span>'
         f'<span style="font-size:0.72rem;font-weight:600;color:rgba(200,220,245,0.8);">{escape(_confidence)}</span>'
         f'</div>'
@@ -14402,7 +14402,7 @@ def render_trade_log_tab(
         'font-size:1.4rem;background:linear-gradient(135deg,rgba(0,212,255,0.25),rgba(0,80,160,0.2));'
         'box-shadow:0 0 20px rgba(0,212,255,0.2);border:1px solid rgba(0,212,255,0.18);">◈</div>'
         '<div style="flex:1;min-width:0;">'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;'
         'text-transform:uppercase;color:rgba(0,212,255,0.55);margin-bottom:4px;">Trade Journal + Intelligence</div>'
         '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
         'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Review The Edge</div>'
@@ -14413,13 +14413,13 @@ def render_trade_log_tab(
         '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
         'background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.18);flex-shrink:0;">'
         '<div style="width:6px;height:6px;border-radius:50%;background:#00e676;box-shadow:0 0 8px #00e676;"></div>'
-        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#00e676;">JOURNAL READY</span>'
+        '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;color:#00e676;">JOURNAL READY</span>'
         '</div>'
         '</div>'
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(255,255,255,0.05);border-radius:12px;overflow:hidden;">'
         + "".join([
             f'<div style="background:rgba(4,8,22,0.9);padding:14px 16px;">'
-            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.6rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-bottom:6px;">{lbl}</div>'
+            f'<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(0,212,255,0.5);margin-bottom:6px;">{lbl}</div>'
             f'<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:700;color:#ddeeff;margin-bottom:4px;">{val}</div>'
             f'<div style="font-family:\'Inter\',sans-serif;font-size:0.7rem;color:rgba(180,205,240,0.45);line-height:1.4;">{note}</div>'
             f'</div>'
@@ -15766,7 +15766,7 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
     ]
     stats_html = "".join([
         f'<div style="flex:1;min-width:120px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.05);">'
-        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.58rem;font-weight:700;letter-spacing:0.12em;'
+        f'<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.12em;'
         f'text-transform:uppercase;color:rgba(255,212,64,0.55);margin-bottom:5px;">{lbl}</div>'
         f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.86rem;font-weight:600;color:#e8f4ff;">{val}</div>'
         f'</div>'
@@ -15783,7 +15783,7 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
         'font-size:1.4rem;background:linear-gradient(135deg,rgba(255,212,64,0.25),rgba(200,140,0,0.15));'
         'box-shadow:0 0 20px rgba(255,212,64,0.18);border:1px solid rgba(255,212,64,0.2);">◷</div>'
         '<div style="flex:1;min-width:0;">'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;'
         'text-transform:uppercase;color:rgba(255,212,64,0.6);margin-bottom:4px;">Historical Analysis</div>'
         '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
         'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Session Projection Review</div>'
@@ -15794,7 +15794,7 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
         '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
         'background:rgba(255,212,64,0.08);border:1px solid rgba(255,212,64,0.2);flex-shrink:0;">'
         '<div style="width:6px;height:6px;border-radius:50%;background:#ffd740;box-shadow:0 0 8px #ffd740;"></div>'
-        '<span style="font-family:\'Inter\',sans-serif;font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:#ffd740;">HISTORICAL</span>'
+        '<span style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.1em;color:#ffd740;">HISTORICAL</span>'
         '</div>'
         '</div>'
         f'<div style="display:flex;flex-wrap:wrap;background:rgba(255,255,255,0.03);border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.05);">'
@@ -15940,10 +15940,10 @@ def render_live_decision_center(
     _play_kicker = f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""
     _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:14px 18px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
     _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:10px 18px;border-right:1px solid rgba(255,255,255,0.04);"
-    _lbl_s       = "display:block;font-size:0.58rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.3);margin-bottom:5px;"
+    _lbl_s       = "display:block;font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.3);margin-bottom:5px;"
     _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.02rem;font-weight:500;color:#e0eeff;"
-    _chip_lbl    = "display:block;font-size:0.57rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.28);margin-bottom:3px;"
-    _chip_val    = "display:block;font-size:0.79rem;font-weight:600;color:rgba(244,247,255,0.78);"
+    _chip_lbl    = "display:block;font-size:0.68rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.28);margin-bottom:3px;"
+    _chip_val    = "display:block;font-size:0.82rem;font-weight:600;color:rgba(244,247,255,0.78);"
     _gauge_w     = max(0, min(100, confidence))
 
     st.markdown(
@@ -15952,7 +15952,7 @@ def render_live_decision_center(
         f'background:linear-gradient(180deg,rgba(3,10,26,0.99),rgba(1,6,18,1));'
         f'box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
 
-        f'<div style="font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;'
+        f'<div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;'
         f'color:rgba(106,230,255,0.55);padding:16px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
 
         f'<div style="display:flex;align-items:center;justify-content:space-between;'
@@ -15971,7 +15971,7 @@ def render_live_decision_center(
         f'<code style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
         f'background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.14);'
         f'color:rgba(106,230,255,0.75);padding:2px 9px;border-radius:6px;">{escape(live_scenario)}</code>'
-        f'<span style="font-size:0.7rem;color:rgba(244,247,255,0.38);">{escape(live_structure_state)}</span>'
+        f'<span style="font-size:0.74rem;color:rgba(244,247,255,0.38);">{escape(live_structure_state)}</span>'
         f'</div>'
 
         + (f'<div style="font-size:0.74rem;color:rgba(255,212,64,0.65);padding:0 24px 10px;">{escape(transition_note)}</div>' if transition_note else '')
@@ -16029,7 +16029,7 @@ def render_live_decision_center(
         f'</div>'
         f'</div>'
 
-        f'<div style="padding:9px 24px;font-size:0.68rem;color:rgba(244,247,255,0.3);'
+        f'<div style="padding:9px 24px;font-size:0.72rem;color:rgba(244,247,255,0.3);'
         f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
         f'{escape(_lock_display)}'
         f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
@@ -16061,7 +16061,7 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
         "MEDIUM": ("#ffd740", "rgba(255,215,64,0.11)"),
         "LOW":    ("#8ea1bc", "rgba(142,161,188,0.08)"),
     }
-    _badge_base = "display:inline-flex;align-items:center;gap:4px;font-size:0.62rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:2px 9px;border-radius:20px;"
+    _badge_base = "display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:2px 9px;border-radius:20px;"
 
     slots_html = ""
     for label, auth_obj, icon in [("Primary", primary_authority or {}, "🎯"), ("Alternate", alternate_authority or {}, "🔄")]:
@@ -16081,7 +16081,7 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
             f'<span style="{_badge_base}background:{sb};color:{sc};">{escape(sl)}</span>'
             f'<span style="{_badge_base}background:{pb};color:{pc};">{escape(priority)}</span>'
             f'</div></div>'
-            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.78);line-height:1.5;">'
+            f'<div style="font-size:0.84rem;color:rgba(224,238,255,0.78);line-height:1.5;">'
             f'{escape(message)}</div>'
             f'</div>'
         )
@@ -16097,7 +16097,7 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
         f'display:flex;align-items:center;justify-content:center;font-size:1.15rem;">⚡</div>'
         f'<div><div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;color:#f4f7ff;">'
         f'Execution Alerts</div>'
-        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;">'
+        f'<div style="font-size:0.74rem;color:rgba(106,230,255,0.6);margin-top:3px;">'
         f'Live operator action status for each play</div></div>'
         f'</div>'
         f'<div style="background:rgba(4,8,20,0.97);padding:14px 16px;">'
@@ -16161,7 +16161,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
     _default_cat = {"accent": "#6ae6ff", "bg": "rgba(106,230,255,0.08)", "icon": "📰", "label": "News"}
 
     rs = _risk_styles.get(level, {"bg": "rgba(255,215,64,0.12)", "border": "rgba(255,215,64,0.35)", "color": "#ffd740", "icon": "⚪", "label": status, "glow": "rgba(255,215,64,0.10)"})
-    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.65rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:3px 10px;border-radius:20px;'
+    _badge_s   = f'display:inline-flex;align-items:center;gap:5px;font-size:0.68rem;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;padding:3px 10px;border-radius:20px;'
     _risk_bs   = f'{_badge_s}background:{rs["bg"]};border:1px solid {rs["border"]};color:{rs["color"]};'
     _mode_bs   = f'{_badge_s}background:rgba(0,230,118,0.10);border:1px solid rgba(0,230,118,0.28);color:#00e676;' if mode.lower() == "normal" else f'{_badge_s}background:rgba(255,215,64,0.10);border:1px solid rgba(255,215,64,0.28);color:#ffd740;'
     _window_bs = f'{_badge_s}background:rgba(255,109,64,0.13);border:1px solid rgba(255,109,64,0.35);color:#ff7043;'
@@ -16189,8 +16189,8 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
             f'<div style="display:flex;align-items:center;gap:8px;padding:10px 20px;'
             f'border-bottom:1px solid rgba(0,212,255,0.07);background:rgba(0,212,255,0.03);">'
             f'<span style="font-size:0.9rem;">📅</span>'
-            f'<span style="font-size:0.78rem;color:rgba(224,238,255,0.55);">Next event:</span>'
-            f'<span style="font-size:0.78rem;font-weight:600;color:#e0eeff;">{escape(next_event)}</span>'
+            f'<span style="font-size:0.82rem;color:rgba(224,238,255,0.55);">Next event:</span>'
+            f'<span style="font-size:0.82rem;font-weight:600;color:#e0eeff;">{escape(next_event)}</span>'
             f'</div>'
         )
 
@@ -16219,12 +16219,12 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
 
         _card_inner = (
             f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px;">'
-            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.6rem;font-weight:700;'
+            f'<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-weight:700;'
             f'letter-spacing:0.08em;text-transform:uppercase;padding:2px 8px;border-radius:20px;'
             f'background:{_cs["bg"]};color:{_cs["accent"]};">{_cs["icon"]} {escape(_cs["label"])}</span>'
-            f'<span style="font-size:0.6rem;color:rgba(224,238,255,0.3);flex-shrink:0;">{escape(_tstr)}</span>'
+            f'<span style="font-size:0.68rem;color:rgba(224,238,255,0.3);flex-shrink:0;">{escape(_tstr)}</span>'
             f'</div>'
-            f'<div style="font-size:0.8rem;color:rgba(224,238,255,0.88);line-height:1.48;font-weight:500;">'
+            f'<div style="font-size:0.84rem;color:rgba(224,238,255,0.88);line-height:1.48;font-weight:500;">'
             f'{escape(_title)}</div>'
         )
         _card_style = (
@@ -16249,13 +16249,13 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
         )
     elif source_status == "unavailable":
         feed_html = (
-            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
+            f'<div style="text-align:center;padding:28px 20px;font-size:0.84rem;'
             f'color:rgba(224,238,255,0.3);font-style:italic;">'
             f'📡 Live news feed unavailable — check network or use manual event risk override</div>'
         )
     else:
         feed_html = (
-            f'<div style="text-align:center;padding:28px 20px;font-size:0.8rem;'
+            f'<div style="text-align:center;padding:28px 20px;font-size:0.84rem;'
             f'color:rgba(224,238,255,0.3);font-style:italic;">'
             f'No market-moving headlines at this time</div>'
         )
@@ -16280,7 +16280,7 @@ def render_event_risk_panel(event_risk_context: dict[str, Any] | None) -> None:
         f'<div style="flex:1;min-width:0;">'
         f'<div style="font-family:\'Outfit\',sans-serif;font-size:1.0rem;font-weight:700;'
         f'color:#f4f7ff;letter-spacing:0.01em;line-height:1.2;">Market Intelligence</div>'
-        f'<div style="font-size:0.7rem;color:rgba(106,230,255,0.6);margin-top:3px;letter-spacing:0.04em;">'
+        f'<div style="font-size:0.74rem;color:rgba(106,230,255,0.6);margin-top:3px;letter-spacing:0.04em;">'
         f'0DTE event risk · economic data · breaking headlines</div>'
         f'</div>'
 
@@ -16563,16 +16563,16 @@ def render_operator_play_card(
         st.markdown(
             f'<div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);'
             f'border-left:3px solid {_bc_border};border-radius:8px;padding:12px 16px;margin:10px 0;">'
-            f'<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.08em;color:#8eb8d4;margin-bottom:6px;">{escape(_bc_header)}</div>'
+            f'<div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#8eb8d4;margin-bottom:6px;">{escape(_bc_header)}</div>'
             f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;color:#e0eeff;margin-bottom:8px;">{escape(best_contract_symbol_for_box)}</div>'
             f'<div style="display:flex;gap:14px;flex-wrap:wrap;">'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_target_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_fill_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.62rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_target_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_fill_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
+            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
             f'</div>'
-            f'<div style="margin-top:8px;font-size:0.62rem;color:#5a7a94;">{escape(strike_profile)} · {escape(projection_reason or best_contract_basis or "-")} · {escape(preferred_contract_mode)}</div>'
+            f'<div style="margin-top:8px;font-size:0.68rem;color:#5a7a94;">{escape(strike_profile)} · {escape(projection_reason or best_contract_basis or "-")} · {escape(preferred_contract_mode)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -17373,7 +17373,7 @@ def render_live_mode_shell(
             'font-size:1.3rem;background:linear-gradient(135deg,rgba(80,120,255,0.28),rgba(0,80,180,0.18));'
             'box-shadow:0 0 18px rgba(80,140,255,0.22);border:1px solid rgba(80,140,255,0.22);">📋</div>'
             '<div style="flex:1;min-width:0;">'
-            '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+            '<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;'
             f'text-transform:uppercase;color:rgba(106,160,255,0.65);margin-bottom:4px;">NOW: {_active_name}</div>'
             '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
             'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Pre-Market Prep</div>'
@@ -17382,13 +17382,13 @@ def render_live_mode_shell(
             '</div></div>'
             '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
             f'<div style="padding:4px 10px;border-radius:6px;background:{_ev_bg};border:1px solid rgba(255,255,255,0.06);'
-            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_ev_c};">🌆 EVENING &nbsp;{_ev_s}</div>'
+            f'font-size:0.68rem;font-weight:700;letter-spacing:0.07em;color:{_ev_c};">🌆 EVENING &nbsp;{_ev_s}</div>'
             f'<div style="padding:4px 10px;border-radius:6px;background:{_as_bg};border:1px solid rgba(255,255,255,0.06);'
-            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_as_c};">🌏 ASIAN &nbsp;{_as_s}</div>'
+            f'font-size:0.68rem;font-weight:700;letter-spacing:0.07em;color:{_as_c};">🌏 ASIAN &nbsp;{_as_s}</div>'
             f'<div style="padding:4px 10px;border-radius:6px;background:{_lo_bg};border:1px solid rgba(255,255,255,0.06);'
-            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_lo_c};">🌍 LONDON &nbsp;{_lo_s}</div>'
+            f'font-size:0.68rem;font-weight:700;letter-spacing:0.07em;color:{_lo_c};">🌍 LONDON &nbsp;{_lo_s}</div>'
             f'<div style="padding:4px 10px;border-radius:6px;background:{_po_bg};border:1px solid rgba(255,255,255,0.06);'
-            f'font-size:0.58rem;font-weight:700;letter-spacing:0.07em;color:{_po_c};">⚡ PRE-OPEN &nbsp;{_po_s}</div>'
+            f'font-size:0.68rem;font-weight:700;letter-spacing:0.07em;color:{_po_c};">⚡ PRE-OPEN &nbsp;{_po_s}</div>'
             '</div></div></div>',
             unsafe_allow_html=True,
         )
@@ -17416,9 +17416,9 @@ def render_live_mode_shell(
                     f'<div style="width:3px;height:30px;border-radius:2px;background:{_accent};flex-shrink:0;"></div>'
                     f'<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;">'
                     f'{_icon} {_pname}</div>'
-                    f'<div style="font-size:0.67rem;color:rgba(180,210,240,0.42);font-weight:500;">{_trange}</div>'
+                    f'<div style="font-size:0.72rem;color:rgba(180,210,240,0.42);font-weight:500;">{_trange}</div>'
                     f'<div style="margin-left:auto;padding:3px 10px;border-radius:6px;background:{_sbg};'
-                    f'border:1px solid rgba(255,255,255,0.06);font-size:0.58rem;font-weight:700;'
+                    f'border:1px solid rgba(255,255,255,0.06);font-size:0.68rem;font-weight:700;'
                     f'letter-spacing:0.1em;color:{_scol};">{_slbl}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -17441,8 +17441,8 @@ def render_live_mode_shell(
                             _rows += (
                                 f'<div style="display:flex;justify-content:space-between;align-items:center;'
                                 f'padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);{_rstyle}">'
-                                f'<span style="font-size:0.62rem;color:rgba(155,185,220,0.48);font-weight:500;">{escape(_ll[:8])}</span>'
-                                f'<span style="font-size:0.71rem;font-weight:600;">{format_price(_lp)}{_mk}</span>'
+                                f'<span style="font-size:0.68rem;color:rgba(155,185,220,0.48);font-weight:500;">{escape(_ll[:8])}</span>'
+                                f'<span style="font-size:0.74rem;font-weight:600;">{format_price(_lp)}{_mk}</span>'
                                 f'</div>'
                             )
                         st.markdown(
@@ -17465,7 +17465,7 @@ def render_live_mode_shell(
                 '<div style="width:3px;height:30px;border-radius:2px;background:rgba(0,212,255,0.85);flex-shrink:0;"></div>'
                 '<div style="font-family:\'Outfit\',sans-serif;font-size:0.95rem;font-weight:800;color:#e8f2ff;">'
                 '⚡ NY OPEN INTELLIGENCE</div>'
-                '<div style="font-size:0.67rem;color:rgba(180,210,240,0.42);font-weight:500;">'
+                '<div style="font-size:0.72rem;color:rgba(180,210,240,0.42);font-weight:500;">'
                 'Scenario and bias based on pre-open structure</div>'
                 '</div>',
                 unsafe_allow_html=True,
@@ -17690,7 +17690,7 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
         'font-size:1.3rem;background:linear-gradient(135deg,rgba(130,80,255,0.28),rgba(80,40,180,0.18));'
         'box-shadow:0 0 18px rgba(130,80,255,0.22);border:1px solid rgba(130,80,255,0.22);">◍</div>'
         '<div style="flex:1;min-width:0;">'
-        '<div style="font-family:\'Inter\',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.16em;'
+        '<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;'
         'text-transform:uppercase;color:rgba(160,120,255,0.65);margin-bottom:4px;">ADAPTIVE · LEARNING · ENGINE</div>'
         '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
         'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Intelligence Dashboard</div>'
