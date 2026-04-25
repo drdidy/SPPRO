@@ -7796,9 +7796,9 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "decision_state_at_action": str(raw_trade.get("decision_state_at_action", raw_trade.get("final_authority_decision", raw_trade.get("final_decision", "")))),
         "override_flag": bool(raw_trade.get("override_flag", False)),
         "override_reason": str(raw_trade.get("override_reason", "")),
-        "entry_drift_abs": round_price(float(raw_trade.get("entry_drift_abs", 0.0))),
-        "entry_drift_pct": round(float(raw_trade.get("entry_drift_pct", 0.0)), 4),
-        "price_vs_plan": round_price(float(raw_trade.get("price_vs_plan", 0.0))),
+        "entry_drift_abs": round_price(_to_float_or_none(raw_trade.get("entry_drift_abs")) or 0.0),
+        "entry_drift_pct": round(_to_float_or_none(raw_trade.get("entry_drift_pct")) or 0.0, 4),
+        "price_vs_plan": round_price(_to_float_or_none(raw_trade.get("price_vs_plan")) or 0.0),
         "stop_quality": str(raw_trade.get("stop_quality", "")),
         "trade_quality": str(raw_trade.get("trade_quality", "")),
         "integrity_flags": list(raw_trade.get("integrity_flags", [])) if isinstance(raw_trade.get("integrity_flags", []), list) else [],
@@ -8433,9 +8433,9 @@ def build_live_play_trade_prefill(
         "decision_state_at_action": str((authority or {}).get("decision_state", final_decision or final_status)),
         "override_flag": bool(override_flag),
         "override_reason": str(override_reason or ""),
-        "entry_drift_abs": float(intelligence.get("entry_drift_abs") or 0.0),
-        "entry_drift_pct": float(intelligence.get("entry_drift_pct") or 0.0),
-        "price_vs_plan": float(intelligence.get("price_vs_plan") or 0.0),
+        "entry_drift_abs": _to_float_or_none(intelligence.get("entry_drift_abs")) or 0.0,
+        "entry_drift_pct": _to_float_or_none(intelligence.get("entry_drift_pct")) or 0.0,
+        "price_vs_plan": _to_float_or_none(intelligence.get("price_vs_plan")) or 0.0,
         "stop_quality": str(intelligence.get("stop_quality", "")),
         "trade_quality": str(intelligence.get("quality", "")),
         "actual_trade_taken": False,
@@ -14195,10 +14195,11 @@ def render_play_card(
         for reason in authority_top_reasons[:3]
     )
     locked_entry_value = format_price(intelligence.get("locked_entry_spx")) if intelligence.get("locked_entry_spx") is not None else format_price(play["entry"]["price"])
-    drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
+    drift_pct_raw = _to_float_or_none(intelligence.get("entry_drift_pct"))
+    drift_pct_value = drift_pct_raw * 100.0 if drift_pct_raw is not None else None
     drift_text = (
         f"{format_price(intelligence.get('entry_drift_abs'))} ({drift_pct_value:.1f}%)"
-        if intelligence.get("entry_drift_abs") is not None and intelligence.get("entry_drift_pct") is not None
+        if intelligence.get("entry_drift_abs") is not None and drift_pct_value is not None
         else "-"
     )
     mark_value = format_price(lead_option_quote.get("price")) if lead_option_quote else "-"
@@ -14218,7 +14219,8 @@ def render_play_card(
     current_spx_display = format_price(current_spx_price) if current_spx_price is not None else "-"
     stop_display = format_price(play["stop"]["price"]) if play.get("stop") and not play.get("invalid_stop") else "Unavailable"
     suggested_stop_display = format_price(intelligence["suggested_stop"]) if intelligence.get("suggested_stop") is not None else "-"
-    move_completion_display = f"{float(intelligence.get('move_completion_pct')):.0f}%" if intelligence.get("move_completion_pct") is not None else "-"
+    move_completion_value = _to_float_or_none(intelligence.get("move_completion_pct"))
+    move_completion_display = f"{move_completion_value:.0f}%" if move_completion_value is not None else "-"
     zone_display = str(intelligence.get("entry_zone_status", "UNKNOWN"))
     lock_label = "Locked Entry" if intelligence.get("session_plan_locked") else "Session Entry"
     action_class = _decision_class(action_label)
@@ -14508,7 +14510,7 @@ def render_play_card(
                 f"Planned entry mark: {format_price(intelligence.get('planned_entry_mark')) if intelligence.get('planned_entry_mark') is not None else 'Unavailable'} | "
                 f"Live predicted entry: {format_price(intelligence.get('live_predicted_entry_mark')) if intelligence.get('live_predicted_entry_mark') is not None else 'Unavailable'} | "
                 f"Drift abs: {format_price(intelligence.get('entry_drift_abs')) if intelligence.get('entry_drift_abs') is not None else 'Unavailable'} | "
-                f"Drift pct: {float(intelligence.get('entry_drift_pct', 0.0)) * 100:.2f}% | "
+                f"Drift pct: {f'{drift_pct_value:.2f}%' if drift_pct_value is not None else 'Unavailable'} | "
                 f"Price vs plan: {format_price(intelligence.get('price_vs_plan')) if intelligence.get('price_vs_plan') is not None else 'Unavailable'}"
             )
             st.caption(
@@ -17573,7 +17575,8 @@ def render_operator_play_card(
     transition_note = build_scenario_transition_note(live_context)
     decision_sentence = build_live_decision_sentence(authority=authority, intelligence=intelligence, live_context=live_context)
     evidence_note = build_calibration_bias_note(calibration_preview)
-    drift_pct_value = float(intelligence.get("entry_drift_pct", 0.0) or 0.0) * 100.0 if intelligence.get("entry_drift_pct") is not None else None
+    drift_pct_raw = _to_float_or_none(intelligence.get("entry_drift_pct"))
+    drift_pct_value = drift_pct_raw * 100.0 if drift_pct_raw is not None else None
     drift_fill_pct = 0.0 if drift_pct_value is None else max(0.0, min(100.0, (drift_pct_value / 20.0) * 100.0))
     recommended_contract_quote = lead_option_quote
     display_contract_quote = selected_contract_quote or recommended_contract_quote

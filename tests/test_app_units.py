@@ -566,6 +566,24 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(normalize_result_value(""), "Unreviewed")
         self.assertEqual(normalize_trade_record({"trade_date": "2026-04-22", "session": "NY Options", "scenario_name": "Scenario", "direction": "CALL", "entry_line_label": "asc_floor"})["result"], "Unreviewed")
 
+    def test_trade_record_tolerates_non_numeric_drift_fields(self) -> None:
+        record = normalize_trade_record(
+            {
+                "trade_date": "2026-04-22",
+                "session": "NY Options",
+                "scenario_name": "Scenario",
+                "direction": "CALL",
+                "entry_line_label": "asc_floor",
+                "entry_drift_abs": "Unavailable",
+                "entry_drift_pct": "Unavailable",
+                "price_vs_plan": "",
+            }
+        )
+
+        self.assertEqual(record["entry_drift_abs"], 0.0)
+        self.assertEqual(record["entry_drift_pct"], 0.0)
+        self.assertEqual(record["price_vs_plan"], 0.0)
+
     def test_intelligence_tab_is_edge_lab_only(self) -> None:
         self.assertEqual(build_top_level_tab_labels("Production Mode"), ["LIVE MODE", "HISTORICAL", "TRADE LOG"])
         self.assertEqual(build_top_level_tab_labels("Edge Lab"), ["LIVE MODE", "HISTORICAL", "TRADE LOG", "INTELLIGENCE"])
