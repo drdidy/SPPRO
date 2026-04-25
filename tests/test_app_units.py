@@ -1026,6 +1026,19 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(result["decision"], "TRADE")
         self.assertEqual(result["vwap_alignment"], "CONFIRMED")
 
+    def test_line_polarity_opposite_direction_blocks_play(self) -> None:
+        result = evaluate_line_polarity(
+            line={"name": "asc_floor", "projected_price": 7120.0, "distance": 1.0},
+            candle={"high": 7121.0, "low": 7119.25, "close": 7122.5},
+            desired_direction="PUT",
+            pending_retest_store={},
+        )
+
+        self.assertFalse(result["actionable"])
+        self.assertTrue(result["polarity_conflict"])
+        self.assertEqual(result["decision"], "NO TRADE")
+        self.assertEqual(result["confirmed_direction"], "CALL")
+
     def test_line_polarity_extended_rejection_blocks_entry_and_marks_retest(self) -> None:
         store: dict[str, object] = {}
         result = evaluate_line_polarity(
@@ -1076,6 +1089,22 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(decision["polarity_state"], "resistance_rejection")
         self.assertEqual(decision["line_used"]["name"], "asc_floor")
 
+    def test_polarity_decision_prioritizes_opposite_confirmation_over_wait(self) -> None:
+        decision = build_line_polarity_decision(
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7120.0, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7145.0, "line_type": "channel"},
+            },
+            current_price=7120.25,
+            current_candle={"high": 7120.75, "low": 7119.5, "close": 7122.0},
+            desired_direction="PUT",
+            pending_retest_store={},
+        )
+
+        self.assertTrue(decision["polarity_conflict"])
+        self.assertEqual(decision["decision"], "NO TRADE")
+        self.assertEqual(decision["confirmed_direction"], "CALL")
+
     def test_execution_state_blocks_entry_when_line_reaction_is_extended(self) -> None:
         play = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}, "setup_tradable": True}
         quote = {"contract_symbol": "SPXW 260422P07100000", "price": 4.8, "predicted_entry_price": 4.2, "budget_status": "Within Budget"}
@@ -1097,6 +1126,28 @@ class AppUnitTests(unittest.TestCase):
         self.assertFalse(state["line_polarity_actionable"])
         self.assertEqual(state["execution_action"], "WAIT FOR RETEST")
         self.assertEqual(state["setup_state"], "ARMED")
+
+    def test_execution_state_invalidates_play_when_polarity_confirms_opposite_direction(self) -> None:
+        play = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "asc_floor", "price": 7120.0}, "stop": {"price": 7158.0}, "setup_tradable": True}
+        quote = {"contract_symbol": "SPXW 260422P07100000", "price": 4.8, "predicted_entry_price": 4.2, "budget_status": "Within Budget"}
+        state = build_execution_state(
+            play=play,
+            play_es={"entry": {"price": 7159.5}},
+            intelligence={"rr_ratio": 1.4, "planned_entry_mark": 4.2, "locked_entry_spx": 7120.0, "move_completion_pct": 10, "entry_zone_status": "IN ZONE", "prediction_confidence": "HIGH"},
+            live_context={"scenario_origin": "SCENARIO 2: INSIDE ASCENDING CHANNEL", "live_scenario": "SCENARIO 2: INSIDE ASCENDING CHANNEL"},
+            risk_class="LOW",
+            selected_contract_quote=quote,
+            option_display_state={"budget_cap": 500.0, "ladder_rows": [quote], "recommended_contract_symbol": quote["contract_symbol"]},
+            current_spx_price=7122.0,
+            structure_valid=True,
+            projected_lines_spx={"asc_floor": {"label": "ASC Floor", "projected_price": 7120.0, "line_type": "channel"}},
+            current_candle={"high": 7120.75, "low": 7119.5, "close": 7122.0},
+        )
+
+        self.assertTrue(state["line_polarity_conflict"])
+        self.assertEqual(state["execution_action"], "SKIP TRADE")
+        self.assertEqual(state["trigger_state"], "INVALIDATED")
+        self.assertEqual(state["setup_state"], "INVALIDATED")
 
     def test_pm_window_anchor_still_selected_when_most_relevant(self) -> None:
         frame = self._build_anchor_candidate_frame()

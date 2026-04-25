@@ -4007,6 +4007,7 @@ def evaluate_line_polarity(
             "line_used": dict(line),
             "polarity_state": "unavailable",
             "actionable": False,
+            "polarity_conflict": False,
             "distance_to_line": line.get("distance"),
             "close_distance": None,
             "vwap_alignment": "UNAVAILABLE",
@@ -4036,6 +4037,7 @@ def evaluate_line_polarity(
 
     state = "no_touch"
     actionable = False
+    polarity_conflict = False
     decision = "WATCH"
     reason = "No touch of this polarity line."
     score = 25
@@ -4086,7 +4088,8 @@ def evaluate_line_polarity(
         score += 6
     if desired and confirmed_direction and desired != confirmed_direction and state in {"support_hold", "resistance_rejection"}:
         actionable = False
-        decision = "WATCH"
+        polarity_conflict = True
+        decision = "NO TRADE"
         score = min(score, 35)
         reason = "Line polarity confirmed the opposite direction from this play."
 
@@ -4096,6 +4099,7 @@ def evaluate_line_polarity(
         "line_used": dict(line),
         "polarity_state": state,
         "actionable": bool(actionable),
+        "polarity_conflict": bool(polarity_conflict),
         "distance_to_line": line.get("distance"),
         "close_distance": close_distance,
         "vwap_alignment": vwap_alignment,
@@ -4129,6 +4133,7 @@ def build_line_polarity_decision(
             "line_used": {},
             "polarity_state": "unavailable",
             "actionable": False,
+            "polarity_conflict": False,
             "distance_to_line": None,
             "close_distance": None,
             "vwap_alignment": "UNAVAILABLE",
@@ -4150,12 +4155,15 @@ def build_line_polarity_decision(
     ]
     desired = str(desired_direction or "").upper()
     actionable = [row for row in evaluations if row["actionable"] and (not desired or row.get("confirmed_direction") == desired)]
+    conflicts = [row for row in evaluations if row.get("polarity_conflict")]
     extended = [row for row in evaluations if row["polarity_state"] == "extended_rejection" and (not desired or row.get("confirmed_direction") == desired)]
     pending = [row for row in evaluations if row["polarity_state"] == "pending_retest"]
     touched = [row for row in evaluations if row["polarity_state"] in {"support_hold", "resistance_rejection", "extended_rejection"}]
 
     if actionable:
         chosen = max(actionable, key=lambda row: row["score"])
+    elif conflicts:
+        chosen = max(conflicts, key=lambda row: row["score"])
     elif extended:
         chosen = max(extended, key=lambda row: row["score"])
     elif pending:
@@ -4419,6 +4427,7 @@ def build_execution_state(
         "line_used": {},
         "polarity_state": "unavailable",
         "actionable": False,
+        "polarity_conflict": False,
         "distance_to_line": None,
         "close_distance": None,
         "vwap_alignment": "UNAVAILABLE",
@@ -4469,7 +4478,13 @@ def build_execution_state(
     )
     polarity_enforced = bool(line_polarity.get("enforced"))
     polarity_actionable = bool(line_polarity.get("actionable"))
-    if polarity_enforced and not polarity_actionable and structure_valid and plan_validity["label"] not in {"invalid", "stale"}:
+    polarity_conflict = bool(line_polarity.get("polarity_conflict"))
+    if polarity_conflict and structure_valid:
+        action = {
+            "action": "SKIP TRADE",
+            "reason": str(line_polarity.get("reason") or "Line polarity confirmed the opposite direction from this play."),
+        }
+    elif polarity_enforced and not polarity_actionable and structure_valid and plan_validity["label"] not in {"invalid", "stale"}:
         if line_polarity.get("polarity_state") in {"extended_rejection", "pending_retest"}:
             action = {
                 "action": "WAIT FOR RETEST",
@@ -4490,7 +4505,18 @@ def build_execution_state(
         move_completion_pct=_to_float_or_none(intelligence.get("move_completion_pct")),
     )
     if polarity_enforced:
-        if polarity_actionable:
+        if polarity_conflict:
+            trigger = {
+                **trigger,
+                "trigger_type": "NONE",
+                "trigger_state": "INVALIDATED",
+                "trigger_reason": str(line_polarity.get("reason") or "Line polarity confirmed the opposite direction."),
+                "trigger_has_been_touched": True,
+                "trigger_has_been_reclaimed_or_rejected": False,
+                "trigger_invalidated": True,
+                "trigger_invalidation_reason": str(line_polarity.get("reason") or "Opposite polarity confirmation."),
+            }
+        elif polarity_actionable:
             trigger = {
                 **trigger,
                 "trigger_type": "IMMEDIATE" if trigger.get("trigger_type") == "NONE" else trigger.get("trigger_type", "IMMEDIATE"),
@@ -4678,6 +4704,7 @@ def build_execution_state(
         "line_polarity_score": line_polarity.get("score"),
         "line_polarity_state": line_polarity.get("polarity_state"),
         "line_polarity_actionable": bool(line_polarity.get("actionable")),
+        "line_polarity_conflict": bool(line_polarity.get("polarity_conflict")),
         "line_polarity_reason": str(line_polarity.get("reason", "")),
         "line_polarity_vwap_alignment": str(line_polarity.get("vwap_alignment", "")),
         "line_polarity_distance_to_line": line_polarity.get("distance_to_line"),
@@ -8525,7 +8552,7 @@ def build_play_decision_authority(
     )
     expected_value = expectancy_snapshot["expected_value"]
 
-    if not structure_valid or not stop_valid or raw_final_decision == "SKIP TRADE":
+    if not structure_valid or not stop_valid or raw_final_decision == "SKIP TRADE" or execution_state.get("execution_action") == "SKIP TRADE":
         decision = "NO TRADE"
         condition_required = ""
     elif raw_final_decision == "WAIT" or intelligence.get("chase_status") == "WAIT":
@@ -8545,7 +8572,10 @@ def build_play_decision_authority(
         decision = "STRONG BUY"
         condition_required = ""
 
-    if execution_state.get("line_polarity_enforced") and not execution_state.get("line_polarity_actionable"):
+    if execution_state.get("line_polarity_conflict"):
+        decision = "NO TRADE"
+        condition_required = ""
+    elif execution_state.get("line_polarity_enforced") and not execution_state.get("line_polarity_actionable"):
         decision = "CONDITIONAL BUY"
         condition_required = str(execution_state.get("line_polarity_reason") or "Wait for polarity confirmation")
 
@@ -8562,8 +8592,12 @@ def build_play_decision_authority(
     )
     top_reasons = reasons[:3]
 
-    if execution_state["plan_validity"] == "invalid":
+    if execution_state.get("line_polarity_conflict"):
+        reason_line = str(execution_state.get("line_polarity_reason") or "Line polarity confirmed the opposite direction from this play.")
+    elif execution_state["plan_validity"] == "invalid":
         reason_line = execution_state["plan_validity_reason"]
+    elif execution_state.get("execution_action") == "SKIP TRADE":
+        reason_line = execution_state.get("execution_action_reason") or "Trade blocked by execution authority."
     elif str(execution_state.get("execution_action")) == "WAIT FOR EVENT PASS":
         reason_line = execution_state.get("execution_action_reason") or "Setup valid, but event risk is active."
     elif str(execution_state.get("execution_action")) == "PREPARE WITH CAUTION":
@@ -8585,7 +8619,7 @@ def build_play_decision_authority(
     else:
         reason_line = execution_state["execution_action_reason"] or "Structure or timing does not justify a trade"
 
-    if direction_text := str(play.get("direction", "") or "").upper():
+    if not execution_state.get("line_polarity_conflict") and (direction_text := str(play.get("direction", "") or "").upper()):
         live_family = _scenario_bias_family(str((live_context or {}).get("live_scenario", "")))
         if direction_text == "PUT" and live_family == "bullish":
             reason_line = "Bias bearish, but live structure is now bullish. Original thesis weakened."
@@ -8664,6 +8698,7 @@ def build_play_decision_authority(
         "line_polarity_score": execution_state.get("line_polarity_score"),
         "line_polarity_state": execution_state.get("line_polarity_state"),
         "line_polarity_actionable": execution_state.get("line_polarity_actionable"),
+        "line_polarity_conflict": execution_state.get("line_polarity_conflict"),
         "line_polarity_reason": execution_state.get("line_polarity_reason"),
         "line_polarity_vwap_alignment": execution_state.get("line_polarity_vwap_alignment"),
         "line_polarity_distance_to_line": execution_state.get("line_polarity_distance_to_line"),
