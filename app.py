@@ -6259,6 +6259,143 @@ def render_tab1_hero(
     )
 
 
+def render_structure_ladder_card(
+    final_lines: dict[str, dict[str, Any]],
+    current_es_price: float | None,
+    effective_offset: float,
+    *,
+    compact: bool = False,
+    anchor_bundle: dict[str, Any] | None = None,
+) -> None:
+    """Render a premium operator-first ES structure ladder."""
+
+    current_price = current_es_price if is_valid_price_input(current_es_price) else None
+    levels: list[dict[str, Any]] = []
+    for key, data in final_lines.items():
+        price = data.get("projected_price")
+        label = data.get("label", key)
+        if is_valid_price_input(price):
+            levels.append({"key": key, "label": label, "price": float(price)})
+    if not levels:
+        return
+
+    levels.sort(key=lambda x: x["price"], reverse=True)
+    all_prices = [lv["price"] for lv in levels]
+    if current_price is not None:
+        all_prices.append(current_price)
+    price_min = min(all_prices)
+    price_max = max(all_prices)
+    price_range = price_max - price_min if price_max != price_min else 1.0
+
+    def _bar_pct(price: float) -> float:
+        return max(5.0, min(100.0, (price - price_min) / price_range * 100.0))
+
+    def _line_meta(price: float) -> tuple[str, str, str, str]:
+        if current_price is None:
+            return "&mdash;", "#a6b8d6", "Reference", "&#9670;"
+        delta = price - current_price
+        sign = "+" if delta >= 0 else ""
+        if abs(delta) <= 2.0:
+            return f"{sign}{delta:.1f}", "#6ae6ff", "In play", "&#9670;"
+        if delta > 0:
+            return f"{sign}{delta:.1f}", "#f7c768", "Overhead", "&#9650;"
+        return f"{sign}{delta:.1f}", "#5fe3a1", "Below", "&#9660;"
+
+    rows: list[dict[str, Any]] = []
+    current_inserted = False
+    for lv in levels:
+        if current_price is not None and not current_inserted and lv["price"] <= current_price:
+            rows.append({"type": "current", "price": current_price})
+            current_inserted = True
+        rows.append({"type": "level", **lv})
+    if current_price is not None and not current_inserted:
+        rows.append({"type": "current", "price": current_price})
+
+    rows_html = ""
+    for row in rows:
+        if row["type"] == "current":
+            pct = _bar_pct(float(row["price"]))
+            rows_html += (
+                f'<div style="display:grid;grid-template-columns:38px minmax(120px,1fr) 96px minmax(90px,1.25fr) 70px;'
+                f'align-items:center;gap:10px;padding:13px 18px;border-top:1px solid rgba(106,230,255,0.16);'
+                f'border-bottom:1px solid rgba(106,230,255,0.16);background:linear-gradient(90deg,rgba(0,212,255,0.12),rgba(0,212,255,0.035));">'
+                f'<div style="width:28px;height:28px;border-radius:999px;display:grid;place-items:center;'
+                f'background:rgba(106,230,255,0.13);border:1px solid rgba(106,230,255,0.26);color:#6ae6ff;">&#9654;</div>'
+                f'<div><div style="font-size:0.78rem;color:#eaf8ff;font-weight:850;letter-spacing:0.03em;text-transform:uppercase;">Current ES</div>'
+                f'<div style="font-size:0.68rem;color:rgba(166,237,255,0.62);margin-top:2px;">Live reference</div></div>'
+                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:1.02rem;color:#6ae6ff;text-align:right;font-weight:900;">{escape(format_price(float(row["price"])))}</div>'
+                f'<div style="height:6px;background:rgba(255,255,255,0.065);border-radius:99px;overflow:hidden;">'
+                f'<div style="height:100%;width:{pct:.1f}%;background:linear-gradient(90deg,#297bff,#6ae6ff);border-radius:99px;"></div></div>'
+                f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:rgba(244,247,255,0.5);text-align:right;">&mdash;</div>'
+                f'</div>'
+            )
+            continue
+
+        price = float(row["price"])
+        pct = _bar_pct(price)
+        d_str, accent_col, role_label, arrow = _line_meta(price)
+        rows_html += (
+            f'<div style="display:grid;grid-template-columns:38px minmax(120px,1fr) 96px minmax(90px,1.25fr) 70px;'
+            f'align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.045);'
+            f'background:linear-gradient(90deg,rgba(255,255,255,0.025),rgba(255,255,255,0.008));">'
+            f'<div style="width:28px;height:28px;border-radius:999px;display:grid;place-items:center;'
+            f'background:{accent_col}18;border:1px solid {accent_col}42;color:{accent_col};font-size:0.72rem;">{arrow}</div>'
+            f'<div><div style="font-size:0.78rem;color:rgba(244,247,255,0.76);font-weight:820;letter-spacing:0.02em;">{escape(str(row["label"]))}</div>'
+            f'<div style="font-size:0.66rem;color:{accent_col};margin-top:2px;text-transform:uppercase;letter-spacing:0.10em;">{escape(role_label)}</div></div>'
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.96rem;color:#eaf2ff;text-align:right;font-weight:820;">{escape(format_price(price))}</div>'
+            f'<div style="height:6px;background:rgba(255,255,255,0.065);border-radius:99px;overflow:hidden;">'
+            f'<div style="height:100%;width:{pct:.1f}%;background:linear-gradient(90deg,{accent_col}66,{accent_col});border-radius:99px;"></div></div>'
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.74rem;color:{accent_col};text-align:right;font-weight:820;">{escape(d_str)}</div>'
+            f'</div>'
+        )
+
+    price_badge_html = ""
+    if current_price is not None:
+        price_badge_html = (
+            f'<span style="font-size:0.74rem;padding:5px 11px;border-radius:999px;'
+            f'background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.16);color:#6ae6ff;">'
+            f'ES Live&nbsp;<strong>{format_price(current_price)}</strong></span>'
+        )
+    if not compact:
+        price_badge_html += (
+            f'&nbsp;<span style="font-size:0.74rem;padding:5px 11px;border-radius:999px;'
+            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(244,247,255,0.56);">'
+            f'Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
+        )
+
+    anchor_badges = "".join(
+        f'<span style="font-size:0.72rem;padding:5px 10px;border-radius:999px;'
+        f'background:rgba(255,255,255,0.045);border:1px solid rgba(167,191,255,0.11);'
+        f'color:rgba(244,247,255,0.72);font-weight:760;">{escape(label)}</span>'
+        for label in summarize_selected_anchor_sources(anchor_bundle)[:3]
+    )
+    anchor_row = (
+        f'<div style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;background:rgba(255,255,255,0.012);'
+        f'border-bottom:1px solid rgba(255,255,255,0.045);">{anchor_badges}</div>'
+        if anchor_badges
+        else ""
+    )
+
+    st.markdown(
+        f'<div style="background:linear-gradient(180deg,rgba(12,18,33,0.96),rgba(7,11,22,0.985));border-radius:24px;'
+        f'border:1px solid rgba(140,175,255,0.13);overflow:hidden;margin-bottom:16px;'
+        f'box-shadow:0 24px 56px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04);">'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;'
+        f'padding:16px 18px;background:radial-gradient(circle at 0% 0%,rgba(106,230,255,0.12),transparent 38%),rgba(255,255,255,0.018);'
+        f'border-bottom:1px solid rgba(167,191,255,0.10);flex-wrap:wrap;gap:10px;">'
+        f'<div>'
+        f'<div style="font-size:0.82rem;font-weight:900;color:#eaf8ff;text-transform:uppercase;letter-spacing:0.08em;">&#128208; Active ES Structure</div>'
+        f'<div style="font-size:0.76rem;color:rgba(166,237,255,0.60);margin-top:4px;">Projected polarity ladder from selected session anchors.</div>'
+        f'</div>'
+        f'<div>{price_badge_html}</div>'
+        f'</div>'
+        f'{anchor_row}'
+        f'{rows_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_key_levels_card(
     final_lines: dict[str, dict[str, Any]],
     current_es_price: float | None,
@@ -6268,6 +6405,15 @@ def render_key_levels_card(
     anchor_bundle: dict[str, Any] | None = None,
 ) -> None:
     """Render a premium visual key-levels ladder."""
+
+    render_structure_ladder_card(
+        final_lines,
+        current_es_price,
+        effective_offset,
+        compact=compact,
+        anchor_bundle=anchor_bundle,
+    )
+    return
 
     current_price = current_es_price if is_valid_price_input(current_es_price) else None
 
