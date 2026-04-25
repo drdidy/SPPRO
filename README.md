@@ -20,6 +20,9 @@ the frontend.
 ```text
 .
 |-- app.py
+|-- backend
+|   |-- main.py
+|   `-- README.md
 |-- core
 |   |-- __init__.py
 |   |-- confluence.py
@@ -30,6 +33,12 @@ the frontend.
 |   |-- time_utils.py
 |   `-- trade_log.py
 |-- requirements.txt
+|-- frontend
+|   |-- app
+|   |-- components
+|   |-- lib
+|   |-- package.json
+|   `-- README.md
 |-- README.md
 `-- tests
     `-- test_validation_case.py
@@ -57,6 +66,20 @@ python -m unittest discover -s tests -v
 ```bash
 streamlit run app.py
 ```
+
+## Run The New Production Web Surface
+
+The Streamlit app remains the research/Edge Lab console. The first Next.js
+operator surface lives in `frontend/`, with a FastAPI bridge in `backend/`.
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://localhost:3000`.
 
 ## Notes
 

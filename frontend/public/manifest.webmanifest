@@ -1,0 +1,10 @@
+{
+  "name": "SPX Prophet",
+  "short_name": "SPX Prophet",
+  "description": "Structure Into Execution",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050914",
+  "theme_color": "#050914",
+  "icons": []
+}

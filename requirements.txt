@@ -5,3 +5,5 @@ numpy
 streamlit
 plotly
 tastytrade
+fastapi
+uvicorn
