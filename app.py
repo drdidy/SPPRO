@@ -16966,12 +16966,12 @@ def render_live_decision_center(
     _conf_colors = {"positive": "#00e676", "warning": "#ffd740", "negative": "#ef5350"}
     _conf_color  = _conf_colors.get(_conf_cls, "#e0eeff")
     _play_kicker = f" &middot; {escape(str(active_play_label).upper())} PLAY" if str(active_play_label).lower() not in {"none", ""} else ""
-    _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:14px 18px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
-    _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:10px 18px;border-right:1px solid rgba(255,255,255,0.04);"
-    _lbl_s       = "display:block;font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.3);margin-bottom:5px;"
-    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.02rem;font-weight:500;color:#e0eeff;"
-    _chip_lbl    = "display:block;font-size:0.68rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.28);margin-bottom:3px;"
-    _chip_val    = "display:block;font-size:0.82rem;font-weight:600;color:rgba(244,247,255,0.78);"
+    _stat_cell   = "display:inline-block;flex:1;min-width:0;padding:15px 19px;border-right:1px solid rgba(255,255,255,0.05);background:rgba(255,255,255,0.013);"
+    _chip_cell   = "display:inline-block;flex:1;min-width:0;padding:11px 18px;border-right:1px solid rgba(255,255,255,0.04);"
+    _lbl_s       = "display:block;font-size:0.74rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(244,247,255,0.38);margin-bottom:6px;font-weight:700;"
+    _val_s       = "display:block;font-family:'JetBrains Mono',monospace;font-size:1.16rem;font-weight:650;color:#e0eeff;"
+    _chip_lbl    = "display:block;font-size:0.72rem;letter-spacing:0.09em;text-transform:uppercase;color:rgba(244,247,255,0.36);margin-bottom:4px;font-weight:700;"
+    _chip_val    = "display:block;font-size:0.92rem;font-weight:650;color:rgba(244,247,255,0.84);"
     _gauge_w     = max(0, min(100, confidence))
 
     st.markdown(
@@ -16980,29 +16980,29 @@ def render_live_decision_center(
         f'background:linear-gradient(180deg,rgba(3,10,26,0.99),rgba(1,6,18,1));'
         f'box-shadow:0 8px 40px rgba(0,0,0,0.5);">'
 
-        f'<div style="font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;'
-        f'color:rgba(106,230,255,0.55);padding:16px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
+        f'<div style="font-size:0.76rem;letter-spacing:0.15em;text-transform:uppercase;font-weight:800;'
+        f'color:rgba(106,230,255,0.68);padding:17px 24px 0;">⚡ DECISION COCKPIT{_play_kicker}</div>'
 
         f'<div style="display:flex;align-items:center;justify-content:space-between;'
         f'gap:16px;flex-wrap:wrap;padding:10px 24px 8px;">'
-        f'<div style="font-family:Outfit,sans-serif;font-size:1.45rem;font-weight:800;'
+        f'<div style="font-family:Outfit,sans-serif;font-size:1.72rem;font-weight:850;'
         f'color:#f4f7ff;line-height:1.2;">{escape(_display_headline)}</div>'
         f'<div style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;'
-        f'border-radius:30px;font-size:0.78rem;font-weight:700;letter-spacing:0.07em;'
+        f'border-radius:30px;font-size:0.88rem;font-weight:800;letter-spacing:0.07em;'
         f'text-transform:uppercase;white-space:nowrap;{_badge_style}">'
         f'{_badge_icon}&nbsp;{escape(_display_badge)}</div>'
         f'</div>'
 
-        f'<div style="font-size:0.82rem;color:rgba(244,247,255,0.48);line-height:1.55;padding:0 24px 8px;">{escape(subline)}</div>'
+        f'<div style="font-size:0.94rem;color:rgba(244,247,255,0.62);line-height:1.55;padding:0 24px 9px;font-weight:550;">{escape(subline)}</div>'
 
         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 24px 12px;">'
-        f'<code style="font-family:\'JetBrains Mono\',monospace;font-size:0.7rem;'
+        f'<code style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;'
         f'background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.14);'
         f'color:rgba(106,230,255,0.75);padding:2px 9px;border-radius:6px;">{escape(live_scenario)}</code>'
-        f'<span style="font-size:0.74rem;color:rgba(244,247,255,0.38);">{escape(live_structure_state)}</span>'
+        f'<span style="font-size:0.86rem;color:rgba(244,247,255,0.52);font-weight:600;">{escape(live_structure_state)}</span>'
         f'</div>'
 
-        + (f'<div style="font-size:0.74rem;color:rgba(255,212,64,0.65);padding:0 24px 10px;">{escape(transition_note)}</div>' if transition_note else '')
+        + (f'<div style="font-size:0.86rem;color:rgba(255,212,64,0.74);padding:0 24px 10px;font-weight:600;">{escape(transition_note)}</div>' if transition_note else '')
 
         + f'<div style="display:flex;border-top:1px solid rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.05);">'
         f'<div style="{_stat_cell}">'
@@ -17019,12 +17019,12 @@ def render_live_decision_center(
         f'</div>'
         f'<div style="{_stat_cell}">'
         f'<div style="{_lbl_s}">Confidence</div>'
-        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.02rem;font-weight:500;color:{_conf_color};">{confidence}%</div>'
+        f'<div style="display:block;font-family:\'JetBrains Mono\',monospace;font-size:1.16rem;font-weight:650;color:{_conf_color};">{confidence}%</div>'
         f'<div style="height:4px;margin-top:6px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">'
         f'<div style="height:100%;width:{_gauge_w}%;background:linear-gradient(90deg,#ef5350,#ffd740 50%,#00e676);border-radius:2px;"></div>'
         f'</div>'
         f'</div>'
-        f'<div style="display:inline-block;flex:1;min-width:0;padding:14px 18px;background:rgba(255,255,255,0.013);">'
+        f'<div style="display:inline-block;flex:1;min-width:0;padding:15px 19px;background:rgba(255,255,255,0.013);">'
         f'<div style="{_lbl_s}">Expected Fill</div>'
         f'<div style="{_val_s}">{escape(_fill_display)}</div>'
         f'</div>'
@@ -17051,13 +17051,13 @@ def render_live_decision_center(
         f'<div style="{_chip_lbl}">Crowding</div>'
         f'<div style="{_chip_val}">{escape(crowding_display["label"])}</div>'
         f'</div>'
-        f'<div style="display:inline-block;flex:1;min-width:0;padding:10px 18px;">'
+        f'<div style="display:inline-block;flex:1;min-width:0;padding:11px 18px;">'
         f'<div style="{_chip_lbl}">Event Risk</div>'
         f'<div style="{_chip_val}">{_event_risk_status}</div>'
         f'</div>'
         f'</div>'
 
-        f'<div style="padding:9px 24px;font-size:0.72rem;color:rgba(244,247,255,0.3);'
+        f'<div style="padding:10px 24px;font-size:0.82rem;color:rgba(244,247,255,0.46);'
         f'background:rgba(0,0,0,0.25);letter-spacing:0.02em;">'
         f'{escape(_lock_display)}'
         f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
