@@ -1578,6 +1578,16 @@ def inject_app_styles() -> None:
         .spx-chip.yellow { background: rgba(255,193,7,0.14); border-color: rgba(255,193,7,0.25); color: #fff2bf; }
         .spx-chip.red { background: rgba(255,82,82,0.14); border-color: rgba(255,82,82,0.24); color: #ffd0d0; }
         .spx-chip.gray { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: #d1deef; }
+        .spx-chip.soft {
+            background: rgba(148, 163, 184, 0.08);
+            border-color: rgba(148, 163, 184, 0.14);
+            color: rgba(226, 237, 255, 0.68);
+        }
+        .spx-chip.anchor {
+            background: rgba(0, 212, 255, 0.08);
+            border-color: rgba(0, 212, 255, 0.16);
+            color: rgba(166, 237, 255, 0.88);
+        }
         .spx-metric-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5470,8 +5480,12 @@ def render_key_levels_card(
         f'<div style="display:flex;align-items:center;justify-content:space-between;'
         f'padding:12px 18px;background:rgba(255,255,255,0.018);'
         f'border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;gap:8px;">'
-        f'<span style="font-size:0.78rem;font-weight:700;color:rgba(244,247,255,0.6);'
-        f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Key Levels &mdash; ES Structure</span>'
+        f'<div>'
+        f'<div style="font-size:0.78rem;font-weight:700;color:rgba(244,247,255,0.68);'
+        f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Active ES Structure</div>'
+        f'<div style="font-size:0.67rem;color:rgba(166,237,255,0.52);margin-top:2px;">'
+        f'Session-aware anchors drive these projected levels.</div>'
+        f'</div>'
         f'<div>{price_badge_html}</div>'
         f'</div>'
         f'{f"<div style=\"display:flex;flex-wrap:wrap;gap:8px;padding:10px 18px 0 18px;\">{anchor_badges}</div>" if anchor_badges else ""}'
@@ -5479,6 +5493,37 @@ def render_key_levels_card(
         f'</div>',
         unsafe_allow_html=True,
     )
+
+
+def render_active_anchor_strip(anchor_bundle: dict[str, Any] | None, *, compact: bool = True) -> None:
+    """Render one production-safe anchor source line to prevent PM/Asian confusion."""
+
+    labels = summarize_selected_anchor_sources(anchor_bundle)
+    if not labels:
+        return
+    source = str((anchor_bundle or {}).get("source", "") or "")
+    engine_label = "Session-aware anchors" if source == "session_aware_anchor_bundle" else "Manual anchors" if source == "manual_anchor_bundle" else "Anchor engine"
+    visible_labels = labels[:3 if compact else 5]
+    chips = "".join(
+        f'<span class="spx-chip anchor">{escape(label)}</span>'
+        for label in visible_labels
+        if str(label).strip()
+    )
+    if not chips:
+        return
+    st.markdown(
+        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;'
+        f'padding:9px 12px;margin:-4px 0 14px 0;border-radius:14px;'
+        f'background:linear-gradient(135deg,rgba(0,212,255,0.055),rgba(255,255,255,0.018));'
+        f'border:1px solid rgba(0,212,255,0.12);box-shadow:inset 0 1px 0 rgba(255,255,255,0.035);'
+        f'flex-wrap:wrap;">'
+        f'<div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.12em;'
+        f'font-weight:760;color:rgba(166,237,255,0.62);">{escape(engine_label)}</div>'
+        f'<div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;">{chips}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
 
 def resolve_line_from_projected_bundle(
     projected_lines: dict[str, dict[str, Any]],
@@ -11210,10 +11255,12 @@ def render_options_provider_preview(
 
                 def _highlight_ladder(row):
                     row_text = " ".join(str(value) for value in row.values)
-                    if "Recommended" in row_text:
+                    if "Selected by You" in row_text or "User Selected" in row_text:
+                        return ["background-color: rgba(255, 193, 7, 0.13); font-weight: 650;" for _ in row]
+                    if "Recommended" in row_text or "System Pick" in row_text:
                         return ["background-color: rgba(0, 230, 118, 0.14); font-weight: 600;" for _ in row]
-                    if "Selected by You" in row_text:
-                        return ["background-color: rgba(255, 193, 7, 0.12);" for _ in row]
+                    if "Cheapest" in row_text or "Best RR" in row_text:
+                        return ["background-color: rgba(0, 212, 255, 0.07);" for _ in row]
                     return ["" for _ in row]
 
                 st.dataframe(
@@ -17092,6 +17139,7 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
+        render_active_anchor_strip(anchor_bundle, compact=not developer_mode)
         safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
             render_trade_decision_summary(
@@ -17260,7 +17308,12 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
-        st.caption("Execution estimates are model-based and may diverge on volatile or event-driven moves.")
+        st.markdown(
+            '<div style="font-size:0.68rem;color:rgba(226,237,255,0.42);padding:7px 11px;'
+            'border-radius:10px;background:rgba(255,255,255,0.018);border:1px solid rgba(255,255,255,0.045);'
+            'margin:4px 0 12px 0;">Execution estimates are model-based and may diverge on volatile or event-driven moves.</div>',
+            unsafe_allow_html=True,
+        )
         render_divider()
         safe_render_section("Market Intelligence", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
 
