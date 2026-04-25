@@ -23,7 +23,9 @@ from app import (
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
+    build_execution_ticket,
     build_vwap_context_from_candles,
+    build_institutional_absorption_proxy,
     build_live_play_trade_prefill,
     build_selected_contract_binding,
     build_stop_target_authority,
@@ -35,6 +37,7 @@ from app import (
     build_quote_quality_report,
     build_live_data_health_report,
     build_open_smoke_test_report,
+    build_review_completion_status,
     build_replay_review_summary,
     build_end_of_day_review_prompts,
     build_research_calibration_metrics,
@@ -1010,6 +1013,44 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(report["overall_status"], "BLOCKED")
         self.assertEqual(report["alternate_quote_quality"]["quote_quality_status"], "BLOCKED")
 
+    def test_absorption_proxy_elevates_without_claiming_dark_pool_detection(self) -> None:
+        proxy = build_institutional_absorption_proxy(
+            line_polarity={
+                "polarity_state": "extended_rejection",
+                "vwap_alignment": "DOWNGRADED",
+                "line_used": {"projected_price": 7120.0},
+            },
+            crowding_context={
+                "direction_is_crowded": True,
+                "crowding_quality": "strong",
+                "crowding_risk_level": "heavy",
+            },
+            selected_contract_quote={"price": 1.2, "bid": 1.05, "ask": 1.65},
+            direction="CALL",
+            current_candle={"open": 7118.0, "high": 7128.0, "low": 7119.5, "close": 7121.0},
+        )
+
+        self.assertIn(proxy["absorption_proxy_level"], {"elevated", "heavy"})
+        self.assertGreaterEqual(proxy["absorption_proxy_score"], 50)
+        self.assertFalse(proxy["dark_pool_claim"])
+
+    def test_execution_ticket_uses_expected_fill_as_max_fill(self) -> None:
+        ticket = build_execution_ticket(
+            authority={"execution_action": "ENTER NOW", "decision": "STRONG BUY", "authoritative_stop_spx": 7110.0},
+            selected_quote={
+                "contract_symbol": "SPXW260422P07100000",
+                "strike": 7100.0,
+                "price": 1.2,
+                "projected_mark_at_entry": 1.45,
+                "projected_fill_at_entry": 1.58,
+            },
+            play={"direction": "PUT", "contracts": 1},
+        )
+
+        self.assertEqual(ticket["contract_symbol"], "SPXW260422P07100000")
+        self.assertEqual(ticket["max_fill_limit"], 1.58)
+        self.assertEqual(ticket["stop_spx"], 7110.0)
+
     def test_open_smoke_requires_fixed_option_target(self) -> None:
         report = build_open_smoke_test_report(
             inputs={},
@@ -1039,6 +1080,12 @@ class AppUnitTests(unittest.TestCase):
         prompts = build_end_of_day_review_prompts({"result": "Loss"})
 
         self.assertTrue(any("stop authority" in prompt.lower() for prompt in prompts))
+
+    def test_review_completion_status_flags_unreviewed_trade(self) -> None:
+        status = build_review_completion_status({"result": "Open", "confirmation_status": "Not Recorded", "notes": ""})
+
+        self.assertEqual(status["status"], "NEEDS_REVIEW")
+        self.assertIn("confirmation", status["missing_fields"])
 
     def test_time_target_pricing_applies_theta_and_keeps_fill_conservative(self) -> None:
         now_ct = app_module.at_central(date(2026, 4, 22), 8, 20)

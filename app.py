@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from html import escape
@@ -4644,6 +4645,9 @@ def build_decision_audit_snapshot(
         "projected_fill_at_entry": _to_float_or_none(selected_quote.get("projected_fill_at_entry") or selected_quote.get("expected_fill_mark")),
         "budget_status": str(selected_quote.get("budget_status", "")),
         "quote_quality_status": str((data_health or {}).get(quote_key, {}).get("quote_quality_status", "")),
+        "absorption_proxy_level": str(authority.get("absorption_proxy_level", "")),
+        "absorption_proxy_score": int(authority.get("absorption_proxy_score", 0) or 0),
+        "absorption_proxy_reason": str(authority.get("absorption_proxy_reason", "")),
         "execution_action": str(authority.get("execution_action", "")),
         "setup_state": str(authority.get("setup_state", "")),
         "alert_state": str(authority.get("alert_state", "")),
@@ -4704,6 +4708,231 @@ def build_end_of_day_review_prompts(trade: dict[str, Any] | None = None) -> list
     return prompts
 
 
+def build_review_completion_status(trade: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Summarize whether a saved trade has enough human review to learn from."""
+
+    trade = trade or {}
+    if not trade:
+        return {"status": "NO_TRADE", "message": "No saved trade is ready for review.", "missing_fields": []}
+    missing: list[str] = []
+    if str(trade.get("confirmation_status", "")).strip() in {"", "Not Recorded"}:
+        missing.append("confirmation")
+    if str(trade.get("result", "")).strip() in {"", "Open"}:
+        missing.append("result")
+    if not str(trade.get("actual_notes") or trade.get("notes") or "").strip():
+        missing.append("review notes")
+    if bool(trade.get("actual_trade_taken")) and _positive_price_or_none(trade.get("actual_entry_price_option")) is None:
+        missing.append("actual fill")
+    if missing:
+        return {
+            "status": "NEEDS_REVIEW",
+            "message": f"Needs review: {', '.join(missing)}.",
+            "missing_fields": missing,
+        }
+    return {"status": "COMPLETE", "message": "Reviewed trade is ready for learning.", "missing_fields": []}
+
+
+def get_git_commit_hash() -> str:
+    """Return the current short commit hash without surfacing git failures in the UI."""
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def build_app_monitor_snapshot(
+    *,
+    options_provider_status: dict[str, Any] | None = None,
+    event_risk_context: dict[str, Any] | None = None,
+    data_health: dict[str, Any] | None = None,
+    smoke_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compact deployment/feed status snapshot for Edge Lab and health footer."""
+
+    provider = options_provider_status or {}
+    event_context = event_risk_context or {}
+    return {
+        "app_version": APP_VERSION,
+        "anchor_engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
+        "commit_hash": get_git_commit_hash(),
+        "generated_at": current_central_time().isoformat(),
+        "options_provider": str(provider.get("provider_name") or provider.get("name") or provider.get("provider") or "unknown"),
+        "options_status": str(provider.get("status") or provider.get("state") or "unknown"),
+        "event_risk_level": str(event_context.get("event_risk_level", "unknown")),
+        "news_status": str(event_context.get("source_status", "unknown")),
+        "calendar_status": str(event_context.get("calendar_source_status", "unknown")),
+        "data_health_status": str((data_health or {}).get("overall_status", "unknown")),
+        "open_smoke_status": str((smoke_report or {}).get("status", "unknown")),
+    }
+
+
+def _candle_absorption_score(current_candle: dict[str, Any] | None, line_price: float | None) -> tuple[int, str]:
+    """Infer wick/body rejection evidence from the current candle only."""
+
+    candle = current_candle or {}
+    high = _to_float_or_none(candle.get("high"))
+    low = _to_float_or_none(candle.get("low"))
+    open_price = _to_float_or_none(candle.get("open"))
+    close = _to_float_or_none(candle.get("close"))
+    if None in {high, low, open_price, close} or high == low:
+        return 0, "No candle rejection evidence available."
+    candle_range = abs(float(high) - float(low))
+    body = abs(float(close) - float(open_price))
+    wick_ratio = max(0.0, min(1.0, (candle_range - body) / candle_range))
+    line_near = line_price is not None and float(low) - 1.5 <= float(line_price) <= float(high) + 1.5
+    if wick_ratio >= 0.65 and line_near:
+        return 12, "Large wick near active polarity line."
+    if wick_ratio >= 0.5 and line_near:
+        return 7, "Moderate wick near active polarity line."
+    return 0, "No strong wick rejection near active line."
+
+
+def build_institutional_absorption_proxy(
+    *,
+    line_polarity: dict[str, Any] | None = None,
+    vwap_context: dict[str, Any] | None = None,
+    crowding_context: dict[str, Any] | None = None,
+    selected_contract_quote: dict[str, Any] | None = None,
+    direction: str = "",
+    current_candle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Estimate absorption/fade risk from available evidence; this is not dark-pool detection."""
+
+    polarity = line_polarity or {}
+    crowding = crowding_context or {}
+    quote_quality = build_quote_quality_report(selected_contract_quote)
+    score = 0
+    inputs: list[str] = []
+
+    polarity_state = str(polarity.get("polarity_state", "")).lower()
+    if polarity_state in {"extended_rejection", "pending_retest"}:
+        score += 25
+        inputs.append("extended line reaction")
+    elif polarity_state in {"support_hold", "resistance_rejection"} and not bool(polarity.get("actionable")):
+        score += 10
+        inputs.append("line reaction not actionable yet")
+
+    vwap_alignment = str(polarity.get("vwap_alignment") or (vwap_context or {}).get("alignment") or "").upper()
+    if vwap_alignment in {"DOWNGRADED", "CONFLICT"}:
+        score += 15
+        inputs.append("VWAP conflicts with direction")
+
+    crowding_quality = str(crowding.get("crowding_quality", "insufficient")).lower()
+    crowding_level = str(crowding.get("crowding_risk_level", "unknown")).lower()
+    if bool(crowding.get("direction_is_crowded")) and crowding_quality in {"strong", "moderate"}:
+        crowd_points = {"elevated": 10, "heavy": 18, "extreme": 24}.get(crowding_level, 8)
+        score += crowd_points
+        inputs.append(f"{crowding_level or 'same-direction'} options crowding")
+
+    quote_status = str(quote_quality.get("quote_quality_status", "")).upper()
+    if quote_status == "CAUTION":
+        score += 8
+        inputs.append("quote quality caution")
+    elif quote_status == "BLOCKED":
+        score += 14
+        inputs.append("execution quote blocked")
+
+    line_price = _to_float_or_none((polarity.get("line_used") or {}).get("projected_price") or (polarity.get("line_used") or {}).get("line_price"))
+    candle_score, candle_reason = _candle_absorption_score(current_candle, line_price)
+    if candle_score:
+        score += candle_score
+        inputs.append(candle_reason)
+
+    score = int(max(0, min(100, score)))
+    if score >= 70:
+        level = "heavy"
+        label = "Heavy"
+    elif score >= 50:
+        level = "elevated"
+        label = "Elevated"
+    elif score >= 25:
+        level = "watch"
+        label = "Watch"
+    else:
+        level = "quiet"
+        label = "Quiet"
+    reason = (
+        "Potential absorption/market-maker fade risk from available evidence; not dark-pool proof."
+        if level in {"elevated", "heavy"}
+        else "No strong absorption/fade signal from available data."
+        if level == "quiet"
+        else "Absorption watch: avoid chasing until confirmation improves."
+    )
+    return {
+        "absorption_proxy_level": level,
+        "absorption_proxy_label": label,
+        "absorption_proxy_score": score,
+        "absorption_proxy_reason": reason,
+        "absorption_proxy_inputs": inputs,
+        "absorption_proxy_direction": str(direction or "").upper(),
+        "dark_pool_claim": False,
+    }
+
+
+def build_execution_ticket(
+    *,
+    authority: dict[str, Any] | None,
+    selected_quote: dict[str, Any] | None,
+    play: dict[str, Any] | None,
+    event_risk_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a broker-style handoff payload without adding production UI clutter."""
+
+    authority = authority or {}
+    quote = selected_quote or {}
+    play = play or {}
+    projected_fill = _non_negative_option_price(quote.get("projected_fill_at_entry") or quote.get("expected_fill_mark"))
+    projected_mark = _non_negative_option_price(quote.get("projected_mark_at_entry") or quote.get("predicted_entry_price"))
+    current_mark = _non_negative_option_price(quote.get("price") or quote.get("current_mark"))
+    max_fill = projected_fill or projected_mark or current_mark
+    return {
+        "ticket_generated_at": current_central_time().isoformat(),
+        "action": str(authority.get("execution_action", "")),
+        "decision": str(authority.get("decision", "")),
+        "contract_symbol": str(quote.get("contract_symbol") or quote.get("symbol") or ""),
+        "option_type": str(quote.get("option_type") or play.get("direction") or ""),
+        "strike": _to_float_or_none(quote.get("strike") or play.get("strike")),
+        "current_mark": current_mark,
+        "at_entry_estimate": projected_mark,
+        "expected_fill": projected_fill,
+        "max_fill_limit": round_price(max_fill) if max_fill is not None else None,
+        "budget_status": str(authority.get("budget_execution_status") or quote.get("budget_status") or ""),
+        "contracts": int(play.get("contracts", 1) or 1),
+        "stop_spx": _to_float_or_none(authority.get("authoritative_stop_spx")),
+        "target_1_spx": _to_float_or_none(authority.get("target_1_spx")),
+        "target_2_spx": _to_float_or_none(authority.get("target_2_spx")),
+        "invalidation": str(authority.get("invalidation_message") or authority.get("setup_state_reason") or ""),
+        "event_risk_level": str((event_risk_context or {}).get("event_risk_level", authority.get("event_risk_level", ""))),
+        "absorption_proxy_level": str(authority.get("absorption_proxy_level", "")),
+        "absorption_proxy_score": int(authority.get("absorption_proxy_score", 0) or 0),
+    }
+
+
+def build_alert_delivery_payload(authority: dict[str, Any] | None, ticket: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Single alert payload future integrations can consume without changing UI."""
+
+    authority = authority or {}
+    ticket = ticket or {}
+    return {
+        "alert_state": str(authority.get("alert_state", "QUIET")),
+        "alert_priority": str(authority.get("alert_priority", "LOW")),
+        "message": str(authority.get("alert_message") or authority.get("execution_action_reason") or ""),
+        "action": str(authority.get("execution_action", "")),
+        "contract_symbol": str(ticket.get("contract_symbol", "")),
+        "max_fill_limit": ticket.get("max_fill_limit"),
+        "created_at": current_central_time().isoformat(),
+    }
+
+
 def build_execution_state(
     *,
     play: dict[str, Any] | None,
@@ -4719,6 +4948,8 @@ def build_execution_state(
     projected_lines_spx: dict[str, dict[str, Any]] | None = None,
     current_candle: dict[str, Any] | None = None,
     vwap_value: float | None = None,
+    vwap_context: dict[str, Any] | None = None,
+    crowding_context: dict[str, Any] | None = None,
     anchor_bundle: dict[str, Any] | None = None,
     polarity_state_key: str | None = None,
 ) -> dict[str, Any]:
@@ -4926,6 +5157,23 @@ def build_execution_state(
             "action": "SKIP TRADE",
             "reason": quote_quality["quote_quality_message"],
         }
+    absorption_proxy = build_institutional_absorption_proxy(
+        line_polarity=line_polarity,
+        vwap_context=vwap_context or ({"vwap": vwap_value} if _to_float_or_none(vwap_value) is not None else {}),
+        crowding_context=crowding_context,
+        selected_contract_quote=selected_contract_quote,
+        direction=direction,
+        current_candle=current_candle,
+    )
+    if (
+        absorption_proxy["absorption_proxy_level"] in {"elevated", "heavy"}
+        and action["action"] == "ENTER NOW"
+        and quote_quality["quote_execution_allowed"]
+    ):
+        action = {
+            "action": "PREPARE WITH CAUTION",
+            "reason": absorption_proxy["absorption_proxy_reason"],
+        }
 
     if plan_validity["label"] in {"invalid", "stale"}:
         retest_summary = "If price returns to entry: still no trade, structure no longer supports the original thesis."
@@ -5091,6 +5339,7 @@ def build_execution_state(
         "estimated_position_cost": estimated_position_cost,
         "affordable_contract_count": affordable_contract_count,
         **quote_quality,
+        **absorption_proxy,
         **checklist,
         "locked_selected_contract_symbol": str((option_display_state or {}).get("locked_selected_contract_symbol") or recommended_symbol or selected_symbol),
         "locked_selected_strike": _to_float_or_none((option_display_state or {}).get("locked_selected_strike")),
@@ -7479,6 +7728,14 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "crowding_score": int(raw_trade.get("crowding_score", 0) or 0),
         "crowding_quality": str(raw_trade.get("crowding_quality", "")),
         "crowding_reason": str(raw_trade.get("crowding_reason", "")),
+        "absorption_proxy_level": str(raw_trade.get("absorption_proxy_level", "")),
+        "absorption_proxy_label": str(raw_trade.get("absorption_proxy_label", "")),
+        "absorption_proxy_score": int(raw_trade.get("absorption_proxy_score", 0) or 0),
+        "absorption_proxy_reason": str(raw_trade.get("absorption_proxy_reason", "")),
+        "absorption_proxy_inputs": list(raw_trade.get("absorption_proxy_inputs", [])) if isinstance(raw_trade.get("absorption_proxy_inputs", []), list) else [],
+        "dark_pool_claim": bool(raw_trade.get("dark_pool_claim", False)),
+        "execution_ticket": dict(raw_trade.get("execution_ticket", {})) if isinstance(raw_trade.get("execution_ticket", {}), dict) else {},
+        "alert_delivery_payload": dict(raw_trade.get("alert_delivery_payload", {})) if isinstance(raw_trade.get("alert_delivery_payload", {}), dict) else {},
         "entry_zone_low_spx": round_price(float(raw_trade.get("entry_zone_low_spx", 0.0))),
         "entry_zone_high_spx": round_price(float(raw_trade.get("entry_zone_high_spx", 0.0))),
         "entry_zone_mid_spx": round_price(float(raw_trade.get("entry_zone_mid_spx", 0.0))),
@@ -7968,6 +8225,12 @@ def build_live_play_trade_prefill(
             and operator_selected_contract_symbol != recommended_contract_symbol
         )
     )
+    execution_ticket = build_execution_ticket(
+        authority=authority,
+        selected_quote=lead_option_quote,
+        play=play_spx,
+    )
+    alert_delivery_payload = build_alert_delivery_payload(authority, execution_ticket)
 
     return {
         "source": f"Tab 1 {play_type} play",
@@ -8102,6 +8365,14 @@ def build_live_play_trade_prefill(
         "crowding_score": int((authority or {}).get("crowding_score", 0) or 0),
         "crowding_quality": str((authority or {}).get("crowding_quality", "")),
         "crowding_reason": str((authority or {}).get("crowding_reason", "")),
+        "absorption_proxy_level": str((authority or {}).get("absorption_proxy_level", "")),
+        "absorption_proxy_label": str((authority or {}).get("absorption_proxy_label", "")),
+        "absorption_proxy_score": int((authority or {}).get("absorption_proxy_score", 0) or 0),
+        "absorption_proxy_reason": str((authority or {}).get("absorption_proxy_reason", "")),
+        "absorption_proxy_inputs": list((authority or {}).get("absorption_proxy_inputs", [])) if isinstance((authority or {}).get("absorption_proxy_inputs", []), list) else [],
+        "dark_pool_claim": bool((authority or {}).get("dark_pool_claim", False)),
+        "execution_ticket": execution_ticket,
+        "alert_delivery_payload": alert_delivery_payload,
         "entry_zone_low_spx": float((authority or {}).get("entry_zone_low_spx", 0.0) or 0.0),
         "entry_zone_high_spx": float((authority or {}).get("entry_zone_high_spx", 0.0) or 0.0),
         "entry_zone_mid_spx": float((authority or {}).get("entry_zone_mid_spx", 0.0) or 0.0),
@@ -9141,6 +9412,12 @@ def build_play_decision_authority(
             "crowding_score": 0,
             "crowding_quality": "insufficient",
             "crowding_reason": "No active setup",
+            "absorption_proxy_level": "quiet",
+            "absorption_proxy_label": "Quiet",
+            "absorption_proxy_score": 0,
+            "absorption_proxy_reason": "No active setup",
+            "absorption_proxy_inputs": [],
+            "dark_pool_claim": False,
         }
 
     option_display_state = option_display_state or {}
@@ -9241,6 +9518,8 @@ def build_play_decision_authority(
         projected_lines_spx=projected_lines_spx,
         current_candle=current_candle,
         vwap_value=vwap_value,
+        vwap_context=vwap_context,
+        crowding_context=crowding_context,
         anchor_bundle=anchor_bundle,
         polarity_state_key=f"{play_role}|{(signal_package or {}).get('scenario', {}).get('scenario_name', '')}|{(play or {}).get('entry', {}).get('label', '')}",
     )
@@ -9334,6 +9613,12 @@ def build_play_decision_authority(
         and crowding_level in {"heavy", "extreme"}
     ):
         reason_line = f"{reason_line} Crowding risk is {crowding_level}; avoid chasing if fills worsen."
+    if (
+        decision != "NO TRADE"
+        and str(execution_state.get("absorption_proxy_level", "")).lower() in {"elevated", "heavy"}
+        and str(execution_state.get("execution_action")) != "PREPARE WITH CAUTION"
+    ):
+        reason_line = f"{reason_line} Absorption risk is elevated; wait for clean confirmation."
 
     factor_states = [
         {"label": "Structure", "state": "GOOD" if structure_valid else "BAD"},
@@ -9417,6 +9702,12 @@ def build_play_decision_authority(
         "crowding_score": int(crowding_context.get("crowding_score", 0) or 0),
         "crowding_quality": str(crowding_context.get("crowding_quality", "insufficient")),
         "crowding_reason": str(crowding_context.get("crowding_reason", "")),
+        "absorption_proxy_level": execution_state.get("absorption_proxy_level"),
+        "absorption_proxy_label": execution_state.get("absorption_proxy_label"),
+        "absorption_proxy_score": execution_state.get("absorption_proxy_score"),
+        "absorption_proxy_reason": execution_state.get("absorption_proxy_reason"),
+        "absorption_proxy_inputs": execution_state.get("absorption_proxy_inputs", []),
+        "dark_pool_claim": bool(execution_state.get("dark_pool_claim", False)),
         "line_polarity_distance_to_line": execution_state.get("line_polarity_distance_to_line"),
         "line_polarity_close_distance": execution_state.get("line_polarity_close_distance"),
         "line_polarity_line_used": execution_state.get("line_polarity_line_used"),
@@ -15310,6 +15601,15 @@ def render_trade_log_tab(
         with st.container(border=True):
             st.markdown("#### End-of-Day Operator Review")
             latest_trade = normalized_trades[-1] if normalized_trades else {}
+            review_status = build_review_completion_status(latest_trade)
+            status_color = "#00e676" if review_status["status"] == "COMPLETE" else "#ffd740" if review_status["status"] == "NEEDS_REVIEW" else "#8eb8d4"
+            st.markdown(
+                f'<div style="display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:999px;'
+                f'background:rgba(255,255,255,0.04);border:1px solid {status_color}55;color:{status_color};'
+                f'font-size:0.72rem;font-weight:800;margin-bottom:0.5rem;">Review Status: {escape(str(review_status["status"]).replace("_", " ").title())}</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(str(review_status["message"]))
             prompts = latest_trade.get("end_of_day_review_prompts") if latest_trade else None
             for prompt in (prompts or build_end_of_day_review_prompts(latest_trade)):
                 st.write(f"- {prompt}")
@@ -16716,7 +17016,12 @@ def render_alert_panel(primary_authority: dict[str, Any] | None, alternate_autho
     )
 
 
-def render_live_data_health_panel(data_health: dict[str, Any] | None, smoke_report: dict[str, Any] | None = None) -> None:
+def render_live_data_health_panel(
+    data_health: dict[str, Any] | None,
+    smoke_report: dict[str, Any] | None = None,
+    app_monitor: dict[str, Any] | None = None,
+    absorption_proxy: dict[str, Any] | None = None,
+) -> None:
     """Render a compact reliability strip for live execution inputs."""
 
     data_health = data_health or {"overall_status": "CAUTION", "components": [], "summary": "Data health unavailable"}
@@ -16740,6 +17045,20 @@ def render_live_data_health_panel(data_health: dict[str, Any] | None, smoke_repo
         )
     smoke_status = str(smoke_report.get("status", "WARN")).upper() if smoke_report else "WARN"
     smoke_color = {"PASS": "#00e676", "WARN": "#ffd740", "FAIL": "#ef5350"}.get(smoke_status, "#ffd740")
+    app_monitor = app_monitor or {}
+    absorption_proxy = absorption_proxy or {}
+    version_line = (
+        f"{APP_TITLE} {app_monitor.get('app_version', APP_VERSION)}"
+        f" | Commit {app_monitor.get('commit_hash', 'unknown')}"
+        f" | Engine {app_monitor.get('anchor_engine_version', ANCHOR_SELECTION_ENGINE_VERSION)}"
+    )
+    absorption_line = ""
+    absorption_level = str(absorption_proxy.get("absorption_proxy_level", "")).lower()
+    if absorption_level and absorption_level not in {"quiet", "unknown"}:
+        absorption_line = (
+            f" | Absorption proxy {absorption_proxy.get('absorption_proxy_label', absorption_level.title())}"
+            f" ({int(absorption_proxy.get('absorption_proxy_score', 0) or 0)})"
+        )
     st.markdown(
         f'<div style="border-radius:14px;border:1px solid rgba(0,212,255,0.10);'
         f'background:rgba(4,8,20,0.82);padding:12px 14px;margin:0 0 14px 0;">'
@@ -16751,6 +17070,7 @@ def render_live_data_health_panel(data_health: dict[str, Any] | None, smoke_repo
         f'</div></div>'
         f'<div style="display:flex;gap:7px;flex-wrap:wrap;">{chips}</div>'
         f'<div style="margin-top:8px;font-size:0.74rem;color:rgba(224,238,255,0.55);">{escape(str(data_health.get("summary", "")))}</div>'
+        f'<div style="margin-top:5px;font-size:0.68rem;color:rgba(224,238,255,0.38);">{escape(version_line + absorption_line)}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -17137,6 +17457,8 @@ def render_operator_play_card(
     max_affordable_fill = selected_contract.get("max_affordable_fill_under_budget")
     event_risk_label = str(authority.get("event_risk_level", "unknown")).replace("_", " ").title()
     crowding_label = resolve_crowding_display(authority.get("crowding_context"))["label"]
+    absorption_level = str(authority.get("absorption_proxy_level", "quiet")).lower()
+    absorption_label = str(authority.get("absorption_proxy_label") or absorption_level.title() or "Quiet")
     manual_override_active = bool(option_display_state.get("manual_override"))
     auto_execution_shift = bool(option_display_state.get("auto_execution_shift"))
     ladder_rows = option_display_state.get("ladder_rows", [])
@@ -17182,6 +17504,8 @@ def render_operator_play_card(
         f"<span class=\"spx-chip scenario-neutral\">Crowding {escape(crowding_label)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(budget_execution_status or selected_budget_status or 'Unknown')}</span>",
     ]
+    if absorption_level in {"elevated", "heavy"}:
+        badge_bits.append(f"<span class=\"spx-chip yellow\">Absorption {escape(absorption_label)}</span>")
     st.markdown(
         f"""
         <div class="spx-play-shell {'primary' if is_primary else 'alternate'}{' filtered' if decision == 'NO TRADE' else ''}">
@@ -17848,6 +18172,24 @@ def render_live_mode_shell(
             primary_authority=primary_authority,
             alternate_authority=alternate_authority,
         )
+        app_monitor_snapshot = build_app_monitor_snapshot(
+            options_provider_status=options_provider_status,
+            event_risk_context=event_risk_context,
+            data_health=live_data_health,
+            smoke_report=open_smoke_report,
+        )
+        primary_execution_ticket = build_execution_ticket(
+            authority=primary_authority,
+            selected_quote=primary_selected_contract_quote,
+            play=primary_play_spx,
+            event_risk_context=event_risk_context,
+        )
+        alternate_execution_ticket = build_execution_ticket(
+            authority=alternate_authority,
+            selected_quote=alternate_selected_contract_quote,
+            play=alternate_play_spx,
+            event_risk_context=event_risk_context,
+        )
         active_audit_snapshot = build_decision_audit_snapshot(
             play_label=hero_active_play,
             authority=hero_authority,
@@ -17858,6 +18200,15 @@ def render_live_mode_shell(
             data_health=live_data_health,
         )
         st.session_state["latest_decision_audit_snapshot"] = active_audit_snapshot
+        st.session_state["latest_app_monitor_snapshot"] = app_monitor_snapshot
+        st.session_state["latest_execution_tickets"] = {
+            "primary": primary_execution_ticket,
+            "alternate": alternate_execution_ticket,
+        }
+        st.session_state["latest_alert_delivery_payload"] = build_alert_delivery_payload(
+            hero_authority,
+            primary_execution_ticket if hero_active_play == "Primary" else alternate_execution_ticket if hero_active_play == "Alternate" else {},
+        )
         safe_render_section(
             "Decision Center",
             lambda: render_live_decision_center(
@@ -17876,12 +18227,25 @@ def render_live_mode_shell(
             ),
             developer_mode=developer_mode,
         )
-        safe_render_section("Live Data Health", lambda: render_live_data_health_panel(live_data_health, open_smoke_report), developer_mode=developer_mode)
+        safe_render_section(
+            "Live Data Health",
+            lambda: render_live_data_health_panel(
+                live_data_health,
+                open_smoke_report,
+                app_monitor=app_monitor_snapshot,
+                absorption_proxy=hero_authority,
+            ),
+            developer_mode=developer_mode,
+        )
         if developer_mode:
             with st.expander("Decision Audit Trail", expanded=False):
                 st.json(active_audit_snapshot, expanded=False)
             with st.expander("Open Smoke Test", expanded=False):
                 st.json(open_smoke_report, expanded=False)
+            with st.expander("Execution Tickets", expanded=False):
+                st.json(st.session_state.get("latest_execution_tickets", {}), expanded=False)
+            with st.expander("App Monitor", expanded=False):
+                st.json(app_monitor_snapshot, expanded=False)
         render_active_anchor_strip(anchor_bundle, compact=not developer_mode)
         safe_render_section("Execution Alerts", lambda: render_alert_panel(primary_authority, alternate_authority), developer_mode=developer_mode)
         if developer_mode and display_signal_package is not None:
@@ -17971,6 +18335,9 @@ def render_live_mode_shell(
             "crowding_score": primary_authority.get("crowding_score"),
             "crowding_quality": primary_authority.get("crowding_quality"),
             "crowding_reason": primary_authority.get("crowding_reason"),
+            "absorption_proxy_level": primary_authority.get("absorption_proxy_level"),
+            "absorption_proxy_score": primary_authority.get("absorption_proxy_score"),
+            "absorption_proxy_reason": primary_authority.get("absorption_proxy_reason"),
         }
         if display_signal_package is not None:
             play_specs = [
