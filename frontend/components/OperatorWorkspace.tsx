@@ -91,12 +91,27 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         <motion.header className="topbar cinematic-topbar masthead" variants={panelVariants}>
           <div className="masthead-sheen" aria-hidden="true" />
           <div className="masthead-brand">
-            <div className="brand-orb">
-              <span>SP</span>
+            <div className="prophet-mark" aria-hidden="true">
+              <svg viewBox="0 0 112 112" role="img">
+                <defs>
+                  <linearGradient id="prophetMarkLine" x1="16" x2="96" y1="92" y2="16">
+                    <stop stopColor="#7ad7df" />
+                    <stop offset="1" stopColor="#d8aa57" />
+                  </linearGradient>
+                </defs>
+                <path className="mark-frame" d="M56 7 96 30v52L56 105 16 82V30L56 7Z" />
+                <path className="mark-cone" d="M24 78 56 27l32 51" />
+                <path className="mark-line mark-line-a" d="M24 78 88 34" />
+                <path className="mark-line mark-line-b" d="M24 34 88 78" />
+                <circle className="mark-node node-a" cx="56" cy="27" r="4" />
+                <circle className="mark-node node-b" cx="24" cy="78" r="4" />
+                <circle className="mark-node node-c" cx="88" cy="78" r="4" />
+                <circle className="mark-core" cx="56" cy="56" r="7" />
+              </svg>
             </div>
-            <div>
+            <div className="brand-lockup">
               <span className="brand-kicker">Execution Intelligence</span>
-              <h1>SPX PROPHET</h1>
+              <h1 className="wordmark"><span>SPX</span><span>PROPHET</span></h1>
               <p>Structure Into Execution</p>
             </div>
           </div>

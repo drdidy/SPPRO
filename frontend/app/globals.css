@@ -261,28 +261,101 @@ button {
   min-width: 0;
 }
 
-.brand-orb {
-  width: 68px;
-  height: 68px;
-  border-radius: 22px;
+.prophet-mark {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  flex: 0 0 auto;
-  border: 1px solid var(--line-strong);
+  border-radius: 28px;
+  border: 1px solid rgba(122,215,223,0.22);
   background:
-    radial-gradient(circle at 32% 28%, rgba(255,255,255,0.2), transparent 30%),
-    linear-gradient(145deg, rgba(122,215,223,0.22), rgba(216,170,87,0.12));
+    radial-gradient(circle at 38% 30%, rgba(255,255,255,0.16), transparent 34%),
+    linear-gradient(145deg, rgba(122,215,223,0.13), rgba(216,170,87,0.075) 62%, rgba(255,255,255,0.025));
   box-shadow:
-    inset 0 0 24px rgba(255,255,255,0.06),
-    0 18px 42px rgba(122,215,223,0.14);
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    inset 0 -18px 42px rgba(0,0,0,0.18),
+    0 22px 54px rgba(122,215,223,0.16);
 }
 
-.brand-orb span {
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  font-weight: 900;
-  letter-spacing: -0.08em;
+.prophet-mark::before,
+.prophet-mark::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.prophet-mark::before {
+  background: conic-gradient(from 210deg, transparent, rgba(122,215,223,0.42), transparent 34%, rgba(216,170,87,0.28), transparent 68%);
+  opacity: 0.54;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  padding: 1px;
+}
+
+.prophet-mark::after {
+  inset: 10px;
+  background: radial-gradient(circle, rgba(122,215,223,0.2), transparent 60%);
+  filter: blur(12px);
+  opacity: 0.78;
+  animation: brand-pulse 3.8s ease-in-out infinite;
+}
+
+.prophet-mark svg {
+  position: relative;
+  z-index: 1;
+  width: 72px;
+  height: 72px;
+  overflow: visible;
+}
+
+.mark-frame,
+.mark-cone {
+  fill: none;
+  stroke: rgba(242,239,231,0.28);
+  stroke-width: 1.45;
+}
+
+.theme-daylight .mark-frame,
+.theme-daylight .mark-cone {
+  stroke: rgba(16,24,32,0.28);
+}
+
+.mark-line {
+  fill: none;
+  stroke: url(#prophetMarkLine);
+  stroke-width: 2.15;
+  stroke-linecap: round;
+  stroke-dasharray: 88;
+  stroke-dashoffset: 88;
+  animation: brand-line-draw 1.6s var(--ease-enter) forwards;
+}
+
+.mark-line-b {
+  animation-delay: 180ms;
+  opacity: 0.72;
+}
+
+.mark-node {
+  fill: var(--cyan);
+  filter: drop-shadow(0 0 9px rgba(122,215,223,0.75));
+}
+
+.node-b,
+.node-c {
+  fill: var(--amber);
+}
+
+.mark-core {
+  fill: rgba(122,215,223,0.16);
+  stroke: rgba(122,215,223,0.82);
+  stroke-width: 1.5;
+  animation: brand-core 2.8s ease-in-out infinite;
 }
 
 .brand-block h1 {
@@ -312,13 +385,35 @@ button {
   text-transform: uppercase;
 }
 
-.masthead-brand h1 {
+.brand-lockup {
+  min-width: 0;
+}
+
+.wordmark {
   margin: 0;
   font-family: var(--font-display);
   font-size: clamp(1.85rem, 2.8vw, 3.15rem);
-  line-height: 0.92;
-  font-weight: 820;
-  letter-spacing: -0.055em;
+  line-height: 0.84;
+  font-weight: 880;
+  letter-spacing: -0.075em;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.18em;
+  text-transform: uppercase;
+}
+
+.wordmark span:first-child {
+  color: var(--cyan);
+  text-shadow: 0 0 22px rgba(122,215,223,0.24);
+}
+
+.wordmark span:last-child {
+  color: var(--text);
+  background: linear-gradient(92deg, var(--text), rgba(242,239,231,0.72));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .masthead-brand p {
@@ -1509,6 +1604,20 @@ button {
 @keyframes ticker-glide {
   from { transform: translateX(8%); }
   to { transform: translateX(-22%); }
+}
+
+@keyframes brand-line-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes brand-core {
+  0%, 100% { transform: scale(0.92); opacity: 0.72; transform-origin: center; }
+  50% { transform: scale(1.18); opacity: 1; transform-origin: center; }
+}
+
+@keyframes brand-pulse {
+  0%, 100% { opacity: 0.44; transform: scale(0.9); }
+  50% { opacity: 0.82; transform: scale(1.12); }
 }
 
 @keyframes chart-sweep {
