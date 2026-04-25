@@ -396,6 +396,7 @@ def resolve_trade_direction_display(direction: Any) -> dict[str, str]:
         return {
             "bias": "BULLISH",
             "arrow": "↑",
+            "headline": "BUY CALL",
             "setup": "BULLISH SETUP",
             "compact": "↑ Bullish",
             "tone": "good",
@@ -404,6 +405,7 @@ def resolve_trade_direction_display(direction: Any) -> dict[str, str]:
         return {
             "bias": "BEARISH",
             "arrow": "↓",
+            "headline": "BUY PUT",
             "setup": "BEARISH SETUP",
             "compact": "↓ Bearish",
             "tone": "bad",
@@ -411,6 +413,7 @@ def resolve_trade_direction_display(direction: Any) -> dict[str, str]:
     return {
         "bias": "NEUTRAL",
         "arrow": "→",
+        "headline": "WAIT",
         "setup": "NEUTRAL SETUP",
         "compact": "→ Neutral",
         "tone": "neutral",
@@ -15077,7 +15080,9 @@ def render_live_decision_center(
     estimate_quality = str(active_contract_quote.get("premium_projection_confidence", "") or "Insufficient")
     budget_status = str(active_contract_quote.get("budget_status", "") or "Unknown")
     scenario_changed = bool((live_context or {}).get("live_scenario") and (live_context or {}).get("scenario_origin") and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin"))
-    top_line = presentation_state["headline"] if str(decision).upper() == "NO TRADE" else f"{direction_display['arrow']} {direction_display['headline']}"
+    direction_headline = str(direction_display.get("headline") or direction_display.get("setup") or direction_display.get("bias") or "WAIT")
+    direction_arrow = str(direction_display.get("arrow") or "")
+    top_line = presentation_state["headline"] if str(decision).upper() == "NO TRADE" else f"{direction_arrow} {direction_headline}".strip()
     subline = str(authority.get("setup_state_reason") or authority.get("execution_action_reason") or reason_line)
 
     # ── action badge resolution ──────────────────────────────────────────────

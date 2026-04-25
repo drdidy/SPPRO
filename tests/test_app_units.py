@@ -38,6 +38,7 @@ from app import (
     resolve_live_current_spx,
     resolve_play_display_values,
     resolve_recommended_contract_row,
+    resolve_trade_direction_display,
     resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
     summarize_event_risk,
@@ -143,6 +144,11 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn("Raw Anchor (ES)", first_row)
         self.assertNotIn("Projected Level (SPX)", first_row)
         self.assertEqual(first_row["Projected Level (ES)"], "7,207.59")
+
+    def test_trade_direction_display_includes_hero_headline(self) -> None:
+        self.assertEqual(resolve_trade_direction_display("CALL")["headline"], "BUY CALL")
+        self.assertEqual(resolve_trade_direction_display("PUT")["headline"], "BUY PUT")
+        self.assertEqual(resolve_trade_direction_display("")["headline"], "WAIT")
 
     def test_structure_assertions_pass_for_valid_es_structure(self) -> None:
         warnings = get_structure_assertion_warnings(
