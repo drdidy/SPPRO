@@ -5066,13 +5066,36 @@ def build_planned_anchor_key(
     signal_package: dict[str, Any] | None,
     play: dict[str, Any] | None,
     next_trading_date: date | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> str | None:
-    """Build a stable session key for each play/date pair."""
+    """Build a stable session key for each play/date/anchor selection pair."""
 
     if play is None:
         return None
     date_key = next_trading_date.isoformat() if isinstance(next_trading_date, date) else "live"
-    return "|".join([date_key, str(play_role or "")])
+    return "|".join([date_key, str(play_role or ""), build_anchor_plan_signature(anchor_bundle)])
+
+
+def build_anchor_plan_signature(anchor_bundle: dict[str, Any] | None) -> str:
+    """Return the structural anchor identity used to freeze a plan.
+
+    The option calculator prices from the locked play entry. Including the
+    selected anchor source in the lock key prevents an older same-date PM-window
+    plan from being reused after the session-aware anchor engine selects an
+    Asian, London, or news-reclaim anchor.
+    """
+
+    if not anchor_bundle:
+        return "anchor:none"
+    selection = anchor_bundle.get("anchor_selection") or {}
+    parts = [
+        str(selection.get("engine_version") or ANCHOR_SELECTION_ENGINE_VERSION),
+        str(anchor_bundle.get("source") or ""),
+    ]
+    for line_name, session_source, pivot_price, pivot_time in _anchor_selection_signature(anchor_bundle):
+        price_label = f"{float(pivot_price):.2f}" if pivot_price is not None else ""
+        parts.append(f"{line_name}:{session_source or ''}:{price_label}:{pivot_time or ''}")
+    return "|".join(parts)
 
 
 def build_session_plan_snapshot(
@@ -5085,6 +5108,7 @@ def build_session_plan_snapshot(
     intelligence: dict[str, Any] | None,
     next_trading_date: date,
     cutoff_label: str,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Build a freeze-safe session snapshot from the current live play."""
 
@@ -5114,6 +5138,7 @@ def build_session_plan_snapshot(
         "next_trading_date": next_trading_date.isoformat(),
         "lock_cutoff_label": cutoff_label,
         "lock_cutoff_timestamp": build_session_plan_lock_timestamp(next_trading_date, cutoff_label).isoformat(),
+        "anchor_plan_signature": build_anchor_plan_signature(anchor_bundle),
         "session_plan_locked": True,
         "locked_timestamp": current_central_time().isoformat(),
         "locked_entry_spx": round_price(entry_spx),
@@ -5144,6 +5169,7 @@ def resolve_session_plan_state(
     intelligence: dict[str, Any] | None,
     next_trading_date: date,
     cutoff_label: str,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve the active session plan, freezing it at the configured cutoff."""
 
@@ -5152,6 +5178,7 @@ def resolve_session_plan_state(
     lock_active = now_ct >= lock_timestamp
     base_state = {
         "anchor_key": anchor_key,
+        "anchor_plan_signature": build_anchor_plan_signature(anchor_bundle),
         "lock_cutoff_label": cutoff_label,
         "lock_cutoff_timestamp": lock_timestamp,
         "lock_active": lock_active,
@@ -5185,6 +5212,7 @@ def resolve_session_plan_state(
             intelligence=intelligence,
             next_trading_date=next_trading_date,
             cutoff_label=cutoff_label,
+            anchor_bundle=anchor_bundle,
         )
         if snapshot is None:
             return base_state
@@ -5206,6 +5234,7 @@ def resolve_session_plan_state(
             intelligence=intelligence,
             next_trading_date=next_trading_date,
             cutoff_label=cutoff_label,
+            anchor_bundle=anchor_bundle,
         )
         if snapshot is None:
             failure = {
@@ -5226,6 +5255,7 @@ def resolve_session_plan_state(
         intelligence=intelligence,
         next_trading_date=next_trading_date,
         cutoff_label=cutoff_label,
+        anchor_bundle=anchor_bundle,
     )
     if snapshot is None:
         return base_state
@@ -16849,8 +16879,20 @@ def render_live_mode_shell(
             if signal_package is not None
             else None
         )
-        primary_planned_anchor_key = build_planned_anchor_key("primary", signal_package, primary_play_spx, inputs.get("next_trading_date"))
-        alternate_planned_anchor_key = build_planned_anchor_key("alternate", signal_package, alternate_play_spx, inputs.get("next_trading_date"))
+        primary_planned_anchor_key = build_planned_anchor_key(
+            "primary",
+            signal_package,
+            primary_play_spx,
+            inputs.get("next_trading_date"),
+            anchor_bundle=anchor_bundle,
+        )
+        alternate_planned_anchor_key = build_planned_anchor_key(
+            "alternate",
+            signal_package,
+            alternate_play_spx,
+            inputs.get("next_trading_date"),
+            anchor_bundle=anchor_bundle,
+        )
         option_sections: list[dict[str, Any]] = []
         for section_title, play_role, play_spx, play_es in [
             ("Primary Contracts", "primary", primary_play_spx, primary_play_es),
@@ -16955,6 +16997,7 @@ def render_live_mode_shell(
             intelligence=primary_pre_intelligence,
             next_trading_date=inputs["next_trading_date"],
             cutoff_label=inputs["session_plan_lock_cutoff"],
+            anchor_bundle=anchor_bundle,
         )
         alternate_session_plan = resolve_session_plan_state(
             anchor_key=alternate_planned_anchor_key,
@@ -16966,6 +17009,7 @@ def render_live_mode_shell(
             intelligence=alternate_pre_intelligence,
             next_trading_date=inputs["next_trading_date"],
             cutoff_label=inputs["session_plan_lock_cutoff"],
+            anchor_bundle=anchor_bundle,
         )
         primary_calibration_preview = (
             resolve_calibration_preview(

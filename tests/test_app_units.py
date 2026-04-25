@@ -1540,6 +1540,55 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(resolved["anchor_selection"]["engine_version"], app_module.ANCHOR_SELECTION_ENGINE_VERSION)
         self.assertEqual(resolved["anchor_selection"]["by_line"]["asc_floor"]["session_source"], "ASIAN")
 
+    def test_planned_anchor_key_changes_when_anchor_source_changes(self) -> None:
+        play = {"entry": {"price": 7130.0}, "direction": "CALL", "strike": 7130}
+        asian_bundle = {
+            "source": "session_aware_anchor_bundle",
+            "anchor_selection": {
+                "engine_version": app_module.ANCHOR_SELECTION_ENGINE_VERSION,
+                "by_line": {
+                    "asc_floor": {"session_source": "ASIAN", "pivot_price": 7125.2, "pivot_time": "2026-04-22T18:00:00-05:00"},
+                    "desc_ceiling": {"session_source": "ASIAN", "pivot_price": 7162.4, "pivot_time": "2026-04-22T19:00:00-05:00"},
+                },
+            },
+        }
+        pm_bundle = {
+            "source": "session_aware_anchor_bundle",
+            "anchor_selection": {
+                "engine_version": app_module.ANCHOR_SELECTION_ENGINE_VERSION,
+                "by_line": {
+                    "asc_floor": {"session_source": "PM_WINDOW", "pivot_price": 7131.9, "pivot_time": "2026-04-22T13:00:00-05:00"},
+                    "desc_ceiling": {"session_source": "PM_WINDOW", "pivot_price": 7170.0, "pivot_time": "2026-04-22T14:00:00-05:00"},
+                },
+            },
+        }
+
+        asian_key = app_module.build_planned_anchor_key("primary", None, play, date(2026, 4, 23), anchor_bundle=asian_bundle)
+        pm_key = app_module.build_planned_anchor_key("primary", None, play, date(2026, 4, 23), anchor_bundle=pm_bundle)
+
+        self.assertNotEqual(asian_key, pm_key)
+        self.assertIn("ASIAN", asian_key)
+        self.assertIn("PM_WINDOW", pm_key)
+
+    def test_planned_anchor_key_does_not_drift_with_live_entry_noise(self) -> None:
+        anchor_bundle = {
+            "source": "session_aware_anchor_bundle",
+            "anchor_selection": {
+                "engine_version": app_module.ANCHOR_SELECTION_ENGINE_VERSION,
+                "by_line": {
+                    "asc_floor": {"session_source": "ASIAN", "pivot_price": 7125.2, "pivot_time": "2026-04-22T18:00:00-05:00"},
+                    "desc_ceiling": {"session_source": "ASIAN", "pivot_price": 7162.4, "pivot_time": "2026-04-22T19:00:00-05:00"},
+                },
+            },
+        }
+        original_play = {"entry": {"price": 7130.0}, "direction": "CALL", "strike": 7130}
+        refreshed_play = {"entry": {"price": 7131.25}, "direction": "CALL", "strike": 7130}
+
+        original_key = app_module.build_planned_anchor_key("primary", None, original_play, date(2026, 4, 23), anchor_bundle=anchor_bundle)
+        refreshed_key = app_module.build_planned_anchor_key("primary", None, refreshed_play, date(2026, 4, 23), anchor_bundle=anchor_bundle)
+
+        self.assertEqual(original_key, refreshed_key)
+
     def test_manual_anchor_source_override_prevents_auto_selection(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(
