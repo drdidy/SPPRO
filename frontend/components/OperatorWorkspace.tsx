@@ -90,6 +90,20 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       <section className="main">
         <motion.header className="topbar cinematic-topbar masthead" variants={panelVariants}>
           <div className="masthead-sheen" aria-hidden="true" />
+          <div className="market-pulse" aria-live="polite">
+            <div className="pulse-head">
+              <span className="live-dot-label">Preview Feed</span>
+              <strong>{decision.state}</strong>
+            </div>
+            <div className="pulse-values">
+              <span>SPX <strong>7,194.75</strong></span>
+              <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
+              <span>VIX <strong>17.42</strong></span>
+              <span>0DTE IV <strong>Elevated</strong></span>
+              <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
+            </div>
+          </div>
+
           <div className="masthead-brand">
             <div className="prophet-mark" aria-hidden="true">
               <svg viewBox="0 0 112 112" role="img">
@@ -113,20 +127,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <span className="brand-kicker">Execution Intelligence</span>
               <h1 className="wordmark"><span>SPX</span><span>PROPHET</span></h1>
               <p>Structure Into Execution</p>
-            </div>
-          </div>
-
-          <div className="market-pulse" aria-live="polite">
-            <div className="pulse-head">
-              <span className="live-dot-label">Preview Feed</span>
-              <strong>{decision.state}</strong>
-            </div>
-            <div className="pulse-values">
-              <span>SPX <strong>7,194.75</strong></span>
-              <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
-              <span>VIX <strong>17.42</strong></span>
-              <span>0DTE IV <strong>Elevated</strong></span>
-              <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
           </div>
 
