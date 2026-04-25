@@ -550,12 +550,9 @@ def build_top_level_tab_labels(visibility_mode: str) -> list[str]:
 
 
 def build_trade_log_tab_labels(visibility_mode: str) -> list[str]:
-    """Return Trade Log subtabs while keeping analytics out of Production Mode."""
+    """Return Trade Log subtabs; research dashboards live in the top-level Intelligence tab."""
 
-    labels = ["Log Trade", "Review Outcomes"]
-    if str(visibility_mode or "") == "Edge Lab":
-        labels.append("Analytics / Edge")
-    return labels
+    return ["Log Trade", "Review Outcomes"]
 
 
 def build_live_mode_tab_labels() -> list[str]:
@@ -15393,11 +15390,11 @@ def render_trade_log_tab(
         'box-shadow:0 0 20px rgba(0,212,255,0.2);border:1px solid rgba(0,212,255,0.18);">◈</div>'
         '<div style="flex:1;min-width:0;">'
         '<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:700;letter-spacing:0.16em;'
-        'text-transform:uppercase;color:rgba(0,212,255,0.55);margin-bottom:4px;">Trade Journal + Intelligence</div>'
+        'text-transform:uppercase;color:rgba(0,212,255,0.55);margin-bottom:4px;">Trade Journal</div>'
         '<div style="font-family:\'Outfit\',sans-serif;font-size:1.35rem;font-weight:800;color:#f4f8ff;'
         'letter-spacing:-0.01em;line-height:1.1;margin-bottom:6px;">Review The Edge</div>'
         '<div style="font-family:\'Inter\',sans-serif;font-size:0.82rem;color:rgba(180,205,240,0.6);line-height:1.5;">'
-        'Capture execution quality, review snapshots, and track which scenarios actually pay you over time.'
+        'Capture execution quality, review snapshots, and keep real outcomes clean for the learning engine.'
         '</div>'
         '</div>'
         '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;'
@@ -15416,7 +15413,7 @@ def render_trade_log_tab(
             for lbl, val, note in [
                 ("Entry", "Log Trades", "Capture scenario, confirmation, and notes."),
                 ("Review", "Snapshots", "Connect structure to outcome quality."),
-                ("Analytics", "Expectancy", "Find the setups that truly hold edge."),
+                ("Research", "Intelligence Tab", "Aggregated edge analytics live separately."),
                 ("Storage", "Local JSON", "Backed up and exportable."),
             ]
         ])
@@ -15936,6 +15933,49 @@ def render_trade_log_tab(
                 else:
                     result_counts = history_dataframe["result"].value_counts()
                     st.bar_chart(result_counts)
+
+            with st.expander("Journal Export / Data Health", expanded=False):
+                st.caption("Trade Log is the journal of reviewed real outcomes. Aggregated research dashboards live in the Intelligence tab.")
+                export_col, health_col = st.columns([1.15, 1], gap="large")
+                with export_col:
+                    st.download_button(
+                        "Export Trade Log CSV",
+                        data=export_trades_csv(filtered_trades),
+                        file_name="spx_prophet_trade_log.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "Export Trade Log JSON",
+                        data=export_trades_json(filtered_trades),
+                        file_name="spx_prophet_trade_log.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+                    st.download_button(
+                        "Export Full Journal Backup",
+                        data=json.dumps(
+                            {
+                                "app": f"{APP_TITLE} {APP_VERSION}",
+                                "trades": normalized_trades,
+                                "snapshots": normalized_snapshots,
+                                "settings": normalize_settings_record(settings),
+                            },
+                            indent=2,
+                        ).encode("utf-8"),
+                        file_name="spx_prophet_journal_backup.json",
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+                with health_col:
+                    st.write(f"Trades loaded: {data_health['trade_count']}")
+                    st.write(f"Snapshots loaded: {data_health['snapshot_count']}")
+                    st.write(f"Incomplete trades: {data_health['incomplete_trade_count']}")
+                    st.write(f"Duplicate trade warnings: {data_health['duplicate_trade_count']}")
+                    if data_health["malformed_recoveries"]:
+                        st.warning("Malformed stores were recovered during load.")
+                    else:
+                        st.success("Journal store looks healthy.")
 
     if analytics_tab is None:
         return
@@ -19128,6 +19168,8 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
     research_records, research_load_error = load_research_calibration_records()
     research_metrics = build_research_calibration_metrics(research_records)
     research_bootstrap_meta = _intelligence.get_backfill_meta("last_research_bootstrap_run")
+    trade_records, trade_load_error = load_trades()
+    reviewed_trade_records = [normalize_trade_record(trade) for trade in trade_records]
 
     # Auto-initialize on first visit
     if not research_records and research_bootstrap_meta is None:
@@ -19178,6 +19220,8 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
 
     if research_load_error:
         st.warning(research_load_error)
+    if trade_load_error:
+        st.warning(trade_load_error)
 
     with st.container(border=True):
         st.markdown("#### YTD Research Calibration")
@@ -19219,7 +19263,7 @@ def render_intelligence_tab(effective_offset: float, inputs: dict[str, Any]) -> 
                     st.success(f"Research bootstrap complete — {result['succeeded']} of {result['attempted']} sessions processed.")
                     st.rerun()
 
-    replay_summary = build_replay_review_summary(research_records, trades)
+    replay_summary = build_replay_review_summary(research_records, reviewed_trade_records)
     with st.container(border=True):
         st.markdown("#### Replay Review")
         st.caption("Historical research evidence stays separate from reviewed trades; use this to see what the engine has observed, not as automatic live truth.")

@@ -572,7 +572,7 @@ class AppUnitTests(unittest.TestCase):
 
     def test_production_navigation_hides_edge_diagnostics(self) -> None:
         self.assertEqual(build_trade_log_tab_labels("Production Mode"), ["Log Trade", "Review Outcomes"])
-        self.assertEqual(build_trade_log_tab_labels("Edge Lab"), ["Log Trade", "Review Outcomes", "Analytics / Edge"])
+        self.assertEqual(build_trade_log_tab_labels("Edge Lab"), ["Log Trade", "Review Outcomes"])
         self.assertEqual(build_live_mode_tab_labels(), ["SIGNAL & LEVELS", "PRE-MARKET PREP"])
         self.assertEqual(build_historical_mode_tab_labels(), ["Historical Projection", "Historical Review", "Backtest"])
 
