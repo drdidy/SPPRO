@@ -4265,6 +4265,16 @@ def build_line_polarity_decision(
         for line in candidates
     ]
     desired = str(desired_direction or "").upper()
+    preference = get_directional_entry_line_preference(desired)
+    for row in evaluations:
+        line_used = row.get("line_used") or {}
+        preference_match = line_matches_directional_entry_preference(line_used, desired)
+        row["entry_preference_match"] = preference_match
+        row["entry_preference_label"] = preference.get("label", "")
+        if preference_match:
+            row["score"] = int(max(0, min(100, int(row.get("score", 0) or 0) + 12)))
+            if row.get("reason"):
+                row["reason"] = f"{row['reason']} Preferred {preference.get('label', 'entry line')}."
     actionable = [row for row in evaluations if row["actionable"] and (not desired or row.get("confirmed_direction") == desired)]
     conflicts = [row for row in evaluations if row.get("polarity_conflict")]
     extended = [row for row in evaluations if row["polarity_state"] == "extended_rejection" and (not desired or row.get("confirmed_direction") == desired)]
@@ -4290,6 +4300,93 @@ def build_line_polarity_decision(
         "candidate_lines": candidates,
         "evaluations": evaluations,
         "enforced": True,
+    }
+
+
+def get_directional_entry_line_preference(direction: str | None) -> dict[str, str]:
+    """Return the house entry-line preference without changing scenario geometry."""
+
+    normalized = str(direction or "").upper()
+    if normalized == "PUT":
+        return {
+            "line_type": "ascending",
+            "source": "ASIAN",
+            "label": "Asian ascending polarity line for bearish entry",
+        }
+    if normalized == "CALL":
+        return {
+            "line_type": "descending",
+            "source": "ASIAN",
+            "label": "Asian descending polarity line for bullish entry",
+        }
+    return {"line_type": "", "source": "", "label": ""}
+
+
+def line_matches_directional_entry_preference(line: dict[str, Any] | None, direction: str | None) -> bool:
+    """Check whether a candidate line matches the observed Asian polarity preference."""
+
+    preference = get_directional_entry_line_preference(direction)
+    if not preference.get("line_type"):
+        return False
+    line = line or {}
+    line_type = str(line.get("type") or "").lower()
+    source = str(line.get("source") or "").upper()
+    return line_type == preference["line_type"] and preference["source"] in source
+
+
+def resolve_preferred_contract_entry_reference(
+    *,
+    play: dict[str, Any] | None,
+    projected_lines: dict[str, dict[str, Any]] | None,
+    current_price: float | None,
+    anchor_bundle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve the option-pricing entry from the preferred Asian polarity family."""
+
+    direction = str((play or {}).get("direction", "") or "").upper()
+    preference = get_directional_entry_line_preference(direction)
+    planned_entry = _to_float_or_none(((play or {}).get("entry") or {}).get("price"))
+    if not preference.get("line_type"):
+        return {
+            "entry_spx": planned_entry,
+            "line_used": {},
+            "preference_applied": False,
+            "reason": "No directional entry-line preference applies.",
+        }
+
+    candidates = build_polarity_line_candidates(
+        projected_lines,
+        current_price=current_price if current_price is not None else planned_entry,
+        anchor_bundle=anchor_bundle,
+        nearest_count=6,
+    )
+    preferred = [line for line in candidates if line_matches_directional_entry_preference(line, direction)]
+    if not preferred:
+        return {
+            "entry_spx": planned_entry,
+            "line_used": {},
+            "preference_applied": False,
+            "reason": f"No {preference['label']} is available near the active plan.",
+        }
+
+    reference_price = current_price if current_price is not None else planned_entry
+    chosen = min(
+        preferred,
+        key=lambda line: abs((_to_float_or_none(line.get("projected_price")) or 0.0) - (reference_price or 0.0)),
+    )
+    chosen_price = _to_float_or_none(chosen.get("projected_price"))
+    if chosen_price is None:
+        return {
+            "entry_spx": planned_entry,
+            "line_used": {},
+            "preference_applied": False,
+            "reason": "Preferred entry line exists but has no projected price.",
+        }
+    return {
+        "entry_spx": chosen_price,
+        "line_used": chosen,
+        "preference_applied": True,
+        "reason": f"Contract pricing uses the nearest {preference['label']}.",
     }
 
 
@@ -4367,7 +4464,7 @@ def build_active_polarity_summary(
 
     return {
         "available": True,
-        "label": " · ".join(part for part in label_parts if part),
+        "label": " | ".join(part for part in label_parts if part),
         "line_used": line_used,
         "polarity_state": state,
         "confirmed_direction": direction,
@@ -11858,6 +11955,8 @@ def build_option_display_state(
     live_context: dict[str, Any] | None,
     event_risk_context: dict[str, Any] | None = None,
     crowding_candidates: list[dict[str, Any]] | None = None,
+    projected_lines_spx: dict[str, dict[str, Any]] | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the complete options display state for one play without changing ranking logic."""
 
@@ -11951,11 +12050,18 @@ def build_option_display_state(
 
     calibration_overlays: dict[str, dict[str, Any]] = {}
     planned_entry_spx = _to_float_or_none(((play_spx or {}).get("entry") or {}).get("price"))
+    contract_entry_reference = resolve_preferred_contract_entry_reference(
+        play=play_spx,
+        projected_lines=projected_lines_spx,
+        current_price=current_spx_price,
+        anchor_bundle=anchor_bundle,
+    )
+    contract_pricing_entry_spx = _to_float_or_none(contract_entry_reference.get("entry_spx")) or planned_entry_spx
     timing_estimate = estimate_entry_timing(
         current_spx_price=current_spx_price,
-        planned_entry_spx=planned_entry_spx,
+        planned_entry_spx=contract_pricing_entry_spx,
         direction=str((play_spx or {}).get("direction", "")),
-        entry_zone_status="IN_ZONE" if planned_entry_spx is not None and current_spx_price is not None and abs(planned_entry_spx - current_spx_price) <= 2 else "NEAR_ZONE" if planned_entry_spx is not None and current_spx_price is not None and abs(planned_entry_spx - current_spx_price) <= 6 else "MISSED" if planned_entry_spx is not None and current_spx_price is not None and abs(planned_entry_spx - current_spx_price) >= 18 else "UNAVAILABLE",
+        entry_zone_status="IN_ZONE" if contract_pricing_entry_spx is not None and current_spx_price is not None and abs(contract_pricing_entry_spx - current_spx_price) <= 2 else "NEAR_ZONE" if contract_pricing_entry_spx is not None and current_spx_price is not None and abs(contract_pricing_entry_spx - current_spx_price) <= 6 else "MISSED" if contract_pricing_entry_spx is not None and current_spx_price is not None and abs(contract_pricing_entry_spx - current_spx_price) >= 18 else "UNAVAILABLE",
         move_completion_pct=None,
         regime=str((live_context or {}).get("transition_type", "")),
     )
@@ -11995,7 +12101,7 @@ def build_option_display_state(
         budget_cap=budget_cap,
         ladder_anchor_strike=recommended_resolution.get("ladder_anchor_strike"),
         current_spx_price=current_spx_price,
-        planned_entry_spx=planned_entry_spx,
+        planned_entry_spx=contract_pricing_entry_spx,
         timing_estimate=timing_estimate,
         event_risk_context=event_risk_context,
         selected_contract_symbol=selected_symbol,
@@ -12074,6 +12180,10 @@ def build_option_display_state(
         "timing_estimate": timing_estimate,
         "projection_target_time": str((active_row or {}).get("projection_target_time") or timing_estimate.get("expected_entry_time_ct") or ""),
         "projection_target_label": str((active_row or {}).get("projection_target_label") or _format_projection_target_label(_parse_datetime_or_none(timing_estimate.get("expected_entry_time_ct")))),
+        "contract_pricing_entry_spx": contract_pricing_entry_spx,
+        "contract_pricing_entry_line": contract_entry_reference.get("line_used", {}),
+        "contract_pricing_entry_reason": str(contract_entry_reference.get("reason", "")),
+        "contract_pricing_entry_preference_applied": bool(contract_entry_reference.get("preference_applied")),
         "ladder_anchor_strike": recommended_resolution.get("ladder_anchor_strike"),
         "ladder_locked": bool(recommended_resolution.get("ladder_locked")),
         "centered_from_locked_plan": bool(recommended_resolution.get("centered_from_locked_plan")),
@@ -18440,6 +18550,8 @@ def render_live_mode_shell(
                 live_context=live_context,
                 event_risk_context=event_risk_context,
                 crowding_candidates=section["chain_snapshot"].get("crowding_contracts"),
+                projected_lines_spx=final_projected_lines,
+                anchor_bundle=anchor_bundle,
             )
             for section in option_sections
             if display_signal_package is not None

@@ -17,6 +17,7 @@ from app import (
     build_line_polarity_decision,
     build_active_polarity_summary,
     build_historical_play_authority,
+    resolve_preferred_contract_entry_reference,
     build_render_fallback_payload,
     build_historical_mode_tab_labels,
     build_live_mode_tab_labels,
@@ -1570,6 +1571,89 @@ class AppUnitTests(unittest.TestCase):
         self.assertTrue(decision["polarity_conflict"])
         self.assertEqual(decision["decision"], "NO TRADE")
         self.assertEqual(decision["confirmed_direction"], "CALL")
+
+    def test_bearish_execution_prefers_asian_ascending_entry_line(self) -> None:
+        anchor_bundle = {
+            "anchor_selection": {
+                "by_line": {
+                    "asc_floor": {"session_source": "ASIAN"},
+                    "desc_ceiling": {"session_source": "NEWS_730"},
+                }
+            }
+        }
+        decision = build_line_polarity_decision(
+            projected_lines={
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7119.7, "line_type": "channel"},
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7120.0, "line_type": "channel"},
+            },
+            current_price=7119.7,
+            current_candle={"high": 7120.5, "low": 7118.5, "close": 7119.0},
+            desired_direction="PUT",
+            anchor_bundle=anchor_bundle,
+            pending_retest_store={},
+        )
+
+        self.assertEqual(decision["line_used"]["name"], "asc_floor")
+        self.assertTrue(decision["entry_preference_match"])
+        self.assertEqual(decision["confirmed_direction"], "PUT")
+
+    def test_bullish_execution_prefers_asian_descending_entry_line(self) -> None:
+        anchor_bundle = {
+            "anchor_selection": {
+                "by_line": {
+                    "desc_ceiling": {"session_source": "ASIAN"},
+                    "asc_floor": {"session_source": "NEWS_730"},
+                }
+            }
+        }
+        decision = build_line_polarity_decision(
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7119.7, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7120.0, "line_type": "channel"},
+            },
+            current_price=7119.7,
+            current_candle={"high": 7120.5, "low": 7118.5, "close": 7121.0},
+            desired_direction="CALL",
+            anchor_bundle=anchor_bundle,
+            pending_retest_store={},
+        )
+
+        self.assertEqual(decision["line_used"]["name"], "desc_ceiling")
+        self.assertTrue(decision["entry_preference_match"])
+        self.assertEqual(decision["confirmed_direction"], "CALL")
+
+    def test_contract_pricing_entry_reference_uses_directional_asian_preference(self) -> None:
+        anchor_bundle = {
+            "anchor_selection": {
+                "by_line": {
+                    "asc_floor": {"session_source": "ASIAN"},
+                    "desc_ceiling": {"session_source": "ASIAN"},
+                }
+            }
+        }
+        put_reference = resolve_preferred_contract_entry_reference(
+            play={"direction": "PUT", "entry": {"price": 7140.0}},
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7125.0, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7140.0, "line_type": "channel"},
+            },
+            current_price=7126.0,
+            anchor_bundle=anchor_bundle,
+        )
+        call_reference = resolve_preferred_contract_entry_reference(
+            play={"direction": "CALL", "entry": {"price": 7125.0}},
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7125.0, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7140.0, "line_type": "channel"},
+            },
+            current_price=7139.0,
+            anchor_bundle=anchor_bundle,
+        )
+
+        self.assertTrue(put_reference["preference_applied"])
+        self.assertEqual(put_reference["entry_spx"], 7125.0)
+        self.assertTrue(call_reference["preference_applied"])
+        self.assertEqual(call_reference["entry_spx"], 7140.0)
 
     def test_active_polarity_summary_uses_touched_asian_floor_not_news_ceiling(self) -> None:
         anchor_bundle = {
