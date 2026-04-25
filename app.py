@@ -3186,17 +3186,12 @@ def render_command_bar(visibility_mode: str, next_trading_date: Any = None) -> N
         f'letter-spacing:0.12em;color:#e8f4ff;'
         f'animation:spxProphetGlow 4s ease-in-out infinite;">PROPHET</span>'
 
-        # Version badge
-        f'<span style="font-size:0.68rem;font-weight:700;letter-spacing:0.06em;'
-        f'background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.28);'
-        f'color:#6ae6ff;padding:2px 8px;border-radius:6px;'
-        f'vertical-align:middle;align-self:center;">{escape(APP_VERSION)}</span>'
         f'</div>'
 
         # Subtitle tagline
         f'<div style="font-family:\'Inter\',sans-serif;font-size:0.68rem;font-weight:600;'
         f'letter-spacing:0.16em;text-transform:uppercase;'
-        f'color:rgba(106,230,255,0.5);">ES Structure &nbsp;·&nbsp; Options Intelligence &nbsp;·&nbsp; 0DTE</div>'
+        f'color:rgba(106,230,255,0.5);">Structure Into Execution</div>'
         f'</div>'  # end name+subtitle
         f'</div>'  # end brand left
 
@@ -14749,21 +14744,21 @@ def render_play_card(
     elif not use_allowed:
         _blocked_reason = str((authority or {}).get("setup_state_reason") or authority_reason or decision_reason or "Execution guard is blocking this play.").strip()
         if st.session_state.get(override_intent_key, False):
-            st.warning(f"Trade guard override pending | {setup_state}")
+            st.warning(f"Manual execution override pending | {setup_state}")
         else:
             st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
-        _clr_col, _ovr_col = st.columns(2)
-        if _clr_col.button("Clear Trade Guard Override", key=f"{button_key}_clear_override", use_container_width=True):
-            st.session_state.pop(override_intent_key, None)
-            st.session_state.pop(override_reason_key, None)
-            st.rerun()
         if not st.session_state.get(override_intent_key, False):
-            if _ovr_col.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if st.button("Request Manual Override", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
+            _confirm_col, _reset_col = st.columns(2)
             override_reason_input = st.text_input("Override reason", key=override_reason_key)
-            if st.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
+            if _reset_col.button("Reset Override", key=f"{button_key}_clear_override", use_container_width=True):
+                st.session_state.pop(override_intent_key, None)
+                st.session_state.pop(override_reason_key, None)
+                st.rerun()
+            if _confirm_col.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
                 signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
                 if signal_package is None:
                     st.warning("No live signal snapshot is available for this play yet.")
@@ -18167,21 +18162,21 @@ def render_operator_play_card(
     elif not use_allowed:
         _blocked_reason = str(setup_state_reason or reason_line or "Execution guard is blocking this play.").strip()
         if st.session_state.get(override_intent_key, False):
-            st.warning(f"Trade guard override pending | {setup_state}")
+            st.warning(f"Manual execution override pending | {setup_state}")
         else:
             st.warning(f"Execution blocked | {setup_state}: {_blocked_reason}")
-        _clr_col2, _ovr_col2 = st.columns(2)
-        if _clr_col2.button("Clear Trade Guard Override", key=f"{button_key}_clear_override", use_container_width=True):
-            st.session_state.pop(override_intent_key, None)
-            st.session_state.pop(override_reason_key, None)
-            st.rerun()
         if not st.session_state.get(override_intent_key, False):
-            if _ovr_col2.button("Override Trade Guard", key=f"{button_key}_override", use_container_width=True):
+            if st.button("Request Manual Override", key=f"{button_key}_override", use_container_width=True):
                 st.session_state[override_intent_key] = True
                 st.rerun()
         else:
+            _confirm_col2, _reset_col2 = st.columns(2)
             override_reason_input = st.text_input("Override reason", key=override_reason_key)
-            if st.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
+            if _reset_col2.button("Reset Override", key=f"{button_key}_clear_override", use_container_width=True):
+                st.session_state.pop(override_intent_key, None)
+                st.session_state.pop(override_reason_key, None)
+                st.rerun()
+            if _confirm_col2.button("Confirm Override And Use This Play", key=f"{button_key}_confirm_override", use_container_width=True, disabled=not override_reason_input.strip()):
                 signal_package = st.session_state.get("current_live_signal_package") or st.session_state.get("current_signal_package")
                 if signal_package is None:
                     st.warning("No live signal snapshot is available for this play yet.")
