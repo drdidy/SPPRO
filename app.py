@@ -10240,10 +10240,6 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         sync_projection_price_inputs(next_trading_date, historical_mode, live_defaults, historical_defaults)
         data_mode_options = ["Auto-fetch", "Manual input"]
         data_mode = st.radio("Data source", data_mode_options, index=safe_option_index(data_mode_options, settings.get("data_mode", DEFAULT_SETTINGS["data_mode"])), label_visibility="collapsed")
-        _anchor_src_opts = ["Auto (Best Available)", "PM Window", "Asian Session", "London/Pre-NY", "Pre-NY"]
-        _anchor_src_map = {"Auto (Best Available)": None, "PM Window": "PM_WINDOW", "Asian Session": "ASIAN", "London/Pre-NY": "LONDON", "Pre-NY": "PRE_NY"}
-        _anchor_src_sel = st.selectbox("Anchor source", _anchor_src_opts, index=0, key="anchor_source_override_sel")
-        anchor_source_override = _anchor_src_map[_anchor_src_sel]
 
         # ── Price Inputs ──────────────────────────────────────────────────────
         st.markdown(
@@ -10414,7 +10410,6 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "prior_session_date": prior_session_date,
         "next_trading_date": next_trading_date,
         "data_mode": data_mode,
-        "anchor_source_override": anchor_source_override,
         "visibility_mode": visibility_mode,
         "developer_mode": visibility_mode == "Edge Lab",
         "current_spx_price": current_spx_price,
@@ -10530,19 +10525,7 @@ def resolve_anchor_bundle(
         )
 
     try:
-        reference_es = inputs.get("current_es_price") if inputs.get("live_es_available") else None
-        return (
-            build_six_line_anchors(
-                es_candles,
-                inputs["prior_session_date"],
-                next_trading_date=inputs["next_trading_date"],
-                anchor_source_override=inputs.get("anchor_source_override"),
-                reference_price=float(reference_es) if reference_es is not None else None,
-            ),
-            es_candles,
-            None,
-            diagnostics,
-        )
+        return build_six_line_anchors(es_candles, inputs["prior_session_date"]), es_candles, None, diagnostics
     except Exception as exc:
         diagnostics = enrich_auto_fetch_diagnostics(
             base_diagnostics,
@@ -11818,51 +11801,6 @@ def render_sit_out_section(sit_out: dict[str, Any]) -> None:
         st.markdown('<div class="spx-status-good"><div class="spx-status-title">● Eligible To Trade</div><div class="spx-muted">No sit-out condition is currently active. Focus stays on confirmation and line behavior.</div></div>', unsafe_allow_html=True)
 
 
-def _render_anchor_source_banner(anchor_bundle: dict[str, Any]) -> None:
-    """Compact production-mode anchor source summary."""
-    if anchor_bundle is None:
-        return
-    ae = anchor_bundle.get("anchor_engine") or {}
-    sel = ae.get("selection") or {}
-    anchors = anchor_bundle.get("anchors") or {}
-
-    high_src = anchors.get("asc_ceiling", {}).get("session_source_label") or sel.get("pivot_high_source", "PM Window")
-    low_src = anchors.get("asc_floor", {}).get("session_source_label") or sel.get("pivot_low_source", "PM Window")
-    high_conf = sel.get("pivot_high_confidence", "")
-    low_conf = sel.get("pivot_low_confidence", "")
-    override = ae.get("anchor_source_override")
-
-    # Build timestamp strings
-    ph = anchor_bundle.get("pivot_high") or {}
-    pl = anchor_bundle.get("pivot_low") or {}
-    ph_ts = ph.get("pivot_time")
-    pl_ts = pl.get("pivot_time")
-    ph_ts_str = ph_ts.strftime("%-I:%M %p") if hasattr(ph_ts, "strftime") else ""
-    pl_ts_str = pl_ts.strftime("%-I:%M %p") if hasattr(pl_ts, "strftime") else ""
-
-    conf_color = {"HIGH": "#43f3a3", "MEDIUM": "#ffd060", "LOW": "#ff7070"}.get(high_conf, "#a0c8ff")
-    override_tag = (
-        f'<span style="margin-left:10px;padding:2px 7px;border-radius:6px;'
-        f'background:rgba(255,140,0,0.15);border:1px solid rgba(255,140,0,0.3);'
-        f'font-size:0.68rem;color:#ffaa44;">Manual override: {override}</span>'
-        if override else ""
-    )
-    st.markdown(
-        f'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;'
-        f'padding:8px 14px;border-radius:10px;background:rgba(100,150,255,0.05);'
-        f'border:1px solid rgba(100,150,255,0.12);margin:6px 0 10px 0;font-size:0.75rem;">'
-        f'<span style="color:rgba(180,205,255,0.6);font-weight:700;letter-spacing:0.08em;">ANCHORS</span>'
-        f'<span style="color:#c8d8ff;">Ceiling: <b style="color:#e8f2ff;">{high_src}'
-        f'{" " + ph_ts_str if ph_ts_str else ""}</b></span>'
-        f'<span style="color:#c8d8ff;">Floor: <b style="color:#e8f2ff;">{low_src}'
-        f'{" " + pl_ts_str if pl_ts_str else ""}</b></span>'
-        f'<span style="color:{conf_color};">Confidence: <b>{high_conf or "—"}</b></span>'
-        f'{override_tag}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
 def render_debug_section(
     anchor_bundle: dict[str, Any],
     final_projected_lines: dict[str, dict[str, Any]],
@@ -11923,39 +11861,6 @@ def render_debug_section(
 
     with st.expander("Pivot Anchors", expanded=False):
         st.json(pivot_anchor_debug, expanded=False)
-
-        # Anchor engine candidate table (Edge Lab)
-        _ae = anchor_bundle.get("anchor_engine") or {}
-        _ae_cands = _ae.get("candidates") or {}
-        _ae_sel = _ae.get("selection") or {}
-        if _ae_cands:
-            st.markdown("**Anchor Selection Engine — Candidate Table**")
-            for _role_key, _role_label in [("pivot_high", "Ceiling Anchor (High)"), ("pivot_low", "Floor Anchor (Low)")]:
-                _clist = _ae_cands.get(_role_key) or []
-                if _clist:
-                    st.caption(_role_label)
-                    _rows = []
-                    for _c in _clist:
-                        _ts = _c.get("pivot_time")
-                        _ts_str = _ts.strftime("%m/%d %-I:%M %p CT") if hasattr(_ts, "strftime") else str(_ts)
-                        _is_sel = _ae_sel.get(f"{_role_key}_source") == _c.get("session_source")
-                        _rows.append({
-                            "Selected": "✓" if _is_sel else "",
-                            "Session": _c.get("session_source", ""),
-                            "Time": _ts_str,
-                            "Extreme Price": round(_c.get("extreme_price", 0), 2),
-                            "Proj 8:30": _c.get("projected_level_at_830"),
-                            "Proj 9:00": _c.get("projected_level_at_900"),
-                            "Dist to Ref": _c.get("distance_to_current_price"),
-                            "Score": round(_c.get("candidate_rank_score", 0), 2),
-                            "Strict": "✓" if _c.get("confirmed") else "fallback",
-                        })
-                    st.dataframe(_rows, use_container_width=True, hide_index=True)
-            st.caption(f"High confidence: {_ae_sel.get('pivot_high_confidence', '—')}  |  Low confidence: {_ae_sel.get('pivot_low_confidence', '—')}")
-            if _ae_sel.get("pivot_high_reason"):
-                st.caption(f"High: {_ae_sel['pivot_high_reason']}")
-            if _ae_sel.get("pivot_low_reason"):
-                st.caption(f"Low: {_ae_sel['pivot_low_reason']}")
 
     with st.expander("Auto-Fetch Diagnostics", expanded=False):
         if fetch_diagnostics is None:
@@ -15062,7 +14967,6 @@ def render_live_mode_shell(
         safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
 
         if developer_mode:
-            _render_anchor_source_banner(anchor_bundle)
             with st.expander("Structure Details", expanded=False):
                 if display_signal_package is not None:
                     render_scenario_section(display_signal_package["scenario"])

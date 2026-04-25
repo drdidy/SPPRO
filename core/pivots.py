@@ -278,58 +278,12 @@ def resolve_anchor_prices(pivot_high: dict[str, Any], pivot_low: dict[str, Any])
     }
 
 
-def build_six_line_anchors(
-    candles: "pd.DataFrame",
-    session_date: Any,
-    next_trading_date: Any = None,
-    anchor_source_override: "str | None" = None,
-    reference_price: "float | None" = None,
-) -> dict[str, Any]:
-    """Build the full six-anchor structure from a prior NY session.
-
-    Parameters
-    ----------
-    candles : pd.DataFrame
-        ES hourly candle frame covering the prior session and overnight.
-    session_date : date
-        The prior NY session date.
-    next_trading_date : date | None
-        The next trading date. When provided, enables multi-session anchor
-        selection (Asian, London, Pre-NY windows). Defaults to session_date + 1 day.
-    anchor_source_override : str | None
-        Force a specific session source: "PM_WINDOW" | "ASIAN" | "LONDON" | "PRE_NY".
-        None means Auto (all windows evaluated by the anchor engine).
-    reference_price : float | None
-        Optional 9 AM reference price (ES) for proximity-based scoring.
-    """
-    import datetime as _dt
-    from core.anchor_engine import run_anchor_selection, SESSION_SOURCES
+def build_six_line_anchors(candles: "pd.DataFrame", session_date: Any) -> dict[str, Any]:
+    """Build the full six-anchor structure from a prior NY session."""
 
     normalized = _normalize_candles(candles)
 
-    # Resolve next_trading_date — required for multi-session windows
-    if next_trading_date is None:
-        next_trading_date = session_date + _dt.timedelta(days=1)
-
-    # --- Multi-session anchor selection ---
-    engine_result = run_anchor_selection(
-        candles=candles,
-        prior_session_date=session_date,
-        next_trading_date=next_trading_date,
-        reference_price=reference_price,
-        anchor_source_override=anchor_source_override,
-    )
-    pivot_high = engine_result["pivot_high"]
-    pivot_low = engine_result["pivot_low"]
-
-    # --- Session-extreme detection (full NY session, unchanged) ---
-    ny_session_window = filter_time_range(
-        normalized,
-        start_time=at_central(session_date, 8, 0),
-        end_time=at_central(session_date, 16, 0),
-    )
-
-    # Keep afternoon_window for candle metadata / afternoon_candles output
+    # Include the 11 AM candle as context so a 12 PM pivot can evaluate i-1.
     afternoon_window = filter_time_range(
         normalized,
         start_time=at_central(session_date, 11, 0),
@@ -341,63 +295,41 @@ def build_six_line_anchors(
             start_time=at_central(session_date, 8, 30),
             end_time=at_central(session_date, 20, 0),
         )
+    ny_session_window = filter_time_range(
+        normalized,
+        start_time=at_central(session_date, 8, 0),
+        end_time=at_central(session_date, 16, 0),
+    )
 
-    # Fall back to legacy _find_last_pivot if anchor engine returned nothing
-    if pivot_high is None or pivot_low is None:
-        _ph = _find_last_pivot(afternoon_window, "high")
-        _pl = _find_last_pivot(afternoon_window, "low")
-        pivot_high = pivot_high or _ph
-        pivot_low = pivot_low or _pl
-
-    session_extremes = _find_session_extremes(ny_session_window)
+    pivot_high = _find_last_pivot(afternoon_window, "high")
+    pivot_low = _find_last_pivot(afternoon_window, "low")
     pivot_anchors = resolve_anchor_prices(pivot_high, pivot_low)
-
-    # Derive search_window label from the selected session source
-    def _src_window_label(candidate: dict) -> str:
-        src = candidate.get("session_source", "PM_WINDOW")
-        info = SESSION_SOURCES.get(src, {})
-        return info.get("description", "12:00 PM CT to 3:00 PM CT")
-
-    def _session_source_tag(candidate: dict) -> str:
-        src = candidate.get("session_source", "PM_WINDOW")
-        return SESSION_SOURCES.get(src, {}).get("label", "PM Window")
+    session_extremes = _find_session_extremes(ny_session_window)
 
     anchors = {
         "hw": {
             **session_extremes["hw_anchor"],
             "line_type": "session_extreme",
-            "session_source": "SESSION_HIGH",
-            "session_source_label": "Session High",
         },
         "asc_ceiling": {
             **pivot_anchors["asc_ceiling_anchor"],
             "line_type": "channel",
-            "session_source": pivot_high.get("session_source", "PM_WINDOW"),
-            "session_source_label": _session_source_tag(pivot_high),
         },
         "asc_floor": {
             **pivot_anchors["asc_floor_anchor"],
             "line_type": "channel",
-            "session_source": pivot_low.get("session_source", "PM_WINDOW"),
-            "session_source_label": _session_source_tag(pivot_low),
         },
         "desc_ceiling": {
             **pivot_anchors["desc_ceiling_anchor"],
             "line_type": "channel",
-            "session_source": pivot_high.get("session_source", "PM_WINDOW"),
-            "session_source_label": _session_source_tag(pivot_high),
         },
         "desc_floor": {
             **pivot_anchors["desc_floor_anchor"],
             "line_type": "channel",
-            "session_source": pivot_low.get("session_source", "PM_WINDOW"),
-            "session_source_label": _session_source_tag(pivot_low),
         },
         "lw": {
             **session_extremes["lw_anchor"],
             "line_type": "session_extreme",
-            "session_source": "SESSION_LOW",
-            "session_source_label": "Session Low",
         },
     }
 
@@ -410,8 +342,7 @@ def build_six_line_anchors(
                 "timestamp": pivot_high["pivot_extreme"]["timestamp"],
                 "price": float(pivot_high["pivot_extreme"]["high"]),
                 "source": pivot_high["pivot_extreme"],
-                "search_window": _src_window_label(pivot_high),
-                "session_source": pivot_high.get("session_source", "PM_WINDOW"),
+                "search_window": "12:00 PM CT to 4:00 PM CT",
             },
             "pivot_highest_wick": {
                 "timestamp": session_extremes["hw_anchor"]["timestamp"],
@@ -423,8 +354,7 @@ def build_six_line_anchors(
                 "timestamp": pivot_low["pivot_extreme"]["timestamp"],
                 "price": float(pivot_low["pivot_extreme"]["low"]),
                 "source": pivot_low["pivot_extreme"],
-                "search_window": _src_window_label(pivot_low),
-                "session_source": pivot_low.get("session_source", "PM_WINDOW"),
+                "search_window": "12:00 PM CT to 4:00 PM CT",
             },
             "pivot_lowest_wick": {
                 "timestamp": session_extremes["lw_anchor"]["timestamp"],
@@ -438,7 +368,6 @@ def build_six_line_anchors(
         "session_extremes": session_extremes,
         "anchors": anchors,
         "afternoon_candles": [row_to_candle_metadata(row) for _, row in afternoon_window.iterrows()],
-        "anchor_engine": engine_result,
     }
 
 
