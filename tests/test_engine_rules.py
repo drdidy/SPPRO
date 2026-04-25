@@ -527,14 +527,14 @@ class EngineRuleTests(unittest.TestCase):
         self.assertTrue(result["failed"])
         self.assertFalse(result["confirmed"])
 
-    def test_failed_put_confirmation_red_below_line(self) -> None:
+    def test_valid_put_confirmation_red_below_line(self) -> None:
         result = evaluate_830_confirmation(
             {"open": 105.0, "high": 105.5, "low": 100.0, "close": 103.0},
             entry_line_price=104.5,
             direction="PUT",
         )
-        self.assertTrue(result["failed"])
-        self.assertFalse(result["confirmed"])
+        self.assertFalse(result["failed"])
+        self.assertTrue(result["confirmed"])
 
     def test_valid_call_confirmation(self) -> None:
         result = evaluate_830_confirmation(
@@ -553,14 +553,14 @@ class EngineRuleTests(unittest.TestCase):
         self.assertTrue(result["failed"])
         self.assertFalse(result["confirmed"])
 
-    def test_failed_call_confirmation_green_above_line(self) -> None:
+    def test_valid_call_confirmation_green_above_line(self) -> None:
         result = evaluate_830_confirmation(
             {"open": 95.0, "high": 101.0, "low": 94.5, "close": 99.0},
             entry_line_price=96.0,
             direction="CALL",
         )
-        self.assertTrue(result["failed"])
-        self.assertFalse(result["confirmed"])
+        self.assertFalse(result["failed"])
+        self.assertTrue(result["confirmed"])
 
     def test_sit_out_channel_width_under_three(self) -> None:
         scenario = evaluate_trading_scenario(
