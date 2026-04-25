@@ -16,6 +16,10 @@ from core.projections import round_price
 from core.time_utils import at_central, filter_time_range, to_central_time
 
 
+ASIAN_WINDOW_NAME = "asian_evening"
+ASIAN_CLOSER_PRICE_EDGE_POINTS = 2.0
+
+
 @dataclass(frozen=True)
 class PivotWindowSpec:
     """Named session window used for pivot candidate discovery."""
@@ -40,13 +44,13 @@ PIVOT_WINDOWS: tuple[PivotWindowSpec, ...] = (
         description="Original 12 PM-4 PM CT pivot window.",
     ),
     PivotWindowSpec(
-        name="asian_evening",
+        name=ASIAN_WINDOW_NAME,
         start_hour=17,
         start_minute=0,
         end_hour=23,
         end_minute=59,
         weight=1.15,
-        description="Asian session structure window. Often sets the higher-relevance overnight pivot.",
+        description="Asian session structure window. Preferred when closer to price.",
     ),
     PivotWindowSpec(
         name="overnight_continuation",
@@ -106,9 +110,6 @@ def _is_pivot_low(window: pd.DataFrame, index: int) -> bool:
 def _window_bounds(session_date: Any, spec: PivotWindowSpec):
     start = at_central(session_date, spec.start_hour, spec.start_minute)
     end = at_central(session_date, spec.end_hour, spec.end_minute)
-    if spec.name in {"asian_evening"}:
-        start = start
-        end = end
     return start, end
 
 
@@ -175,10 +176,8 @@ def discover_pivot_candidates(
 def score_pivot_candidate(candidate: dict[str, Any], *, reference_price: float | None = None) -> dict[str, Any]:
     """Score a pivot candidate for structural relevance.
 
-    This is deliberately transparent rather than overfit. The score favors:
-    - Asian-session pivots when they are structurally clean
-    - Extremes that are closer to the current NY decision area
-    - Later pivots inside the same window
+    The score favors Asian-session pivots and pivots close to the NY decision
+    area, but selection applies an explicit Asian-closer override afterward.
     """
 
     score = 50.0 * float(candidate.get("window_weight", 1.0))
@@ -189,7 +188,7 @@ def score_pivot_candidate(candidate: dict[str, Any], *, reference_price: float |
         wick_range = max(float(c["high"]) for c in context) - min(float(c["low"]) for c in context)
         body_sizes = [abs(float(c["close"]) - float(c["open"])) for c in context]
         reaction_body = max(body_sizes) if body_sizes else 0.0
-        if reaction_body >= 0.25 * wick_range:
+        if wick_range > 0 and reaction_body >= 0.25 * wick_range:
             score += 10.0
             notes.append("Context shows a meaningful reaction body.")
 
@@ -204,6 +203,7 @@ def score_pivot_candidate(candidate: dict[str, Any], *, reference_price: float |
         else:
             score -= 5.0
             notes.append("Pivot is far from the current decision area.")
+        notes.append(f"Distance to reference price: {round_price(distance)} points.")
 
     final_score = max(0, min(100, int(round(score))))
     enriched = dict(candidate)
@@ -222,7 +222,57 @@ def rank_pivot_candidates(
 
     selected = [candidate for candidate in candidates if candidate.get("pivot_type") == pivot_type]
     scored = [score_pivot_candidate(candidate, reference_price=reference_price) for candidate in selected]
-    return sorted(scored, key=lambda candidate: (candidate["score"], candidate["price"]), reverse=pivot_type == "high")
+    return sorted(scored, key=lambda candidate: (candidate["score"], -abs(float(candidate["price"]) - float(reference_price or candidate["price"]))), reverse=True)
+
+
+def choose_preferred_pivot(
+    ranked_candidates: list[dict[str, Any]],
+    *,
+    reference_price: float | None = None,
+    prefer_asian_when_closer: bool = True,
+    asian_edge_points: float = ASIAN_CLOSER_PRICE_EDGE_POINTS,
+) -> dict[str, Any] | None:
+    """Choose the operational pivot.
+
+    Rule from operator observation:
+    Prefer the Asian pivot when it is closer to price than the highest-scoring
+    non-Asian pivot. A small edge buffer prevents noisy one-tick swaps.
+    """
+
+    if not ranked_candidates:
+        return None
+
+    default_choice = ranked_candidates[0]
+    if not prefer_asian_when_closer or reference_price is None or reference_price <= 0:
+        choice = dict(default_choice)
+        choice["selection_reason"] = "highest_ranked_candidate"
+        return choice
+
+    asian_candidates = [candidate for candidate in ranked_candidates if candidate.get("window_name") == ASIAN_WINDOW_NAME]
+    non_asian_candidates = [candidate for candidate in ranked_candidates if candidate.get("window_name") != ASIAN_WINDOW_NAME]
+    if not asian_candidates:
+        choice = dict(default_choice)
+        choice["selection_reason"] = "highest_ranked_candidate_no_asian_candidate"
+        return choice
+
+    best_asian = min(asian_candidates, key=lambda candidate: abs(float(candidate["price"]) - float(reference_price)))
+    best_non_asian = non_asian_candidates[0] if non_asian_candidates else None
+
+    asian_distance = abs(float(best_asian["price"]) - float(reference_price))
+    non_asian_distance = abs(float(best_non_asian["price"]) - float(reference_price)) if best_non_asian else float("inf")
+
+    if asian_distance + asian_edge_points <= non_asian_distance:
+        choice = dict(best_asian)
+        choice["selection_reason"] = "asian_pivot_preferred_because_closer_to_price"
+        choice["asian_distance_points"] = round_price(asian_distance)
+        choice["non_asian_distance_points"] = round_price(non_asian_distance) if best_non_asian else None
+        return choice
+
+    choice = dict(default_choice)
+    choice["selection_reason"] = "highest_ranked_candidate_asian_not_materially_closer"
+    choice["asian_distance_points"] = round_price(asian_distance)
+    choice["non_asian_distance_points"] = round_price(non_asian_distance) if best_non_asian else None
+    return choice
 
 
 def summarize_pivot_intelligence(candles: pd.DataFrame, session_date: Any, *, reference_price: float | None = None) -> dict[str, Any]:
@@ -235,9 +285,14 @@ def summarize_pivot_intelligence(candles: pd.DataFrame, session_date: Any, *, re
         "session_date": str(session_date),
         "reference_price": reference_price,
         "candidate_count": len(candidates),
-        "best_high": highs[0] if highs else None,
-        "best_low": lows[0] if lows else None,
+        "best_high": choose_preferred_pivot(highs, reference_price=reference_price),
+        "best_low": choose_preferred_pivot(lows, reference_price=reference_price),
         "high_candidates": highs,
         "low_candidates": lows,
+        "selection_policy": {
+            "prefer_asian_when_closer": True,
+            "asian_edge_points": ASIAN_CLOSER_PRICE_EDGE_POINTS,
+            "description": "Asian pivot is selected when it is materially closer to the reference price than the best non-Asian candidate.",
+        },
         "windows": [asdict(window) for window in PIVOT_WINDOWS],
     }
