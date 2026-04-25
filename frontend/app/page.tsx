@@ -1,8 +1,4 @@
-import { DecisionHero } from "@/components/DecisionHero";
-import { ExecutionCard } from "@/components/ExecutionCard";
-import { MarketContext } from "@/components/MarketContext";
-import { StrikeLadder } from "@/components/StrikeLadder";
-import { StructureMap } from "@/components/StructureMap";
+import { OperatorWorkspace } from "@/components/OperatorWorkspace";
 import { mockSnapshot } from "@/lib/mockData";
 import type { OperatorSnapshot } from "@/lib/types";
 
@@ -24,33 +20,5 @@ async function getSnapshot(): Promise<OperatorSnapshot> {
 export default async function Home() {
   const snapshot = await getSnapshot();
 
-  return (
-    <main className="app-shell">
-      <div className="background-grid" />
-      <header className="topbar">
-        <div>
-          <span className="brand-mark">SPX</span>
-          <span className="brand-name">PROPHET</span>
-        </div>
-        <p>Structure Into Execution</p>
-      </header>
-
-      <DecisionHero snapshot={snapshot} />
-
-      <div className="two-column">
-        <MarketContext snapshot={snapshot} />
-        <StructureMap snapshot={snapshot} />
-      </div>
-
-      <section className="execution-grid">
-        <ExecutionCard play={snapshot.primary_play} emphasis />
-        <ExecutionCard play={snapshot.alternate_play} />
-      </section>
-
-      <section className="two-column ladders">
-        <StrikeLadder title="Primary Nearby Strikes" rows={snapshot.strike_ladders.primary} />
-        <StrikeLadder title="Alternate Nearby Strikes" rows={snapshot.strike_ladders.alternate} />
-      </section>
-    </main>
-  );
+  return <OperatorWorkspace snapshot={snapshot} />;
 }
