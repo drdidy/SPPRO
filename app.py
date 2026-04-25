@@ -12629,6 +12629,7 @@ def render_play_card(
     action_label = (status_breakdown or {}).get("final_decision") or final_status_to_action(visible_status, st.session_state.get("current_signal_package"))
     decision_suppressed = action_label == "SKIP TRADE"
     trade_state = "FILTERED" if decision_suppressed else ("INVALID" if not play.get("stop") or play.get("invalid_stop") else "ACTIVE")
+    setup_state = str((authority or {}).get("setup_state") or trade_state or "UNAVAILABLE").replace("_", " ").title()
     quality_display = "Ignored (Decision Override)" if decision_suppressed else intelligence["quality"]
     decision_reason = get_decision_reason(action_label, st.session_state.get("current_signal_package"), play, intelligence, timing["label"])
     pred_label = "Estimated Entry (Live)" if is_live_market_session() else "Predicted Entry"
