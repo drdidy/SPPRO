@@ -13,6 +13,11 @@ from typing import Any
 from core.projections import round_price
 
 
+DEFAULT_TOUCH_TOLERANCE_POINTS = 1.0
+DEFAULT_MAX_VALID_CLOSE_DISTANCE_POINTS = 3.0
+DEFAULT_RETEST_ZONE_POINTS = 2.0
+
+
 @dataclass(frozen=True)
 class ConeLine:
     """A projected polarity line from an Asian pivot."""
@@ -40,14 +45,21 @@ def classify_polarity_touch(
     candle_low: float,
     candle_close: float,
     prior_close: float | None = None,
-    touch_tolerance: float = 1.0,
+    touch_tolerance: float = DEFAULT_TOUCH_TOLERANCE_POINTS,
+    max_valid_close_distance: float = DEFAULT_MAX_VALID_CLOSE_DISTANCE_POINTS,
+    retest_zone_points: float = DEFAULT_RETEST_ZONE_POINTS,
 ) -> dict[str, Any]:
     """Classify how price interacted with one polarity line.
 
-    Core rule:
-    - Touch + close above the line = support hold / bullish control.
-    - Touch + close below the line = resistance rejection / bearish control.
-    - No touch = pending, with price side noted.
+    Entry-quality rule:
+    - Wick touch alone is not enough.
+    - Touch + close on the correct side but too far from the line is marked as
+      extended confirmation, not immediate confirmation.
+    - A valid actionable touch requires the candle to close on the controlling
+      side AND within max_valid_close_distance points of the line.
+
+    This avoids entering the next candle after a large rejection close, only to
+    watch price retest and break the line.
     """
 
     line = float(line_price)
@@ -57,7 +69,10 @@ def classify_polarity_touch(
     touched = low - touch_tolerance <= line <= high + touch_tolerance
     close_above = close > line
     close_below = close < line
-    close_distance = round_price(close - line)
+    signed_close_distance = close - line
+    abs_close_distance = abs(signed_close_distance)
+    close_near_line = abs_close_distance <= float(max_valid_close_distance)
+    in_retest_zone = abs_close_distance <= float(retest_zone_points)
 
     if prior_close is None:
         approach_side = "unknown"
@@ -68,18 +83,36 @@ def classify_polarity_touch(
     else:
         approach_side = "from_line"
 
+    actionable = False
+    wait_for_retest = False
+    risk_note = ""
+
     if not touched:
         state = "above_line" if close_above else "below_line" if close_below else "at_line"
         action_bias = "monitor"
         label = "No touch yet"
-    elif close_above:
+    elif close_above and close_near_line:
         state = "support_hold"
         action_bias = "bullish"
-        label = "Polarity support confirmed"
-    elif close_below:
+        actionable = True
+        label = "Polarity support confirmed near line"
+    elif close_below and close_near_line:
         state = "resistance_rejection"
         action_bias = "bearish"
-        label = "Polarity resistance confirmed"
+        actionable = True
+        label = "Polarity resistance confirmed near line"
+    elif close_above:
+        state = "extended_support_rejection_wait_for_retest"
+        action_bias = "bullish_but_extended"
+        wait_for_retest = True
+        risk_note = "Wick touched and closed above, but close is too far from the line. Do not chase. Wait for a controlled retest or continuation confirmation."
+        label = "Support reaction extended; wait for retest"
+    elif close_below:
+        state = "extended_resistance_rejection_wait_for_retest"
+        action_bias = "bearish_but_extended"
+        wait_for_retest = True
+        risk_note = "Wick touched and closed below, but close is too far from the line. Do not chase. Wait for a controlled retest or continuation confirmation."
+        label = "Resistance reaction extended; wait for retest"
     else:
         state = "line_balance"
         action_bias = "wait"
@@ -90,11 +123,23 @@ def classify_polarity_touch(
         "touched": touched,
         "close_above": close_above,
         "close_below": close_below,
-        "close_distance_points": close_distance,
+        "close_distance_points": round_price(signed_close_distance),
+        "abs_close_distance_points": round_price(abs_close_distance),
+        "close_near_line": close_near_line,
+        "in_retest_zone": in_retest_zone,
         "approach_side": approach_side,
         "state": state,
         "action_bias": action_bias,
+        "actionable": actionable,
+        "wait_for_retest": wait_for_retest,
         "label": label,
+        "risk_note": risk_note,
+        "validation_rule": {
+            "touch_tolerance_points": touch_tolerance,
+            "max_valid_close_distance_points": max_valid_close_distance,
+            "retest_zone_points": retest_zone_points,
+            "rule": "Touch plus close on controlling side within max_valid_close_distance is actionable. Extended closes require patience, not chase entries.",
+        },
     }
 
 
@@ -164,7 +209,9 @@ def build_polarity_line_table(
     candle: dict[str, Any] | None,
     lines: list[dict[str, Any]],
     prior_close: float | None = None,
-    touch_tolerance: float = 1.0,
+    touch_tolerance: float = DEFAULT_TOUCH_TOLERANCE_POINTS,
+    max_valid_close_distance: float = DEFAULT_MAX_VALID_CLOSE_DISTANCE_POINTS,
+    retest_zone_points: float = DEFAULT_RETEST_ZONE_POINTS,
 ) -> list[dict[str, Any]]:
     """Create a line-by-line polarity table for UI and scoring."""
 
@@ -179,6 +226,8 @@ def build_polarity_line_table(
                 candle_close=float(candle["close"]),
                 prior_close=prior_close,
                 touch_tolerance=touch_tolerance,
+                max_valid_close_distance=max_valid_close_distance,
+                retest_zone_points=retest_zone_points,
             )
         else:
             polarity = {
@@ -186,6 +235,8 @@ def build_polarity_line_table(
                 "touched": False,
                 "state": "pending_no_candle",
                 "action_bias": "monitor",
+                "actionable": False,
+                "wait_for_retest": False,
                 "label": "Waiting for candle confirmation",
             }
         output.append({**line, **polarity, "distance_points": line["distance_points"], "price_side": line["price_side"]})
