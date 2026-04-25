@@ -210,6 +210,8 @@ DEFAULT_SETTINGS = {
 }
 
 MIN_EXECUTION_MARK = 0.20
+OPTION_CROWDING_NEAR_STRIKE_POINTS = 15.0
+OPTION_CROWDING_REFERENCE_BAND_POINTS = 45.0
 TOUCH_TOLERANCE_POINTS = 1.5
 MIN_TEST_TOUCHES = 2
 ANCHOR_REACTION_TOLERANCE_POINTS = 2.0
@@ -7075,6 +7077,11 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "event_risk_level": str(raw_trade.get("event_risk_level", "")),
         "event_risk_reason": str(raw_trade.get("event_risk_reason", "")),
         "event_trading_mode": str(raw_trade.get("event_trading_mode", "")),
+        "crowding_side": str(raw_trade.get("crowding_side", "")),
+        "crowding_risk_level": str(raw_trade.get("crowding_risk_level", "")),
+        "crowding_score": int(raw_trade.get("crowding_score", 0) or 0),
+        "crowding_quality": str(raw_trade.get("crowding_quality", "")),
+        "crowding_reason": str(raw_trade.get("crowding_reason", "")),
         "entry_zone_low_spx": round_price(float(raw_trade.get("entry_zone_low_spx", 0.0))),
         "entry_zone_high_spx": round_price(float(raw_trade.get("entry_zone_high_spx", 0.0))),
         "entry_zone_mid_spx": round_price(float(raw_trade.get("entry_zone_mid_spx", 0.0))),
@@ -7683,6 +7690,11 @@ def build_live_play_trade_prefill(
         "event_risk_level": str((authority or {}).get("event_risk_level", "")),
         "event_risk_reason": str((authority or {}).get("event_risk_reason", "")),
         "event_trading_mode": str((authority or {}).get("event_trading_mode", "")),
+        "crowding_side": str((authority or {}).get("crowding_side", "")),
+        "crowding_risk_level": str((authority or {}).get("crowding_risk_level", "")),
+        "crowding_score": int((authority or {}).get("crowding_score", 0) or 0),
+        "crowding_quality": str((authority or {}).get("crowding_quality", "")),
+        "crowding_reason": str((authority or {}).get("crowding_reason", "")),
         "entry_zone_low_spx": float((authority or {}).get("entry_zone_low_spx", 0.0) or 0.0),
         "entry_zone_high_spx": float((authority or {}).get("entry_zone_high_spx", 0.0) or 0.0),
         "entry_zone_mid_spx": float((authority or {}).get("entry_zone_mid_spx", 0.0) or 0.0),
@@ -8683,6 +8695,7 @@ def build_play_decision_authority(
     current_candle: dict[str, Any] | None = None,
     vwap_value: float | None = None,
     vwap_context: dict[str, Any] | None = None,
+    crowding_context: dict[str, Any] | None = None,
     anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one authoritative operator decision without changing strategy logic."""
@@ -8715,6 +8728,12 @@ def build_play_decision_authority(
             "event_risk_level": "unknown",
             "event_risk_reason": "News unavailable",
             "event_trading_mode": "normal",
+            "crowding_context": _empty_option_crowding_context("No active setup"),
+            "crowding_side": "UNKNOWN",
+            "crowding_risk_level": "unknown",
+            "crowding_score": 0,
+            "crowding_quality": "insufficient",
+            "crowding_reason": "No active setup",
         }
 
     option_display_state = option_display_state or {}
@@ -8784,6 +8803,21 @@ def build_play_decision_authority(
         risk_score += 1
     if intelligence.get("stop_quality") in {"Tight", "Balanced"} and rr_ratio is not None and rr_ratio >= 1.0:
         risk_score -= 1
+    risk_class = "LOW" if risk_score <= 0 else "MEDIUM" if risk_score <= 2 else "HIGH"
+    crowding_context = crowding_context or option_display_state.get("crowding_context") or _empty_option_crowding_context()
+    crowding_level = str(crowding_context.get("crowding_risk_level", "unknown")).lower()
+    crowding_quality = str(crowding_context.get("crowding_quality", "insufficient")).lower()
+    same_direction_crowded = bool(crowding_context.get("direction_is_crowded"))
+    if same_direction_crowded and crowding_quality in {"strong", "moderate"}:
+        if crowding_level == "extreme":
+            confidence_score -= 8
+            risk_score += 2
+        elif crowding_level == "heavy":
+            confidence_score -= 5
+            risk_score += 1
+        elif crowding_level == "elevated":
+            confidence_score -= 2
+    confidence_score = int(max(0, min(100, confidence_score)))
     risk_class = "LOW" if risk_score <= 0 else "MEDIUM" if risk_score <= 2 else "HIGH"
 
     execution_state = build_execution_state(
@@ -8886,6 +8920,14 @@ def build_play_decision_authority(
         elif direction_text == "CALL" and live_family == "bearish":
             reason_line = "Bias bullish, but live structure is now bearish. Original thesis weakened."
 
+    if (
+        decision != "NO TRADE"
+        and same_direction_crowded
+        and crowding_quality in {"strong", "moderate"}
+        and crowding_level in {"heavy", "extreme"}
+    ):
+        reason_line = f"{reason_line} Crowding risk is {crowding_level}; avoid chasing if fills worsen."
+
     factor_states = [
         {"label": "Structure", "state": "GOOD" if structure_valid else "BAD"},
         {"label": "Stop", "state": "GOOD" if stop_valid else "BAD"},
@@ -8962,6 +9004,12 @@ def build_play_decision_authority(
         "line_polarity_reason": execution_state.get("line_polarity_reason"),
         "line_polarity_vwap_alignment": execution_state.get("line_polarity_vwap_alignment"),
         "vwap_context": dict(vwap_context or ({"vwap": vwap_value} if _to_float_or_none(vwap_value) is not None else {})),
+        "crowding_context": dict(crowding_context or {}),
+        "crowding_side": str(crowding_context.get("crowding_side", "UNKNOWN")),
+        "crowding_risk_level": str(crowding_context.get("crowding_risk_level", "unknown")),
+        "crowding_score": int(crowding_context.get("crowding_score", 0) or 0),
+        "crowding_quality": str(crowding_context.get("crowding_quality", "insufficient")),
+        "crowding_reason": str(crowding_context.get("crowding_reason", "")),
         "line_polarity_distance_to_line": execution_state.get("line_polarity_distance_to_line"),
         "line_polarity_close_distance": execution_state.get("line_polarity_close_distance"),
         "line_polarity_line_used": execution_state.get("line_polarity_line_used"),
@@ -9361,6 +9409,252 @@ def extract_lead_option_quote(candidates: list[dict[str, Any]] | None) -> dict[s
         "contract_score": float(lead["contract_score"]) if lead.get("contract_score") not in {"", None} else None,
         "spx_price_at_lookup": _to_float_or_none(candidates[0].get("spx_price_at_lookup")) if candidates else None,
         "es_price_at_lookup": _to_float_or_none(candidates[0].get("es_price_at_lookup")) if candidates else None,
+    }
+
+
+def normalize_option_side(value: Any) -> str:
+    """Normalize option side labels without guessing when data is unclear."""
+
+    text = str(value or "").strip().upper()
+    if text in {"CALL", "C", "LONG_CALL"}:
+        return "CALL"
+    if text in {"PUT", "P", "LONG_PUT"}:
+        return "PUT"
+    return ""
+
+
+def _infer_option_side_from_candidate(candidate: dict[str, Any]) -> str:
+    side = normalize_option_side(candidate.get("option_type") or candidate.get("right") or candidate.get("put_call"))
+    if side:
+        return side
+    symbol = str(candidate.get("symbol") or candidate.get("contract_symbol") or "").replace(" ", "").upper()
+    for marker in ("C0", "P0"):
+        if marker in symbol:
+            return "CALL" if marker == "C0" else "PUT"
+    return ""
+
+
+def _empty_option_crowding_context(reason: str = "Options crowding data unavailable") -> dict[str, Any]:
+    return {
+        "crowding_side": "UNKNOWN",
+        "crowding_risk_level": "unknown",
+        "crowding_score": 0,
+        "crowding_quality": "insufficient",
+        "direction_is_crowded": False,
+        "crowding_reason": reason,
+        "call_volume": 0.0,
+        "put_volume": 0.0,
+        "call_open_interest": 0.0,
+        "put_open_interest": 0.0,
+        "call_exposure": 0.0,
+        "put_exposure": 0.0,
+        "dominant_side_share": None,
+        "selected_strike_concentration": None,
+        "iv_skew": None,
+        "side_count": {"CALL": 0, "PUT": 0},
+    }
+
+
+def build_option_crowding_context(
+    candidates: list[dict[str, Any]] | None,
+    *,
+    selected_contract: dict[str, Any] | None = None,
+    play_direction: str | None = None,
+    current_spx_price: float | None = None,
+    planned_entry_spx: float | None = None,
+) -> dict[str, Any]:
+    """Build a conservative call/put crowding proxy from available Tastytrade chain fields.
+
+    This is deliberately an execution-risk overlay, not a prediction that market
+    makers will force a move. It needs both option sides plus volume/OI evidence
+    before making a directional crowding claim.
+    """
+
+    rows = [dict(row) for row in candidates or [] if isinstance(row, dict)]
+    if not rows:
+        return _empty_option_crowding_context()
+
+    selected_strike = _to_float_or_none((selected_contract or {}).get("strike"))
+    reference_prices = [
+        value
+        for value in [
+            selected_strike,
+            _to_float_or_none(planned_entry_spx),
+            _to_float_or_none(current_spx_price),
+        ]
+        if value is not None
+    ]
+    reference_price = reference_prices[0] if reference_prices else None
+    play_side = normalize_option_side(play_direction)
+    if not play_side:
+        play_side = _infer_option_side_from_candidate(selected_contract or {})
+
+    side_totals = {
+        "CALL": {"volume": 0.0, "open_interest": 0.0, "exposure": 0.0, "iv_weighted": 0.0, "iv_weight": 0.0, "spread_weighted": 0.0, "spread_weight": 0.0, "count": 0},
+        "PUT": {"volume": 0.0, "open_interest": 0.0, "exposure": 0.0, "iv_weighted": 0.0, "iv_weight": 0.0, "spread_weighted": 0.0, "spread_weight": 0.0, "count": 0},
+    }
+    strike_exposure: dict[tuple[str, float], float] = {}
+    has_volume_or_oi = False
+
+    for row in rows:
+        side = _infer_option_side_from_candidate(row)
+        if side not in side_totals:
+            continue
+        strike = _to_float_or_none(row.get("strike"))
+        if reference_price is not None and strike is not None:
+            distance = abs(strike - reference_price)
+            if distance > OPTION_CROWDING_REFERENCE_BAND_POINTS:
+                distance_weight = 0.15
+            else:
+                distance_weight = 1.0 / (1.0 + distance / max(OPTION_CROWDING_NEAR_STRIKE_POINTS, 1.0))
+        else:
+            distance_weight = 0.5
+        volume = max(0.0, _to_float_or_none(row.get("volume")) or 0.0)
+        open_interest = max(0.0, _to_float_or_none(row.get("open_interest")) or 0.0)
+        exposure = (volume + (open_interest * 0.35)) * distance_weight
+        if volume > 0 or open_interest > 0:
+            has_volume_or_oi = True
+        side_totals[side]["volume"] += volume * distance_weight
+        side_totals[side]["open_interest"] += open_interest * distance_weight
+        side_totals[side]["exposure"] += exposure
+        side_totals[side]["count"] += 1
+        iv = _to_float_or_none(row.get("implied_volatility"))
+        if iv is not None and exposure > 0:
+            side_totals[side]["iv_weighted"] += iv * exposure
+            side_totals[side]["iv_weight"] += exposure
+        bid = _to_float_or_none(row.get("bid"))
+        ask = _to_float_or_none(row.get("ask"))
+        mark = _positive_price_or_none(row.get("mark")) or _positive_price_or_none(row.get("last")) or _positive_price_or_none(row.get("ask"))
+        if bid is not None and ask is not None and ask >= bid and mark:
+            spread_pct = max(0.0, ask - bid) / max(mark, 0.01)
+            side_totals[side]["spread_weighted"] += spread_pct * max(exposure, 1.0)
+            side_totals[side]["spread_weight"] += max(exposure, 1.0)
+        if strike is not None:
+            strike_key = (side, float(strike))
+            strike_exposure[strike_key] = strike_exposure.get(strike_key, 0.0) + exposure
+
+    call_exposure = side_totals["CALL"]["exposure"]
+    put_exposure = side_totals["PUT"]["exposure"]
+    total_exposure = call_exposure + put_exposure
+    both_sides_loaded = side_totals["CALL"]["count"] > 0 and side_totals["PUT"]["count"] > 0
+    if not both_sides_loaded:
+        sampled_side = "CALL" if side_totals["CALL"]["count"] else "PUT" if side_totals["PUT"]["count"] else "UNKNOWN"
+        return {
+            **_empty_option_crowding_context(f"Only {sampled_side.lower()} contracts are loaded; need both sides to judge directional crowding."),
+            "crowding_quality": "partial" if sampled_side != "UNKNOWN" else "insufficient",
+            "side_count": {"CALL": int(side_totals["CALL"]["count"]), "PUT": int(side_totals["PUT"]["count"])},
+            "call_volume": round_price(side_totals["CALL"]["volume"]),
+            "put_volume": round_price(side_totals["PUT"]["volume"]),
+            "call_open_interest": round_price(side_totals["CALL"]["open_interest"]),
+            "put_open_interest": round_price(side_totals["PUT"]["open_interest"]),
+            "call_exposure": round_price(call_exposure),
+            "put_exposure": round_price(put_exposure),
+        }
+    if total_exposure <= 0 or not has_volume_or_oi:
+        return {
+            **_empty_option_crowding_context("Call and put contracts loaded, but volume/open-interest evidence is missing."),
+            "side_count": {"CALL": int(side_totals["CALL"]["count"]), "PUT": int(side_totals["PUT"]["count"])},
+        }
+
+    dominant_side = "CALL" if call_exposure >= put_exposure else "PUT"
+    dominant_exposure = max(call_exposure, put_exposure)
+    dominant_share = dominant_exposure / max(total_exposure, 1e-9)
+    crowding_side = f"{dominant_side}_HEAVY" if dominant_share >= 0.56 else "BALANCED"
+    imbalance_score = max(0.0, min(45.0, ((dominant_share - 0.50) / 0.50) * 45.0))
+
+    dominant_strikes = [value for (side, _strike), value in strike_exposure.items() if side == dominant_side]
+    max_strike_exposure = max(dominant_strikes, default=0.0)
+    selected_strike_concentration = max_strike_exposure / max(dominant_exposure, 1e-9)
+    concentration_score = max(0.0, min(20.0, ((selected_strike_concentration - 0.30) / 0.70) * 20.0))
+
+    def _avg_iv(side: str) -> float | None:
+        weight = side_totals[side]["iv_weight"]
+        return side_totals[side]["iv_weighted"] / weight if weight > 0 else None
+
+    call_iv = _avg_iv("CALL")
+    put_iv = _avg_iv("PUT")
+    iv_skew = None
+    iv_score = 0.0
+    if call_iv is not None and put_iv is not None:
+        iv_skew = (call_iv - put_iv) if dominant_side == "CALL" else (put_iv - call_iv)
+        iv_score = max(0.0, min(10.0, (iv_skew / 0.08) * 10.0))
+
+    spread_weight = side_totals[dominant_side]["spread_weight"]
+    avg_spread_pct = side_totals[dominant_side]["spread_weighted"] / spread_weight if spread_weight > 0 else None
+    spread_score = max(0.0, min(5.0, ((avg_spread_pct or 0.0) / 0.25) * 5.0))
+    data_score = 20.0 if total_exposure >= 500 else 14.0 if total_exposure >= 150 else 8.0
+    crowding_score = int(round(max(0.0, min(100.0, imbalance_score + concentration_score + iv_score + spread_score + data_score))))
+
+    if crowding_side == "BALANCED":
+        risk_level = "balanced"
+    elif crowding_score >= 85:
+        risk_level = "extreme"
+    elif crowding_score >= 70:
+        risk_level = "heavy"
+    elif crowding_score >= 55:
+        risk_level = "elevated"
+    else:
+        risk_level = "balanced"
+
+    if total_exposure >= 500 and min(side_totals["CALL"]["count"], side_totals["PUT"]["count"]) >= 2:
+        quality = "strong"
+    elif total_exposure >= 150:
+        quality = "moderate"
+    else:
+        quality = "weak"
+    direction_is_crowded = bool(play_side and crowding_side == f"{play_side}_HEAVY" and risk_level in {"elevated", "heavy", "extreme"})
+    side_label = "balanced" if crowding_side == "BALANCED" else f"{dominant_side.title()} heavy"
+    reason = (
+        f"{side_label}; {dominant_share:.0%} of near-entry option pressure is on {dominant_side.lower()}s."
+        if crowding_side != "BALANCED"
+        else "Call/put pressure is balanced near the planned entry."
+    )
+    if direction_is_crowded:
+        reason += " Same-direction crowding can reduce follow-through quality."
+
+    return {
+        "crowding_side": crowding_side,
+        "crowding_risk_level": risk_level,
+        "crowding_score": crowding_score,
+        "crowding_quality": quality,
+        "direction_is_crowded": direction_is_crowded,
+        "crowding_reason": reason,
+        "call_volume": round_price(side_totals["CALL"]["volume"]),
+        "put_volume": round_price(side_totals["PUT"]["volume"]),
+        "call_open_interest": round_price(side_totals["CALL"]["open_interest"]),
+        "put_open_interest": round_price(side_totals["PUT"]["open_interest"]),
+        "call_exposure": round_price(call_exposure),
+        "put_exposure": round_price(put_exposure),
+        "dominant_side_share": round(dominant_share, 4),
+        "selected_strike_concentration": round(selected_strike_concentration, 4),
+        "iv_skew": round(iv_skew, 4) if iv_skew is not None else None,
+        "avg_spread_pct": round(avg_spread_pct, 4) if avg_spread_pct is not None else None,
+        "side_count": {"CALL": int(side_totals["CALL"]["count"]), "PUT": int(side_totals["PUT"]["count"])},
+    }
+
+
+def resolve_crowding_display(crowding_context: dict[str, Any] | None) -> dict[str, str]:
+    """Compact production label for the crowding-pressure overlay."""
+
+    context = crowding_context or {}
+    level = str(context.get("crowding_risk_level") or "unknown").lower()
+    side = str(context.get("crowding_side") or "UNKNOWN").upper()
+    quality = str(context.get("crowding_quality") or "insufficient").title()
+    if level == "unknown":
+        label = "Unknown"
+    elif side == "BALANCED":
+        label = "Balanced"
+    elif side == "CALL_HEAVY":
+        label = "Call Heavy"
+    elif side == "PUT_HEAVY":
+        label = "Put Heavy"
+    else:
+        label = side.replace("_", " ").title()
+    value = f"{label} ({quality})" if level == "unknown" and quality not in {"Insufficient", ""} else label
+    return {
+        "label": value,
+        "level": level.title() if level else "Unknown",
+        "reason": str(context.get("crowding_reason") or "Crowding proxy unavailable"),
     }
 
 
@@ -10468,6 +10762,7 @@ def build_option_display_state(
     budget_cap: float | None,
     live_context: dict[str, Any] | None,
     event_risk_context: dict[str, Any] | None = None,
+    crowding_candidates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the complete options display state for one play without changing ranking logic."""
 
@@ -10631,6 +10926,13 @@ def build_option_display_state(
         active_row,
         calibration_overlays.get(active_symbol, {}),
     )
+    crowding_context = build_option_crowding_context(
+        crowding_candidates if crowding_candidates is not None else candidates,
+        selected_contract=selected_display_quote or active_contract,
+        play_direction=str((play_spx or {}).get("direction", "")),
+        current_spx_price=current_spx_price,
+        planned_entry_spx=planned_entry_spx,
+    )
     binding_snapshot = (
         validate_contract_binding(
             selected_display_quote,
@@ -10690,6 +10992,12 @@ def build_option_display_state(
         "locked_selected_option_type": str((session_plan or {}).get("option_type", "") or (recommended_contract or {}).get("option_type", "")),
         "locked_selected_entry_mark": _non_negative_option_price((session_plan or {}).get("planned_entry_mark")),
         "locked_selected_budget_status": str((recommended_row or {}).get("budget_status", "") or ""),
+        "crowding_context": crowding_context,
+        "crowding_side": str(crowding_context.get("crowding_side", "UNKNOWN")),
+        "crowding_risk_level": str(crowding_context.get("crowding_risk_level", "unknown")),
+        "crowding_score": int(crowding_context.get("crowding_score", 0) or 0),
+        "crowding_quality": str(crowding_context.get("crowding_quality", "insufficient")),
+        "crowding_reason": str(crowding_context.get("crowding_reason", "")),
     }
 
 
@@ -10859,6 +11167,9 @@ def render_options_provider_preview(
                     f" | Recommended strike: {recommended_row.get('budget_status') if recommended_row else 'Unknown'}"
                     f" | Cheapest valid nearby strike: {str(display_state.get('cheapest_within_budget', {}).get('contract_symbol') or 'No nearby contract fits budget') if display_state.get('cheapest_within_budget') else 'No nearby contract fits budget'}"
                 )
+                crowding_context = display_state.get("crowding_context") or {}
+                crowding_display = resolve_crowding_display(crowding_context)
+                st.caption(f"Crowding proxy: {crowding_display['label']} | {crowding_display['reason']}")
                 if recommended_quote:
                     st.caption(
                         f"System Recommended: {recommended_quote.get('contract_symbol', '-')}"
@@ -15517,6 +15828,7 @@ def render_live_decision_center(
     estimate_quality = str(active_contract_quote.get("premium_projection_confidence", "") or "Insufficient")
     budget_status = str(active_contract_quote.get("budget_status", "") or "Unknown")
     vwap_display = resolve_vwap_display((authority or {}).get("vwap_context"), (authority or {}).get("line_polarity_vwap_alignment"))
+    crowding_display = resolve_crowding_display((authority or {}).get("crowding_context"))
     scenario_changed = bool((live_context or {}).get("live_scenario") and (live_context or {}).get("scenario_origin") and (live_context or {}).get("live_scenario") != (live_context or {}).get("scenario_origin"))
     direction_headline = str(direction_display.get("headline") or direction_display.get("setup") or direction_display.get("bias") or "WAIT")
     direction_arrow = str(direction_display.get("arrow") or "")
@@ -15665,6 +15977,10 @@ def render_live_decision_center(
         f'<div style="{_chip_lbl}">5m VWAP</div>'
         f'<div style="{_chip_val}">{escape(vwap_display["label"])}</div>'
         f'</div>'
+        f'<div style="{_chip_cell}">'
+        f'<div style="{_chip_lbl}">Crowding</div>'
+        f'<div style="{_chip_val}">{escape(crowding_display["label"])}</div>'
+        f'</div>'
         f'<div style="display:inline-block;flex:1;min-width:0;padding:10px 18px;">'
         f'<div style="{_chip_lbl}">Event Risk</div>'
         f'<div style="{_chip_val}">{_event_risk_status}</div>'
@@ -15676,6 +15992,7 @@ def render_live_decision_center(
         f'{escape(_lock_display)}'
         f'&nbsp;&middot;&nbsp;Contract:&nbsp;{escape(budget_status)}'
         f'&nbsp;&middot;&nbsp;VWAP:&nbsp;{escape(vwap_display["value"])}'
+        f'&nbsp;&middot;&nbsp;Crowding:&nbsp;{escape(crowding_display["level"])}'
         f'&nbsp;&middot;&nbsp;EV:&nbsp;{escape(_ev_display)}'
         f'&nbsp;&middot;&nbsp;Evidence:&nbsp;{escape(evidence_label if evidence_label else "None")}'
         f'</div>'
@@ -16078,6 +16395,7 @@ def render_operator_play_card(
     projected_fill_at_entry = selected_contract.get("projected_fill_at_entry") or expected_fill
     max_affordable_fill = selected_contract.get("max_affordable_fill_under_budget")
     event_risk_label = str(authority.get("event_risk_level", "unknown")).replace("_", " ").title()
+    crowding_label = resolve_crowding_display(authority.get("crowding_context"))["label"]
     manual_override_active = bool(option_display_state.get("manual_override"))
     auto_execution_shift = bool(option_display_state.get("auto_execution_shift"))
     ladder_rows = option_display_state.get("ladder_rows", [])
@@ -16120,6 +16438,7 @@ def render_operator_play_card(
         f"<span class=\"spx-chip scenario-neutral\">{escape(direction_display['bias'])}</span>",
         f"<span class=\"spx-chip {_chip_class(effective_confidence_label if (effective_confidence_label := str(intelligence.get('prediction_confidence', ''))) else 'LOW')} \">{escape(projection_confidence)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(event_risk_label)}</span>",
+        f"<span class=\"spx-chip scenario-neutral\">Crowding {escape(crowding_label)}</span>",
         f"<span class=\"spx-chip scenario-neutral\">{escape(budget_execution_status or selected_budget_status or 'Unknown')}</span>",
     ]
     st.markdown(
@@ -16518,6 +16837,35 @@ def render_live_mode_shell(
                         play_spx=play_spx,
                         current_spx_price=live_current_spx,
                     )
+                    crowding_contracts = list(chain_snapshot.get("contracts") or [])
+                    requested_side = normalize_option_side(option_request.resolved_option_type() if hasattr(option_request, "resolved_option_type") else option_request.option_type)
+                    opposite_side = "CALL" if requested_side == "PUT" else "PUT" if requested_side == "CALL" else ""
+                    if opposite_side and options_provider is not None:
+                        try:
+                            opposite_request = build_option_lookup_request(
+                                session="NY Options",
+                                direction=opposite_side,
+                                strike=int(play_spx.get("strike", 0)),
+                                trade_date=inputs["next_trading_date"],
+                                scenario_name=str((live_context or {}).get("live_scenario") or (display_signal_package["scenario"].get("scenario_name", "") if display_signal_package else "")),
+                                option_type=opposite_side,
+                            )
+                            opposite_snapshot = options_provider.get_option_chain_snapshot(opposite_request)
+                            opposite_contracts = attach_option_lookup_context(
+                                opposite_snapshot.get("contracts"),
+                                lookup_timestamp=current_central_time(),
+                                current_es_price=inputs.get("current_es_price"),
+                                current_spx_price=live_current_spx,
+                                effective_offset=effective_offset,
+                                scenario_name=str((live_context or {}).get("live_scenario") or (display_signal_package["scenario"].get("scenario_name", "") if display_signal_package else "")),
+                                direction=opposite_side,
+                                source_line_es=float(play_es["entry"]["price"]) if play_es else None,
+                                computed_spx_entry=float(play_spx["entry"]["price"]) if play_spx else None,
+                            )
+                            crowding_contracts.extend(opposite_contracts)
+                        except Exception:
+                            pass
+                    chain_snapshot["crowding_contracts"] = crowding_contracts
                     option_sections.append(
                         {
                             "title": section_title,
@@ -16623,6 +16971,7 @@ def render_live_mode_shell(
                 budget_cap=_to_float_or_none(inputs.get("max_estimated_entry_cost")),
                 live_context=live_context,
                 event_risk_context=event_risk_context,
+                crowding_candidates=section["chain_snapshot"].get("crowding_contracts"),
             )
             for section in option_sections
             if display_signal_package is not None
@@ -16699,6 +17048,7 @@ def render_live_mode_shell(
             current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
             vwap_value=inputs.get("vwap"),
             vwap_context=inputs.get("vwap_context"),
+            crowding_context=primary_option_display.get("crowding_context"),
             anchor_bundle=anchor_bundle,
         )
         alternate_authority = build_play_decision_authority(
@@ -16720,6 +17070,7 @@ def render_live_mode_shell(
             current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
             vwap_value=inputs.get("vwap"),
             vwap_context=inputs.get("vwap_context"),
+            crowding_context=alternate_option_display.get("crowding_context"),
             anchor_bundle=anchor_bundle,
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
@@ -16824,6 +17175,11 @@ def render_live_mode_shell(
             "final_authority_expected_value": primary_authority.get("expected_value"),
             "final_authority_risk_class": primary_authority.get("risk_class"),
             "final_authority_reason": primary_authority.get("reason_line"),
+            "crowding_side": primary_authority.get("crowding_side"),
+            "crowding_risk_level": primary_authority.get("crowding_risk_level"),
+            "crowding_score": primary_authority.get("crowding_score"),
+            "crowding_quality": primary_authority.get("crowding_quality"),
+            "crowding_reason": primary_authority.get("crowding_reason"),
         }
         if display_signal_package is not None:
             play_specs = [

@@ -31,6 +31,7 @@ from app import (
     build_line_rows,
     build_contract_selection_key,
     build_option_display_state,
+    build_option_crowding_context,
     choose_execution_contract_from_ladder,
     classify_trigger_state,
     classify_budget_status,
@@ -47,6 +48,7 @@ from app import (
     resolve_play_display_values,
     resolve_recommended_contract_row,
     resolve_trade_direction_display,
+    resolve_crowding_display,
     resolve_vwap_display,
     normalize_result_value,
     normalize_trade_record,
@@ -1112,6 +1114,51 @@ class AppUnitTests(unittest.TestCase):
     def test_event_risk_summary_stays_compact_when_news_unavailable(self) -> None:
         summary = summarize_event_risk({"event_risk_status": "Unknown", "event_risk_reason": "News unavailable"})
         self.assertEqual(summary, "Event Risk: Unknown | News unavailable")
+
+    def test_option_crowding_detects_put_heavy_pressure_with_both_sides(self) -> None:
+        candidates = [
+            {"symbol": "SPXW 260422P07100000", "option_type": "PUT", "strike": 7100, "volume": 1800, "open_interest": 2400, "bid": 6.0, "ask": 6.3, "mark": 6.15, "implied_volatility": 0.22},
+            {"symbol": "SPXW 260422P07095000", "option_type": "PUT", "strike": 7095, "volume": 900, "open_interest": 1500, "bid": 5.4, "ask": 5.65, "mark": 5.52, "implied_volatility": 0.23},
+            {"symbol": "SPXW 260422C07100000", "option_type": "CALL", "strike": 7100, "volume": 180, "open_interest": 260, "bid": 4.0, "ask": 4.2, "mark": 4.1, "implied_volatility": 0.18},
+            {"symbol": "SPXW 260422C07105000", "option_type": "CALL", "strike": 7105, "volume": 120, "open_interest": 210, "bid": 3.6, "ask": 3.8, "mark": 3.7, "implied_volatility": 0.18},
+        ]
+
+        context = build_option_crowding_context(
+            candidates,
+            selected_contract={"contract_symbol": "SPXW 260422P07100000", "option_type": "PUT", "strike": 7100},
+            play_direction="PUT",
+            current_spx_price=7112,
+            planned_entry_spx=7100,
+        )
+
+        self.assertEqual(context["crowding_side"], "PUT_HEAVY")
+        self.assertIn(context["crowding_risk_level"], {"elevated", "heavy", "extreme"})
+        self.assertTrue(context["direction_is_crowded"])
+        self.assertIn(context["crowding_quality"], {"moderate", "strong"})
+
+    def test_option_crowding_stays_partial_when_only_one_side_loaded(self) -> None:
+        context = build_option_crowding_context(
+            [
+                {"symbol": "SPXW 260422P07100000", "option_type": "PUT", "strike": 7100, "volume": 2000, "open_interest": 4000},
+                {"symbol": "SPXW 260422P07095000", "option_type": "PUT", "strike": 7095, "volume": 1200, "open_interest": 2500},
+            ],
+            selected_contract={"contract_symbol": "SPXW 260422P07100000", "option_type": "PUT", "strike": 7100},
+            play_direction="PUT",
+            current_spx_price=7112,
+            planned_entry_spx=7100,
+        )
+
+        self.assertEqual(context["crowding_side"], "UNKNOWN")
+        self.assertEqual(context["crowding_risk_level"], "unknown")
+        self.assertEqual(context["crowding_quality"], "partial")
+        self.assertFalse(context["direction_is_crowded"])
+
+    def test_crowding_display_is_compact_for_unknown_and_heavy(self) -> None:
+        unknown_display = resolve_crowding_display({"crowding_risk_level": "unknown", "crowding_quality": "partial", "crowding_side": "UNKNOWN"})
+        heavy_display = resolve_crowding_display({"crowding_risk_level": "heavy", "crowding_quality": "moderate", "crowding_side": "CALL_HEAVY"})
+
+        self.assertEqual(unknown_display["label"], "Unknown (Partial)")
+        self.assertEqual(heavy_display["label"], "Call Heavy")
 
     def test_ladder_display_dataframe_handles_missing_optional_projection_columns(self) -> None:
         frame = build_ladder_display_dataframe(
