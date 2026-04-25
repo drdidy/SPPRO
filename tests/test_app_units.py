@@ -1631,6 +1631,27 @@ class AppUnitTests(unittest.TestCase):
             places=6,
         )
 
+    def test_premarket_phase_statuses_are_upcoming_before_sunday_globex(self) -> None:
+        statuses = app_module.build_premarket_phase_statuses(
+            date(2026, 4, 27),
+            now_ct=app_module.at_central(date(2026, 4, 25), 8, 30),
+        )
+
+        self.assertEqual(statuses["active_name"], "UPCOMING")
+        self.assertEqual(statuses["phases"]["asian"]["state"], "UPCOMING")
+        self.assertEqual(statuses["phases"]["london"]["state"], "UPCOMING")
+        self.assertEqual(statuses["phases"]["preopen"]["state"], "UPCOMING")
+
+    def test_premarket_phase_statuses_use_asian_anchor_window(self) -> None:
+        statuses = app_module.build_premarket_phase_statuses(
+            date(2026, 4, 27),
+            now_ct=app_module.at_central(date(2026, 4, 26), 18, 0),
+        )
+
+        self.assertEqual(statuses["phases"]["asian"]["state"], "ACTIVE")
+        self.assertEqual(statuses["phases"]["asian"]["range"], "5 PM - 12 AM CT")
+        self.assertEqual(statuses["phases"]["london"]["state"], "UPCOMING")
+
     def test_asian_anchor_can_override_pm_when_structurally_closer(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(

@@ -15037,6 +15037,73 @@ def build_premarket_checkpoint_views(
     return {phase: [_build(lbl, t) for lbl, t in specs] for phase, specs in phase_specs.items()}
 
 
+def build_premarket_phase_statuses(
+    next_trading_date: date,
+    now_ct: datetime | None = None,
+) -> dict[str, Any]:
+    """Return absolute timestamp-based phase statuses for the selected NY session."""
+
+    now = now_ct or current_central_time()
+    evening_date = next_trading_date - timedelta(days=1)
+    phase_windows = {
+        "evening": {
+            "name": "EVENING",
+            "range": "5 PM - 11 PM CT",
+            "start": at_central(evening_date, 17, 0),
+            "end": at_central(evening_date, 23, 0),
+        },
+        "asian": {
+            "name": "ASIAN",
+            "range": "5 PM - 12 AM CT",
+            "start": at_central(evening_date, 17, 0),
+            "end": at_central(next_trading_date, 0, 0),
+        },
+        "london": {
+            "name": "LONDON",
+            "range": "12 AM - 7 AM CT",
+            "start": at_central(next_trading_date, 0, 0),
+            "end": at_central(next_trading_date, 7, 0),
+        },
+        "preopen": {
+            "name": "PRE-OPEN",
+            "range": "7 AM - 8:25 AM CT",
+            "start": at_central(next_trading_date, 7, 0),
+            "end": at_central(next_trading_date, 8, 25),
+        },
+    }
+    styles = {
+        "ACTIVE": ("▶  ACTIVE", "rgba(0,212,255,0.10)", "#6ae6ff"),
+        "DONE": ("✓  DONE", "rgba(0,180,80,0.09)", "#60d090"),
+        "UPCOMING": ("UPCOMING", "rgba(255,255,255,0.03)", "rgba(180,210,240,0.38)"),
+    }
+    result: dict[str, Any] = {"phases": {}, "active_name": "UPCOMING"}
+    active_name = ""
+    for key, payload in phase_windows.items():
+        start = payload["start"]
+        end = payload["end"]
+        if now < start:
+            state = "UPCOMING"
+        elif start <= now < end:
+            state = "ACTIVE"
+        else:
+            state = "DONE"
+        label, bg, color = styles[state]
+        result["phases"][key] = {
+            **payload,
+            "state": state,
+            "status_label": label,
+            "background": bg,
+            "color": color,
+        }
+        if state == "ACTIVE" and not active_name:
+            active_name = str(payload["name"])
+    if active_name:
+        result["active_name"] = active_name
+    elif now >= phase_windows["preopen"]["end"]:
+        result["active_name"] = "NY SESSION"
+    return result
+
+
 def build_evening_checkpoint_views(
     anchor_bundle: dict[str, Any],
     next_trading_date: date,
@@ -18464,37 +18531,13 @@ def render_live_mode_shell(
         safe_render_section("Market Intelligence", lambda: render_event_risk_panel(event_risk_context), developer_mode=developer_mode)
 
     with live_asian_tab:
-        # ── Determine active phase from CT clock ────────────────────────────
-        try:
-            _now_ct = current_central_time() if current_central_time else None
-            _ct_h = (_now_ct.hour + _now_ct.minute / 60.0) if _now_ct else -1
-        except Exception:
-            _ct_h = -1
-
-        def _phase_status(start: float, end: float) -> tuple[str, str, str]:
-            if end < start:
-                active = _ct_h >= start or _ct_h < end
-            else:
-                active = start <= _ct_h < end
-            if active:
-                return "▶  ACTIVE", "rgba(0,212,255,0.10)", "#6ae6ff"
-            completed = (_ct_h >= end if end >= start else not (_ct_h >= start or _ct_h < end)) and _ct_h >= 0
-            if completed:
-                return "✓  DONE", "rgba(0,180,80,0.09)", "#60d090"
-            return "UPCOMING", "rgba(255,255,255,0.03)", "rgba(180,210,240,0.38)"
-
-        _ev_s, _ev_bg, _ev_c  = _phase_status(17.0, 23.0)
-        _as_s, _as_bg, _as_c  = _phase_status(23.0,  3.0)
-        _lo_s, _lo_bg, _lo_c  = _phase_status( 3.0,  8.0)
-        _po_s, _po_bg, _po_c  = _phase_status( 8.0,  9.5)
-
-        _active_name = (
-            "EVENING" if "ACTIVE" in _ev_s else
-            "ASIAN"   if "ACTIVE" in _as_s else
-            "LONDON"  if "ACTIVE" in _lo_s else
-            "PRE-OPEN" if "ACTIVE" in _po_s else
-            "NY SESSION"
-        )
+        phase_statuses = build_premarket_phase_statuses(inputs["next_trading_date"])
+        _phases = phase_statuses["phases"]
+        _ev_s, _ev_bg, _ev_c = _phases["evening"]["status_label"], _phases["evening"]["background"], _phases["evening"]["color"]
+        _as_s, _as_bg, _as_c = _phases["asian"]["status_label"], _phases["asian"]["background"], _phases["asian"]["color"]
+        _lo_s, _lo_bg, _lo_c = _phases["london"]["status_label"], _phases["london"]["background"], _phases["london"]["color"]
+        _po_s, _po_bg, _po_c = _phases["preopen"]["status_label"], _phases["preopen"]["background"], _phases["preopen"]["color"]
+        _active_name = str(phase_statuses.get("active_name", "UPCOMING"))
 
         # ── Hero banner ─────────────────────────────────────────────────────
         st.markdown(
@@ -18538,10 +18581,10 @@ def render_live_mode_shell(
             _current_es = float(inputs["current_es_price"]) if _has_es else None
 
             _all_phases = [
-                ("evening", "🌆", "EVENING",  "5 PM – 11 PM CT",  "rgba(179,136,255,0.9)", _ev_s, _ev_bg, _ev_c),
-                ("asian",   "🌏", "ASIAN",    "11 PM – 3 AM CT",  "rgba(80,160,255,0.9)",  _as_s, _as_bg, _as_c),
-                ("london",  "🌍", "LONDON",   "3 AM – 8 AM CT",   "rgba(255,190,50,0.9)",  _lo_s, _lo_bg, _lo_c),
-                ("preopen", "⚡", "PRE-OPEN", "8 AM – 9:30 AM CT","rgba(0,212,255,0.9)",   _po_s, _po_bg, _po_c),
+                ("evening", "🌆", "EVENING",  _phases["evening"]["range"],  "rgba(179,136,255,0.9)", _ev_s, _ev_bg, _ev_c),
+                ("asian",   "🌏", "ASIAN",    _phases["asian"]["range"],  "rgba(80,160,255,0.9)",  _as_s, _as_bg, _as_c),
+                ("london",  "🌍", "LONDON",   _phases["london"]["range"],   "rgba(255,190,50,0.9)",  _lo_s, _lo_bg, _lo_c),
+                ("preopen", "⚡", "PRE-OPEN", _phases["preopen"]["range"],"rgba(0,212,255,0.9)",   _po_s, _po_bg, _po_c),
             ]
 
             for _pk, _icon, _pname, _trange, _accent, _slbl, _sbg, _scol in _all_phases:
