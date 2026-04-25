@@ -1265,7 +1265,7 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(state["trigger_state"], "INVALIDATED")
         self.assertEqual(state["setup_state"], "INVALIDATED")
 
-    def test_pm_window_anchor_still_selected_when_most_relevant(self) -> None:
+    def test_auto_anchor_selection_prefers_asia_over_pm_score_noise(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(
             candles=frame,
@@ -1276,7 +1276,8 @@ class AppUnitTests(unittest.TestCase):
         )
 
         selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
-        self.assertEqual(selected_floor["session_source"], "PM_WINDOW")
+        self.assertEqual(selected_floor["session_source"], "ASIAN")
+        self.assertIn("Asian session", selected_floor["selection_reason"])
 
     def test_asian_anchor_can_override_pm_when_structurally_closer(self) -> None:
         frame = self._build_anchor_candidate_frame()
@@ -1290,9 +1291,10 @@ class AppUnitTests(unittest.TestCase):
 
         selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
         self.assertEqual(selected_floor["session_source"], "ASIAN")
-        self.assertIn("PM-window", selected_floor["selection_reason"])
+        self.assertIn("Asian session", selected_floor["selection_reason"])
+        self.assertEqual(selected_floor["pm_execution_reference"]["session_source"], "PM_WINDOW")
 
-    def test_london_anchor_can_override_when_pre_ny_structure_respects_it(self) -> None:
+    def test_london_does_not_auto_override_asia_without_news_reclaim(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(
             candles=frame,
@@ -1303,7 +1305,49 @@ class AppUnitTests(unittest.TestCase):
         )
 
         selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
-        self.assertEqual(selected_floor["session_source"], "LONDON")
+        self.assertEqual(selected_floor["session_source"], "ASIAN")
+
+    def test_730_news_candle_low_reclaim_can_override_asian_low_anchor(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        news_time = app_module.at_central(date(2026, 4, 23), 7, 0)
+        news_index = frame.index[frame["timestamp"] == news_time][0]
+        frame.loc[news_index, "open"] = 7130.0
+        frame.loc[news_index, "high"] = 7133.0
+        frame.loc[news_index, "low"] = 7121.0
+        frame.loc[news_index, "close"] = 7128.0
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7128.0,
+            anchor_source_override="Auto",
+        )
+
+        selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
+        self.assertEqual(selected_floor["session_source"], "NEWS_730")
+        self.assertEqual(selected_floor["pivot_price"], 7121.0)
+        self.assertIn("closed back above", selected_floor["selection_reason"])
+
+    def test_730_news_candle_high_reclaim_can_override_asian_high_anchor(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        news_time = app_module.at_central(date(2026, 4, 23), 7, 0)
+        news_index = frame.index[frame["timestamp"] == news_time][0]
+        frame.loc[news_index, "open"] = 7144.0
+        frame.loc[news_index, "high"] = 7158.0
+        frame.loc[news_index, "low"] = 7130.0
+        frame.loc[news_index, "close"] = 7131.5
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7131.5,
+            anchor_source_override="Auto",
+        )
+
+        selected_ceiling = bundle["anchor_selection"]["by_line"]["desc_ceiling"]
+        self.assertEqual(selected_ceiling["session_source"], "NEWS_730")
+        self.assertEqual(selected_ceiling["pivot_price"], 7158.0)
+        self.assertIn("closed back below", selected_ceiling["selection_reason"])
 
     def test_anchor_candidate_projection_to_ny_open_is_computed(self) -> None:
         frame = self._build_anchor_candidate_frame()
@@ -1353,15 +1397,22 @@ class AppUnitTests(unittest.TestCase):
                 next_trading_date=date(2026, 4, 23),
                 cutoff_label="8:25 AM CT",
             )
-            pm_bundle = app_module._build_session_aware_anchor_bundle(
-                candles=frame,
+            news_frame = frame.copy()
+            news_time = app_module.at_central(date(2026, 4, 23), 7, 0)
+            news_index = news_frame.index[news_frame["timestamp"] == news_time][0]
+            news_frame.loc[news_index, "open"] = 7130.0
+            news_frame.loc[news_index, "high"] = 7133.0
+            news_frame.loc[news_index, "low"] = 7121.0
+            news_frame.loc[news_index, "close"] = 7128.0
+            news_bundle = app_module._build_session_aware_anchor_bundle(
+                candles=news_frame,
                 prior_session_date=date(2026, 4, 22),
                 next_trading_date=date(2026, 4, 23),
-                current_es_price=7152.2,
+                current_es_price=7128.0,
                 anchor_source_override="Auto",
             )
             frozen_bundle = resolve_locked_anchor_bundle(
-                pm_bundle,
+                news_bundle,
                 next_trading_date=date(2026, 4, 23),
                 cutoff_label="8:25 AM CT",
             )

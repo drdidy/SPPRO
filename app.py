@@ -208,13 +208,14 @@ MIN_EXECUTION_MARK = 0.20
 TOUCH_TOLERANCE_POINTS = 1.5
 MIN_TEST_TOUCHES = 2
 ANCHOR_REACTION_TOLERANCE_POINTS = 2.0
-ANCHOR_SELECTION_ENGINE_VERSION = "session-aware-v2-polarity"
+ANCHOR_SELECTION_ENGINE_VERSION = "asian-primary-v3-news-reclaim"
 ANCHOR_SOURCE_OPTIONS = ["Auto", "PM Window", "Asian", "London", "Pre-NY"]
 ANCHOR_SOURCE_LABELS = {
     "PM_WINDOW": "PM Window",
     "ASIAN": "Asian Session",
     "LONDON": "London",
     "PRE_NY": "Pre-NY",
+    "NEWS_730": "7:30 News Candle",
     "MANUAL": "Manual",
 }
 ANCHOR_SOURCE_SHORT_LABELS = {
@@ -222,6 +223,7 @@ ANCHOR_SOURCE_SHORT_LABELS = {
     "ASIAN": "Asian",
     "LONDON": "London",
     "PRE_NY": "Pre-NY",
+    "NEWS_730": "News",
     "MANUAL": "Manual",
 }
 ANCHOR_SESSION_WEIGHTS = {
@@ -229,6 +231,7 @@ ANCHOR_SESSION_WEIGHTS = {
     "ASIAN": 10.0,
     "LONDON": 9.0,
     "PRE_NY": 7.0,
+    "NEWS_730": 14.0,
     "MANUAL": 12.0,
 }
 FORWARD_PRICING_MAX_THETA_DAYS = 2.0
@@ -6245,6 +6248,83 @@ def _count_line_reactions(
     return touches, respected
 
 
+def _build_news_reclaim_anchor_candidate(
+    normalized: pd.DataFrame,
+    *,
+    next_trading_date: date,
+    asian_candidate: dict[str, Any] | None,
+    pivot_type: str,
+) -> dict[str, Any] | None:
+    """Promote the 7am news candle only when it breaks and closes back through Asia."""
+
+    if asian_candidate is None or normalized is None or normalized.empty:
+        return None
+    asian_level = _to_float_or_none(asian_candidate.get("pivot_price"))
+    if asian_level is None:
+        return None
+
+    news_window = filter_time_range(
+        normalized,
+        start_time=at_central(next_trading_date, 7, 0),
+        end_time=at_central(next_trading_date, 8, 0),
+    )
+    if news_window.empty:
+        return None
+
+    row = news_window.iloc[0]
+    candle = _row_to_anchor_candle(row)
+    high = float(candle["high"])
+    low = float(candle["low"])
+    close = float(candle["close"])
+    broke_and_reclaimed = (
+        high > asian_level + TOUCH_TOLERANCE_POINTS and close < asian_level
+        if pivot_type == "HIGH"
+        else low < asian_level - TOUCH_TOLERANCE_POINTS and close > asian_level
+    )
+    if not broke_and_reclaimed:
+        return None
+
+    pivot_price = high if pivot_type == "HIGH" else low
+    context = {
+        "previous_candle": candle,
+        "pivot_candle": candle,
+        "next_candle": candle,
+        "green_candle": candle,
+        "red_candle": candle,
+        "pivot_extreme": candle,
+    }
+    return {
+        "pivot_price": round_price(pivot_price),
+        "pivot_time": candle["timestamp"],
+        "pivot_type": pivot_type,
+        "session_source": "NEWS_730",
+        "session_label": "7:30 News Candle",
+        "candle_context": context,
+        "true_extreme_price": round_price(pivot_price),
+        "true_extreme_time": candle["timestamp"],
+        "touch_count_if_available": 1,
+        "confirmed": True,
+        "fallback_reason": "",
+        "news_reclaim_anchor": True,
+        "asian_anchor_broken": round_price(asian_level),
+        "selection_reason": (
+            "7:30 news candle broke above the Asian high and closed back below it; news high becomes the session anchor."
+            if pivot_type == "HIGH"
+            else "7:30 news candle broke below the Asian low and closed back above it; news low becomes the session anchor."
+        ),
+        "pivot_payload": {
+            "pivot_type": pivot_type.lower(),
+            "pivot_time": candle["timestamp"],
+            "pivot_extreme": candle,
+            "green_candle": candle,
+            "red_candle": candle,
+            "previous_candle": candle,
+            "pivot_candle": candle,
+            "next_candle": candle,
+        },
+    }
+
+
 def _safe_project_anchor_level(line_name: str, anchor: dict[str, Any], target_time) -> float:
     """Project one anchor level while handling sub-hour targets near the anchor start."""
 
@@ -6287,7 +6367,7 @@ def _select_anchor_candidates(
     pivot_type: str,
     forced_source: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str, str]:
-    """Rank and choose the active anchor candidate for one pivot side."""
+    """Choose the active anchor using the Asia-first house hierarchy."""
 
     if not candidates:
         return None, [], "", "LOW"
@@ -6309,22 +6389,52 @@ def _select_anchor_candidates(
         candidate["candidate_rank_score"] = score_anchor_candidate(candidate, {})
 
     ranked = sorted(candidates, key=lambda item: float(item.get("candidate_rank_score", 0.0)), reverse=True)
-    selected = next((candidate for candidate in ranked if candidate.get("session_source") == forced_source), ranked[0]) if forced_source else ranked[0]
-    pm_candidate = next((candidate for candidate in ranked if candidate.get("session_source") == "PM_WINDOW"), None)
-
     if forced_source:
+        selected = next((candidate for candidate in ranked if candidate.get("session_source") == forced_source), ranked[0])
         reason = f"Manual anchor source override selected the {ANCHOR_SOURCE_LABELS.get(forced_source, forced_source)} pivot."
+    else:
+        news_candidate = next((candidate for candidate in ranked if candidate.get("session_source") == "NEWS_730"), None)
+        asian_candidate = next((candidate for candidate in ranked if candidate.get("session_source") == "ASIAN"), None)
+        selected = news_candidate or asian_candidate or ranked[0]
+        if news_candidate is not None:
+            reason = str(news_candidate.get("selection_reason") or "News candle break/reclaim overrode the Asian anchor.")
+        elif asian_candidate is not None:
+            reason = "Asian session pivot remains the main anchor; no 7:30 news break/reclaim invalidated it."
+        elif selected.get("line_respected"):
+            reason = (
+                f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
+                "line is closest to the active NY reaction price."
+            )
+        else:
+            reason = (
+                f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
+                "ranked highest because no Asian candidate was available."
+            )
+    pm_candidate = next((candidate for candidate in ranked if candidate.get("session_source") == "PM_WINDOW"), None)
+    if not forced_source and selected.get("session_source") == "ASIAN" and pm_candidate:
+        selected["pm_execution_reference"] = {
+            "pivot_price": pm_candidate.get("pivot_price"),
+            "pivot_time": pm_candidate.get("pivot_time"),
+            "session_source": pm_candidate.get("session_source"),
+            "selection_note": "Use PM-window lines as entry/exit references only when price is outside both Asian cone lines.",
+        }
+    if forced_source:
+        pass
+    elif selected.get("session_source") == "ASIAN":
+        pass
+    elif selected.get("session_source") == "NEWS_730":
+        pass
     elif selected.get("session_source") != "PM_WINDOW" and pm_candidate and float(selected.get("candidate_rank_score", 0.0)) > float(pm_candidate.get("candidate_rank_score", 0.0)):
         reason = (
             f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
             "projected line was respected before the PM-window pivot was reached."
         )
-    elif selected.get("line_respected"):
+    elif not forced_source and selected.get("line_respected"):
         reason = (
             f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
             "line is closest to the active NY reaction price."
         )
-    else:
+    elif not forced_source:
         reason = (
             f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
             "ranked highest on projection proximity and session relevance."
@@ -6492,6 +6602,70 @@ def _build_session_aware_anchor_bundle(
                 high_candidates.append(candidate)
             else:
                 low_candidates.append(candidate)
+
+    def _decorate_anchor_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+        pivot_type = str(candidate.get("pivot_type", "")).upper()
+        line_names = ["asc_ceiling", "desc_ceiling"] if pivot_type == "HIGH" else ["asc_floor", "desc_floor"]
+        projection_details: list[dict[str, Any]] = []
+        for line_name in line_names:
+            anchor = _build_projection_anchor_from_candidate(candidate, line_name)
+            projected_830 = _safe_project_anchor_level(line_name, anchor, ny_open)
+            projected_900 = _safe_project_anchor_level(line_name, anchor, nine_am)
+            projected_current = _safe_project_anchor_level(line_name, anchor, comparison_time)
+            distance = abs(projected_current - comparison_price) if comparison_price is not None else abs(projected_900 - projected_830)
+            projection_details.append(
+                {
+                    "line_name": line_name,
+                    "projected_level_at_8_30": round_price(projected_830),
+                    "projected_level_at_9_00": round_price(projected_900),
+                    "projected_level_at_current": round_price(projected_current),
+                    "projection_distance": round_price(distance),
+                }
+            )
+        active_projection = min(projection_details, key=lambda item: item["projection_distance"])
+        reaction_touch_count, line_respected = _count_line_reactions(
+            reaction_window,
+            projected_price=float(active_projection["projected_level_at_current"]),
+            pivot_type=pivot_type,
+            tolerance=ANCHOR_REACTION_TOLERANCE_POINTS,
+        )
+        candidate.update(
+            {
+                "distance_to_current_price": round_price(float(active_projection["projection_distance"])),
+                "line_projection_to_NY_open": active_projection["line_name"],
+                "projected_level_at_8_30": float(active_projection["projected_level_at_8_30"]),
+                "projected_level_at_9_00": float(active_projection["projected_level_at_9_00"]),
+                "projected_level_at_current": float(active_projection["projected_level_at_current"]),
+                "projection_distance": float(active_projection["projection_distance"]),
+                "reaction_touch_count": reaction_touch_count,
+                "line_respected": line_respected,
+                "time_relevance_score": 12.0,
+            }
+        )
+        return candidate
+
+    asian_high = next((candidate for candidate in high_candidates if candidate.get("session_source") == "ASIAN"), None)
+    asian_low = next((candidate for candidate in low_candidates if candidate.get("session_source") == "ASIAN"), None)
+    news_high = _build_news_reclaim_anchor_candidate(
+        normalized,
+        next_trading_date=next_trading_date,
+        asian_candidate=asian_high,
+        pivot_type="HIGH",
+    )
+    news_low = _build_news_reclaim_anchor_candidate(
+        normalized,
+        next_trading_date=next_trading_date,
+        asian_candidate=asian_low,
+        pivot_type="LOW",
+    )
+    if news_high is not None:
+        news_high = _decorate_anchor_candidate(news_high)
+        candidate_table.append(news_high)
+        high_candidates.append(news_high)
+    if news_low is not None:
+        news_low = _decorate_anchor_candidate(news_low)
+        candidate_table.append(news_low)
+        low_candidates.append(news_low)
 
     forced_source = _anchor_override_to_source(anchor_source_override)
     selected_high, alternative_highs, high_reason, high_confidence = _select_anchor_candidates(
