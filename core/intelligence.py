@@ -1,4 +1,4 @@
-"""Adaptive Intelligence Engine — SQLite-backed signal log and outcome learning."""
+"""Adaptive Intelligence Engine - SQLite-backed signal log and outcome learning."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ def _resolve_db_path() -> str:
 
 
 DB_PATH = _resolve_db_path()
+INTELLIGENCE_ENGINE_VERSION = "session-aware-v2-polarity"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS signals (
@@ -39,6 +40,9 @@ CREATE TABLE IF NOT EXISTS signals (
     confirmation_status TEXT,
     sit_out INTEGER DEFAULT 0,
     is_backfill INTEGER DEFAULT 0,
+    engine_version TEXT,
+    anchor_source TEXT,
+    effective_offset REAL,
     UNIQUE(trading_date)
 );
 
@@ -61,6 +65,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
     chosen_path TEXT,
     result_classification TEXT,
     estimated_pnl REAL DEFAULT 0,
+    engine_version TEXT,
     UNIQUE(trading_date)
 );
 
@@ -81,6 +86,18 @@ def ensure_schema() -> None:
     """Create tables if they don't exist."""
     with _conn() as db:
         db.executescript(_SCHEMA)
+        _ensure_column(db, "signals", "engine_version", "TEXT")
+        _ensure_column(db, "signals", "anchor_source", "TEXT")
+        _ensure_column(db, "signals", "effective_offset", "REAL")
+        _ensure_column(db, "outcomes", "engine_version", "TEXT")
+
+
+def _ensure_column(db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    """Add a nullable column to older local intelligence databases."""
+
+    existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def capture_signal(
@@ -88,6 +105,7 @@ def capture_signal(
     prior_date: date,
     signal_package: dict[str, Any],
     is_backfill: bool = False,
+    metadata: dict[str, Any] | None = None,
 ) -> bool:
     """Insert or replace a signal record. Returns True on success."""
     scenario = signal_package.get("scenario") or {}
@@ -95,6 +113,7 @@ def capture_signal(
     alternate = scenario.get("alternate_play") or {}
     confirmation = signal_package.get("confirmation") or {}
     sit_out_info = signal_package.get("sit_out") or {}
+    metadata = metadata or {}
 
     try:
         with _conn() as db:
@@ -103,8 +122,8 @@ def capture_signal(
                    (trading_date, prior_date, captured_at, scenario_name,
                     primary_direction, primary_entry_price, primary_stop_price, primary_tp1_price,
                     alternate_direction, alternate_entry_price,
-                    confirmation_status, sit_out, is_backfill)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    confirmation_status, sit_out, is_backfill, engine_version, anchor_source, effective_offset)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     trading_date.isoformat(),
                     prior_date.isoformat(),
@@ -119,6 +138,9 @@ def capture_signal(
                     confirmation.get("status"),
                     int(bool(sit_out_info.get("sit_out"))),
                     int(is_backfill),
+                    str(metadata.get("engine_version") or INTELLIGENCE_ENGINE_VERSION),
+                    str(metadata.get("anchor_source") or ""),
+                    _f(metadata.get("effective_offset")),
                 ),
             )
         return True
@@ -144,6 +166,7 @@ def record_outcome(
     chosen_path: str = "None",
     result_classification: str = "No Trade",
     estimated_pnl: float = 0.0,
+    engine_version: str | None = None,
 ) -> bool:
     """Insert or replace an outcome record. Returns True on success."""
     td = trading_date.isoformat() if isinstance(trading_date, date) else trading_date
@@ -156,8 +179,8 @@ def record_outcome(
                     primary_result, primary_pnl,
                     alternate_entry_triggered, alternate_stop_hit, alternate_tp1_hit, alternate_tp2_hit,
                     alternate_result, alternate_pnl,
-                    chosen_path, result_classification, estimated_pnl)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    chosen_path, result_classification, estimated_pnl, engine_version)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     td,
                     datetime.now(timezone.utc).isoformat(),
@@ -176,6 +199,7 @@ def record_outcome(
                     chosen_path,
                     result_classification,
                     float(estimated_pnl),
+                    str(engine_version or INTELLIGENCE_ENGINE_VERSION),
                 ),
             )
         return True
@@ -224,10 +248,12 @@ def get_all_records(since: Optional[str] = None) -> list[dict]:
                 """SELECT s.trading_date, s.prior_date, s.scenario_name,
                           s.primary_direction, s.primary_entry_price, s.primary_tp1_price,
                           s.alternate_direction, s.confirmation_status, s.sit_out, s.is_backfill,
+                          s.engine_version, s.anchor_source, s.effective_offset,
                           o.primary_entry_triggered, o.primary_stop_hit,
                           o.primary_tp1_hit, o.primary_tp2_hit, o.primary_result, o.primary_pnl,
                           o.alternate_entry_triggered, o.alternate_result, o.alternate_pnl,
-                          o.chosen_path, o.result_classification, o.estimated_pnl
+                          o.chosen_path, o.result_classification, o.estimated_pnl,
+                          o.engine_version AS outcome_engine_version
                    FROM signals s
                    LEFT JOIN outcomes o ON s.trading_date = o.trading_date
                    WHERE s.trading_date >= ?
@@ -239,10 +265,12 @@ def get_all_records(since: Optional[str] = None) -> list[dict]:
                 """SELECT s.trading_date, s.prior_date, s.scenario_name,
                           s.primary_direction, s.primary_entry_price, s.primary_tp1_price,
                           s.alternate_direction, s.confirmation_status, s.sit_out, s.is_backfill,
+                          s.engine_version, s.anchor_source, s.effective_offset,
                           o.primary_entry_triggered, o.primary_stop_hit,
                           o.primary_tp1_hit, o.primary_tp2_hit, o.primary_result, o.primary_pnl,
                           o.alternate_entry_triggered, o.alternate_result, o.alternate_pnl,
-                          o.chosen_path, o.result_classification, o.estimated_pnl
+                          o.chosen_path, o.result_classification, o.estimated_pnl,
+                          o.engine_version AS outcome_engine_version
                    FROM signals s
                    LEFT JOIN outcomes o ON s.trading_date = o.trading_date
                    ORDER BY s.trading_date DESC""",

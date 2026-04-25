@@ -182,7 +182,7 @@ QUICK_TAG_OPTIONS = [
     "No Confirmation",
 ]
 CONFIRMATION_STATUS_OPTIONS = ["Confirmed", "Failed", "Not Applicable", "Not Recorded"]
-RESULT_OPTIONS = ["Win", "Loss", "Breakeven", "Time Stop"]
+RESULT_OPTIONS = ["Unreviewed", "Win", "Loss", "Breakeven", "Time Stop"]
 SESSION_OPTIONS = ["NY Options", "Asian Futures"]
 TRADE_DIRECTION_OPTIONS = ["CALL", "PUT", "LONG", "SHORT"]
 CHECKPOINT_OPTIONS = ["6:00 PM CT", "7:00 PM CT", "8:00 PM CT"]
@@ -371,15 +371,18 @@ def normalize_result_value(value: Any) -> str:
 
     normalized = str(value or "").strip().lower()
     mapping = {
+        "unreviewed": "Unreviewed",
+        "pending": "Unreviewed",
+        "not reviewed": "Unreviewed",
         "win": "Win",
         "loss": "Loss",
         "breakeven": "Breakeven",
         "break even": "Breakeven",
         "time stop": "Time Stop",
         "timestop": "Time Stop",
-        "": "Breakeven",
+        "": "Unreviewed",
     }
-    return mapping.get(normalized, "Breakeven")
+    return mapping.get(normalized, "Unreviewed")
 
 
 def normalize_trade_direction(value: Any) -> str:
@@ -6700,10 +6703,11 @@ def compute_preview_pnl(direction: str, entry_value: float, exit_value: float, c
     """Compute a practical preview P&L for the journal form."""
 
     normalized_direction = direction.upper()
+    multiplier = 100.0 if normalized_direction in {"CALL", "PUT"} else 1.0
     if normalized_direction == "SHORT":
-        pnl = (float(entry_value) - float(exit_value)) * int(contracts)
+        pnl = (float(entry_value) - float(exit_value)) * int(contracts) * multiplier
     else:
-        pnl = (float(exit_value) - float(entry_value)) * int(contracts)
+        pnl = (float(exit_value) - float(entry_value)) * int(contracts) * multiplier
     return round_price(pnl)
 
 
@@ -13905,6 +13909,9 @@ def render_trade_log_tab(
                     "option_mark_at_decision": float(prefill.get("option_mark_at_decision", 0.0)),
                     "current_mark": float(prefill.get("current_mark", prefill.get("option_mark_at_decision", 0.0))),
                     "predicted_entry_price": float(prefill.get("predicted_entry_price", 0.0)),
+                    "projected_mark_at_entry": float(prefill.get("projected_mark_at_entry", prefill.get("predicted_entry_price", 0.0)) or 0.0),
+                    "projected_fill_at_entry": float(prefill.get("projected_fill_at_entry", 0.0) or 0.0),
+                    "premium_projection_confidence": str(prefill.get("premium_projection_confidence", "")),
                     "planned_entry_mark": float(prefill.get("planned_entry_mark", prefill.get("predicted_entry_price", 0.0))),
                     "live_predicted_entry_mark": float(prefill.get("live_predicted_entry_mark", prefill.get("predicted_entry_price", 0.0))),
                     "lock_cutoff": str(prefill.get("lock_cutoff", "")),
@@ -13965,6 +13972,13 @@ def render_trade_log_tab(
                     "estimated_fill_cost": prefill.get("estimated_fill_cost"),
                     "budget_status": str(prefill.get("budget_status", "")),
                     "ladder_anchor_strike": prefill.get("ladder_anchor_strike"),
+                    "selected_anchor_source": str(prefill.get("selected_anchor_source", "")),
+                    "selected_anchor_price": prefill.get("selected_anchor_price"),
+                    "selected_anchor_time": str(prefill.get("selected_anchor_time", "")),
+                    "selected_anchor_confidence": str(prefill.get("selected_anchor_confidence", "")),
+                    "alternative_anchor_sources": list(prefill.get("alternative_anchor_sources", [])),
+                    "anchor_selection_reason": str(prefill.get("anchor_selection_reason", "")),
+                    "anchor_override_used": bool(prefill.get("anchor_override_used", False)),
                     "best_contract_selected": bool(prefill.get("best_contract_selected", False)),
                     "play_type": str(prefill.get("play_type", "")),
                     "expected_gain": float(prefill.get("expected_gain", 0.0)),
@@ -14732,13 +14746,50 @@ def evaluate_play_outcome(
         }
 
     entry_price = float(play["entry"]["price"])
+    entry_label = str((play.get("entry") or {}).get("label", "entry"))
     stop_price = float(play["stop"]["price"]) if play.get("stop") else None
     tp1_price = float(play["tp1"]["price"]) if play.get("tp1") else None
     tp2_price = float(play["tp2"]["price"]) if play.get("tp2") else None
     direction = str(play.get("direction", "CALL"))
+    entry_line_details = projected_lines_spx.get(entry_label)
+    if not entry_line_details:
+        entry_line_details = next(
+            (
+                details
+                for details in projected_lines_spx.values()
+                if isinstance(details, dict) and str(details.get("label", "")) == entry_label
+            ),
+            {},
+        )
+    entry_polarity_line = {
+        "name": entry_label,
+        "label": str(entry_line_details.get("label", entry_label)) if isinstance(entry_line_details, dict) else entry_label,
+        "type": _polarity_line_type(entry_label, entry_line_details if isinstance(entry_line_details, dict) else {}),
+        "source": _polarity_line_source(entry_label, entry_line_details if isinstance(entry_line_details, dict) else {}, None),
+        "projected_price": entry_price,
+        "distance": None,
+    }
+    pending_retest_store: dict[str, Any] = {}
 
     def touched(row: pd.Series, level: float | None) -> bool:
         return level is not None and float(row["low"]) <= float(level) <= float(row["high"])
+
+    def entry_confirmed(row: pd.Series) -> dict[str, Any]:
+        """Confirm entry using polarity close/retest rules, not touch-only logic."""
+
+        candle = {
+            "timestamp": row.get("timestamp"),
+            "open": row.get("open"),
+            "high": row.get("high"),
+            "low": row.get("low"),
+            "close": row.get("close"),
+        }
+        return evaluate_line_polarity(
+            line=entry_polarity_line,
+            candle=candle,
+            desired_direction=direction,
+            pending_retest_store=pending_retest_store,
+        )
 
     entry_triggered = False
     entry_time = None
@@ -14749,13 +14800,23 @@ def evaluate_play_outcome(
     result_classification = "Not Triggered"
     estimated_pnl = 0.0
     ambiguous = False
+    entry_confirmation: dict[str, Any] | None = None
 
     for _, row in session_candles_spx.iterrows():
-        if not entry_triggered and touched(row, entry_price):
-            entry_triggered = True
-            entry_time = row["timestamp"]
-            event_order.append(f"entry@{format_timestamp(entry_time)}")
+        just_entered = False
         if not entry_triggered:
+            entry_check = entry_confirmed(row)
+            if entry_check.get("actionable"):
+                entry_triggered = True
+                just_entered = True
+                entry_time = row["timestamp"]
+                entry_confirmation = entry_check
+                event_order.append(f"entry@{format_timestamp(entry_time)}")
+        if not entry_triggered:
+            continue
+        if just_entered:
+            # Entry becomes valid after the confirmation candle closes; do not
+            # award stop/target events from the same candle.
             continue
 
         row_events: list[tuple[str, float]] = []
@@ -14826,6 +14887,7 @@ def evaluate_play_outcome(
         "estimated_pnl": round_price(estimated_pnl),
         "event_order": " -> ".join(event_order) if event_order else "No events",
         "integrity_flags": list(play.get("integrity_flags", [])),
+        "entry_confirmation": entry_confirmation or {},
     }
 
 
@@ -16752,6 +16814,7 @@ def _resolve_one_intelligence_date(trading_date: date, prior_date: date, effecti
             chosen_path=chosen_path,
             result_classification=result_class,
             estimated_pnl=float(chosen["estimated_pnl"]) if trade_taken else 0.0,
+            engine_version=ANCHOR_SELECTION_ENGINE_VERSION,
         )
         return True
     except Exception:
@@ -16843,7 +16906,17 @@ def run_intelligence_backfill(start_date: date, end_date: date, effective_offset
                 primary_seed = seed_scenario.get("primary_play")
                 confirmation = evaluate_830_confirmation(spx_830_candle, primary_seed["entry"]["price"] if primary_seed else float(nine_am_row["close"]), primary_seed["direction"] if primary_seed else "CALL")
                 sp = build_signal_package(current_price=float(nine_am_row["close"]), line_values=line_values, confirmation=confirmation, news_day=False, current_time=nine_am_target, open_price=float(nine_am_row["open"]))
-                _intelligence.capture_signal(trading_date, prior, sp, is_backfill=True)
+                _intelligence.capture_signal(
+                    trading_date,
+                    prior,
+                    sp,
+                    is_backfill=True,
+                    metadata={
+                        "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
+                        "anchor_source": " | ".join(summarize_selected_anchor_sources(anchor_bundle)),
+                        "effective_offset": effective_offset,
+                    },
+                )
                 if existing_out is None:
                     pr = evaluate_play_outcome(sp["scenario"].get("primary_play"), projected_spx, next_session_spx)
                     ar = evaluate_play_outcome(sp["scenario"].get("alternate_play"), projected_spx, next_session_spx)
@@ -16862,6 +16935,7 @@ def run_intelligence_backfill(start_date: date, end_date: date, effective_offset
                         alternate_result=str(ar["result_classification"]), alternate_pnl=float(ar["estimated_pnl"]),
                         chosen_path=chosen_path, result_classification=result_class,
                         estimated_pnl=float(chosen["estimated_pnl"]) if trade_taken else 0.0,
+                        engine_version=ANCHOR_SELECTION_ENGINE_VERSION,
                     )
                 succeeded += 1
             except Exception:
@@ -17542,7 +17616,17 @@ def main() -> None:
     # Auto-capture today's signal into the intelligence DB (Live Mode only)
     if _intelligence is not None and signal_package is not None and inputs.get("operating_mode") == "Live Mode":
         try:
-            _intelligence.capture_signal(trading_date=inputs["next_trading_date"], prior_date=inputs["prior_session_date"], signal_package=signal_package, is_backfill=False)
+            _intelligence.capture_signal(
+                trading_date=inputs["next_trading_date"],
+                prior_date=inputs["prior_session_date"],
+                signal_package=signal_package,
+                is_backfill=False,
+                metadata={
+                    "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
+                    "anchor_source": " | ".join(summarize_selected_anchor_sources(anchor_bundle)),
+                    "effective_offset": effective_offset,
+                },
+            )
         except Exception:
             pass
 

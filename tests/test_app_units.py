@@ -28,8 +28,10 @@ from app import (
     choose_execution_contract_from_ladder,
     classify_trigger_state,
     classify_budget_status,
+    compute_preview_pnl,
     compute_live_scenario_snapshot,
     compute_live_structure_state,
+    evaluate_play_outcome,
     estimate_option_price_at_time,
     estimate_contract_value_at_planned_entry,
     get_structure_assertion_warnings,
@@ -39,6 +41,8 @@ from app import (
     resolve_play_display_values,
     resolve_recommended_contract_row,
     resolve_trade_direction_display,
+    normalize_result_value,
+    normalize_trade_record,
     resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
     summarize_event_risk,
@@ -529,6 +533,95 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(_non_negative_option_price(-19.53), 0.0)
         self.assertEqual(_non_negative_option_price(-2.37), 0.0)
         self.assertEqual(_non_negative_option_price(4.25), 4.25)
+
+    def test_option_trade_preview_pnl_uses_spx_contract_multiplier(self) -> None:
+        self.assertEqual(compute_preview_pnl("CALL", 2.0, 3.0, 2), 200.0)
+        self.assertEqual(compute_preview_pnl("PUT", 5.0, 4.0, 1), -100.0)
+        self.assertEqual(compute_preview_pnl("LONG", 7100.0, 7105.0, 1), 5.0)
+
+    def test_blank_trade_result_remains_unreviewed(self) -> None:
+        self.assertEqual(normalize_result_value(""), "Unreviewed")
+        self.assertEqual(normalize_trade_record({"trade_date": "2026-04-22", "session": "NY Options", "scenario_name": "Scenario", "direction": "CALL", "entry_line_label": "asc_floor"})["result"], "Unreviewed")
+
+    def test_trade_record_preserves_forward_pricing_and_anchor_metadata(self) -> None:
+        record = normalize_trade_record(
+            {
+                "trade_date": "2026-04-22",
+                "session": "NY Options",
+                "scenario_name": "SCENARIO 2: INSIDE ASCENDING CHANNEL",
+                "direction": "CALL",
+                "entry_line_label": "asc_floor",
+                "entry_line_value": 7120.0,
+                "entry_value": 4.8,
+                "exit_value": 5.2,
+                "contracts": 1,
+                "projected_mark_at_entry": 5.1,
+                "projected_fill_at_entry": 5.25,
+                "premium_projection_confidence": "medium",
+                "selected_anchor_source": "ASIAN",
+                "selected_anchor_price": 7125.2,
+                "selected_anchor_time": "2026-04-21T18:00:00-05:00",
+                "selected_anchor_confidence": "MEDIUM",
+                "alternative_anchor_sources": ["PM_WINDOW", "LONDON"],
+                "anchor_selection_reason": "Asian pivot line respected first.",
+                "anchor_override_used": False,
+            }
+        )
+
+        self.assertEqual(record["projected_mark_at_entry"], 5.1)
+        self.assertEqual(record["projected_fill_at_entry"], 5.25)
+        self.assertEqual(record["premium_projection_confidence"], "medium")
+        self.assertEqual(record["selected_anchor_source"], "ASIAN")
+        self.assertEqual(record["selected_anchor_price"], 7125.2)
+        self.assertEqual(record["alternative_anchor_sources"], ["PM_WINDOW", "LONDON"])
+        self.assertEqual(record["anchor_selection_reason"], "Asian pivot line respected first.")
+
+    def test_historical_play_outcome_requires_polarity_retest_after_extended_reaction(self) -> None:
+        play = {
+            "direction": "CALL",
+            "entry": {"label": "asc_floor", "price": 100.0},
+            "stop": {"label": "stop", "price": 95.0},
+            "tp1": {"label": "tp1", "price": 110.0},
+            "tp2": {"label": "tp2", "price": 115.0},
+            "contracts": 1,
+        }
+        projected = {"asc_floor": {"label": "asc_floor", "projected_price": 100.0, "line_type": "ascending"}}
+        candles = pd.DataFrame(
+            [
+                {"timestamp": pd.Timestamp("2026-04-22 08:00"), "open": 100.0, "high": 106.0, "low": 99.5, "close": 105.0},
+                {"timestamp": pd.Timestamp("2026-04-22 09:00"), "open": 103.0, "high": 102.0, "low": 99.75, "close": 101.0},
+                {"timestamp": pd.Timestamp("2026-04-22 10:00"), "open": 101.0, "high": 111.0, "low": 100.5, "close": 110.0},
+            ]
+        )
+
+        outcome = evaluate_play_outcome(play, projected, candles)
+
+        self.assertTrue(outcome["entry_triggered"])
+        self.assertTrue(outcome["tp1_hit"])
+        self.assertEqual(outcome["result_classification"], "TP1")
+        self.assertEqual(outcome["entry_confirmation"]["polarity_state"], "support_hold")
+
+    def test_historical_play_outcome_blocks_extended_reaction_without_retest(self) -> None:
+        play = {
+            "direction": "CALL",
+            "entry": {"label": "asc_floor", "price": 100.0},
+            "stop": {"label": "stop", "price": 95.0},
+            "tp1": {"label": "tp1", "price": 110.0},
+            "tp2": {"label": "tp2", "price": 115.0},
+            "contracts": 1,
+        }
+        projected = {"asc_floor": {"label": "asc_floor", "projected_price": 100.0, "line_type": "ascending"}}
+        candles = pd.DataFrame(
+            [
+                {"timestamp": pd.Timestamp("2026-04-22 08:00"), "open": 100.0, "high": 106.0, "low": 99.5, "close": 105.0},
+                {"timestamp": pd.Timestamp("2026-04-22 09:00"), "open": 105.0, "high": 111.0, "low": 104.0, "close": 110.0},
+            ]
+        )
+
+        outcome = evaluate_play_outcome(play, projected, candles)
+
+        self.assertFalse(outcome["entry_triggered"])
+        self.assertEqual(outcome["result_classification"], "Not Triggered")
 
     def test_nearby_ladder_clamps_negative_predicted_values_and_costs(self) -> None:
         candidates = [dict(row) for row in self.option_candidates if row["option_type"] == "PUT" and row["expiration"] == "2026-04-22"]
