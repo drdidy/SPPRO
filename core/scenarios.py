@@ -11,8 +11,8 @@ NEARBY_BOUNDARY_THRESHOLD = 5.0
 
 SCENARIO_COLORS = {
     "SCENARIO 1: BETWEEN CHANNELS": "#00d4ff",
-    "SCENARIO 2: INSIDE ASCENDING CHANNEL": "#ff1744",
-    "SCENARIO 3: INSIDE DESCENDING CHANNEL": "#00e676",
+    "SCENARIO 2: INSIDE ASCENDING CHANNEL": "#00e676",
+    "SCENARIO 3: INSIDE DESCENDING CHANNEL": "#ff1744",
     "SCENARIO 4: ABOVE ASCENDING CHANNEL": "#ffd740",
     "SCENARIO 5: BELOW DESCENDING CHANNEL": "#ffd740",
     "SCENARIO 6a: EXTREME GAP UP": "#ffd740",
@@ -31,13 +31,13 @@ def get_scenario_reference_outputs() -> dict[str, dict[str, Any]]:
             "confidence": "MEDIUM",
         },
         "SCENARIO 2: INSIDE ASCENDING CHANNEL": {
-            "primary": {"direction": "PUT", "entry": "asc_ceiling", "stop": "hw"},
-            "alternate": {"direction": "CALL", "entry": "desc_ceiling_or_desc_floor", "stop": "desc_floor_or_lw"},
+            "primary": {"direction": "CALL", "entry": "asc_floor", "stop": "desc_floor"},
+            "alternate": {"direction": "PUT", "entry": "asc_ceiling", "stop": "hw"},
             "confidence": "HIGH with confirmation, otherwise MEDIUM",
         },
         "SCENARIO 3: INSIDE DESCENDING CHANNEL": {
-            "primary": {"direction": "CALL", "entry": "desc_floor", "stop": "lw"},
-            "alternate": {"direction": "PUT", "entry": "asc_floor_or_asc_ceiling", "stop": "asc_ceiling_or_hw"},
+            "primary": {"direction": "PUT", "entry": "desc_ceiling", "stop": "asc_ceiling"},
+            "alternate": {"direction": "CALL", "entry": "desc_floor", "stop": "lw"},
             "confidence": "HIGH with confirmation, otherwise MEDIUM",
         },
         "SCENARIO 4: ABOVE ASCENDING CHANNEL": {
@@ -321,11 +321,20 @@ def evaluate_trading_scenario(
     elif in_ascending:
         scenario_name = "SCENARIO 2: INSIDE ASCENDING CHANNEL"
         description = "Price is inside the ascending channel but not inside the descending channel."
-        descending_entry_label = "desc_ceiling" if descending_near_asc else "desc_floor"
-        descending_entry_price = desc_ceiling if descending_near_asc else desc_floor
-        descending_stop_label = "desc_floor" if descending_entry_label == "desc_ceiling" else "lw"
-        descending_stop_price = desc_floor if descending_entry_label == "desc_ceiling" else lw
         primary_play = _build_play(
+            "CALL",
+            "asc_floor",
+            asc_floor,
+            "desc_floor" if descending_near_asc else "lw",
+            desc_floor if descending_near_asc else lw,
+            "asc_ceiling",
+            asc_ceiling,
+            "hw",
+            hw,
+            3 if confirmation_confirmed else 2,
+            "Bullish continuation from ascending support.",
+        )
+        alternate_play = _build_play(
             "PUT",
             "asc_ceiling",
             asc_ceiling,
@@ -335,30 +344,26 @@ def evaluate_trading_scenario(
             asc_floor,
             "desc_ceiling",
             desc_ceiling,
-            3 if confirmation_confirmed else 2,
-            "Short rejection from ascending resistance.",
-        )
-        alternate_play = _build_play(
-            "CALL",
-            descending_entry_label,
-            descending_entry_price,
-            descending_stop_label,
-            descending_stop_price,
-            "asc_floor",
-            asc_floor,
-            "asc_ceiling",
-            asc_ceiling,
             1,
-            "Use the nearest descending boundary below if it is inside or close to the ascending channel.",
+            "Countertrend fade only if ascending ceiling rejects as resistance.",
         )
     elif in_descending:
         scenario_name = "SCENARIO 3: INSIDE DESCENDING CHANNEL"
         description = "Price is inside the descending channel but not inside the ascending channel."
-        ascending_entry_label = "asc_floor" if ascending_near_desc else "asc_ceiling"
-        ascending_entry_price = asc_floor if ascending_near_desc else asc_ceiling
-        ascending_stop_label = "asc_ceiling" if ascending_entry_label == "asc_floor" else "hw"
-        ascending_stop_price = asc_ceiling if ascending_entry_label == "asc_floor" else hw
         primary_play = _build_play(
+            "PUT",
+            "desc_ceiling",
+            desc_ceiling,
+            "asc_ceiling" if ascending_near_desc else "hw",
+            asc_ceiling if ascending_near_desc else hw,
+            "desc_floor",
+            desc_floor,
+            "lw",
+            lw,
+            3 if confirmation_confirmed else 2,
+            "Bearish continuation from descending resistance.",
+        )
+        alternate_play = _build_play(
             "CALL",
             "desc_floor",
             desc_floor,
@@ -368,21 +373,8 @@ def evaluate_trading_scenario(
             desc_ceiling,
             "asc_floor",
             asc_floor,
-            3 if confirmation_confirmed else 2,
-            "Long bounce from descending support.",
-        )
-        alternate_play = _build_play(
-            "PUT",
-            ascending_entry_label,
-            ascending_entry_price,
-            ascending_stop_label,
-            ascending_stop_price,
-            "desc_ceiling",
-            desc_ceiling,
-            "desc_floor",
-            desc_floor,
             1,
-            "Use the nearest ascending boundary above if it is inside or close to the descending channel.",
+            "Countertrend bounce only if descending floor holds as support.",
         )
     elif above_ascending:
         scenario_name = "SCENARIO 4: ABOVE ASCENDING CHANNEL"

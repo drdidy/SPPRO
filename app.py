@@ -208,6 +208,7 @@ MIN_EXECUTION_MARK = 0.20
 TOUCH_TOLERANCE_POINTS = 1.5
 MIN_TEST_TOUCHES = 2
 ANCHOR_REACTION_TOLERANCE_POINTS = 2.0
+ANCHOR_SELECTION_ENGINE_VERSION = "session-aware-v2-polarity"
 ANCHOR_SOURCE_OPTIONS = ["Auto", "PM Window", "Asian", "London", "Pre-NY"]
 ANCHOR_SOURCE_LABELS = {
     "PM_WINDOW": "PM Window",
@@ -6468,6 +6469,7 @@ def _build_session_aware_anchor_bundle(
 
     if selected_high is None or selected_low is None:
         base_bundle["anchor_selection"] = {
+            "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
             "candidate_table": candidate_table,
             "anchor_locked": False,
             "override_used": forced_source is not None,
@@ -6511,6 +6513,7 @@ def _build_session_aware_anchor_bundle(
     }
     updated_bundle["source"] = "session_aware_anchor_bundle"
     updated_bundle["anchor_selection"] = {
+        "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
         "selected_high": selected_high,
         "selected_low": selected_low,
         "selected_anchor_source": str(selected_low.get("session_source") or selected_high.get("session_source") or ""),
@@ -6533,6 +6536,7 @@ def _build_session_aware_anchor_bundle(
         "selected_anchor_compact_labels": summarize_selected_anchor_sources(
             {
                 "anchor_selection": {
+                    "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
                     "by_line": {
                         "asc_floor": selected_low,
                         "desc_ceiling": selected_high,
@@ -6581,9 +6585,17 @@ def resolve_locked_anchor_bundle(
     store_key = next_trading_date.isoformat()
     existing = lock_store.get(store_key)
     current_bundle = deepcopy(anchor_bundle)
+    current_bundle.setdefault("anchor_selection", {})["engine_version"] = ANCHOR_SELECTION_ENGINE_VERSION
+    if isinstance(existing, dict):
+        existing_version = str((existing.get("anchor_selection") or {}).get("engine_version", ""))
+        existing_source = str(existing.get("source", ""))
+        if existing_version != ANCHOR_SELECTION_ENGINE_VERSION or existing_source != "session_aware_anchor_bundle":
+            lock_store.pop(store_key, None)
+            existing = None
     if isinstance(existing, dict):
         locked_bundle = deepcopy(existing)
         locked_selection = locked_bundle.setdefault("anchor_selection", {})
+        locked_selection["engine_version"] = ANCHOR_SELECTION_ENGINE_VERSION
         locked_selection["anchor_locked"] = True
         locked_selection["anchor_lock_timestamp"] = str(locked_selection.get("anchor_lock_timestamp") or lock_timestamp.isoformat())
         if _anchor_selection_signature(locked_bundle) != _anchor_selection_signature(current_bundle):
@@ -6595,6 +6607,7 @@ def resolve_locked_anchor_bundle(
     if now_ct >= lock_timestamp:
         current_selection["anchor_locked"] = True
         current_selection["anchor_lock_timestamp"] = now_ct.isoformat()
+        current_selection["engine_version"] = ANCHOR_SELECTION_ENGINE_VERSION
         lock_store[store_key] = deepcopy(current_bundle)
     return current_bundle
 
@@ -11939,6 +11952,7 @@ def resolve_anchor_bundle(
         }
         manual_bundle["source"] = "manual_anchor_bundle"
         manual_bundle["anchor_selection"] = {
+            "engine_version": ANCHOR_SELECTION_ENGINE_VERSION,
             "selected_anchor_source": "MANUAL",
             "selected_anchor_reason": "Manual anchor inputs are active.",
             "anchor_confidence": "HIGH",

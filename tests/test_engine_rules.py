@@ -431,9 +431,10 @@ class EngineRuleTests(unittest.TestCase):
     def test_scenario_2_inside_ascending_channel_output(self) -> None:
         scenario = evaluate_trading_scenario(106.0, self.base_lines, confirmation_confirmed=True)
         self.assertEqual(scenario["scenario_name"], "SCENARIO 2: INSIDE ASCENDING CHANNEL")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_ceiling")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "hw")
-        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
+        self.assertEqual(scenario["primary_play"]["direction"], "CALL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_floor")
+        self.assertEqual(scenario["primary_play"]["tp1"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["alternate_play"]["direction"], "PUT")
         self.assertEqual(scenario["confidence_level"], "HIGH")
 
     def test_scenario_3_inside_descending_channel_output(self) -> None:
@@ -450,9 +451,10 @@ class EngineRuleTests(unittest.TestCase):
             confirmation_confirmed=True,
         )
         self.assertEqual(scenario["scenario_name"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_floor")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "lw")
-        self.assertEqual(scenario["alternate_play"]["direction"], "PUT")
+        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_ceiling")
+        self.assertEqual(scenario["primary_play"]["tp1"]["label"], "desc_floor")
+        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
         self.assertEqual(scenario["confidence_level"], "HIGH")
 
     def test_scenario_4_above_ascending_channel_output(self) -> None:

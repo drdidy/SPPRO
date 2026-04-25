@@ -1256,6 +1256,38 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(frozen_bundle["anchor_selection"]["by_line"]["asc_floor"]["session_source"], "ASIAN")
         self.assertEqual(frozen_bundle["anchor_selection"]["alternative_anchor_note"], "Alternative anchor line being respected")
 
+    def test_old_anchor_lock_version_is_replaced_by_session_aware_selection(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        original_now = app_module.current_central_time
+        try:
+            current_bundle = app_module._build_session_aware_anchor_bundle(
+                candles=frame,
+                prior_session_date=date(2026, 4, 22),
+                next_trading_date=date(2026, 4, 23),
+                current_es_price=7141.4,
+                anchor_source_override="Auto",
+            )
+            stale_bundle = app_module._build_session_aware_anchor_bundle(
+                candles=frame,
+                prior_session_date=date(2026, 4, 22),
+                next_trading_date=date(2026, 4, 23),
+                current_es_price=7152.2,
+                anchor_source_override="Auto",
+            )
+            stale_bundle["anchor_selection"]["engine_version"] = "legacy-pm-lock"
+            app_module.st.session_state["anchor_selection_store"][date(2026, 4, 23).isoformat()] = stale_bundle
+            app_module.current_central_time = lambda: app_module.at_central(date(2026, 4, 23), 8, 30)
+            resolved = resolve_locked_anchor_bundle(
+                current_bundle,
+                next_trading_date=date(2026, 4, 23),
+                cutoff_label="8:25 AM CT",
+            )
+        finally:
+            app_module.current_central_time = original_now
+
+        self.assertEqual(resolved["anchor_selection"]["engine_version"], app_module.ANCHOR_SELECTION_ENGINE_VERSION)
+        self.assertEqual(resolved["anchor_selection"]["by_line"]["asc_floor"]["session_source"], "ASIAN")
+
     def test_manual_anchor_source_override_prevents_auto_selection(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(
