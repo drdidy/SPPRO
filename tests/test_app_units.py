@@ -1364,6 +1364,34 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(selected_floor["session_source"], "ASIAN")
         self.assertIn("Asian session", selected_floor["selection_reason"])
 
+    def test_premarket_checkpoint_views_use_selected_anchor_bundle(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7152.2,
+            anchor_source_override="Auto",
+        )
+        views = app_module.build_premarket_checkpoint_views(
+            bundle,
+            date(2026, 4, 23),
+            0.0,
+            overnight_high=None,
+            overnight_low=None,
+        )
+
+        nine_am_view = next(item for item in views["preopen"] if item["label"] == "9:00 AM CT")
+        expected_lines = app_module.project_six_lines(bundle["anchors"], app_module.at_central(date(2026, 4, 23), 9, 0))
+
+        self.assertEqual(nine_am_view["anchor_plan_signature"], app_module.build_anchor_plan_signature(bundle))
+        self.assertIn("Asian", " ".join(nine_am_view["anchor_source_labels"]))
+        self.assertAlmostEqual(
+            nine_am_view["es_lines"]["asc_floor"]["projected_price"],
+            expected_lines["asc_floor"]["projected_price"],
+            places=6,
+        )
+
     def test_asian_anchor_can_override_pm_when_structurally_closer(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(

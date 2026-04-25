@@ -14131,15 +14131,47 @@ def build_premarket_checkpoint_views(
         ],
     }
 
+    anchor_ready_time = None
+    for anchor in (anchor_bundle.get("anchors") or {}).values():
+        anchor_time = anchor.get("projection_start_time") or anchor.get("timestamp")
+        if anchor_time is None:
+            continue
+        anchor_time = to_central_time(anchor_time)
+        if anchor_ready_time is None or anchor_time > anchor_ready_time:
+            anchor_ready_time = anchor_time
+
     def _build(label: str, checkpoint_time: Any) -> dict[str, Any]:
-        projected_es = project_six_lines(anchor_bundle["anchors"], checkpoint_time)
+        metadata = {
+            "label": label,
+            "checkpoint_time": checkpoint_time,
+            "anchor_plan_signature": build_anchor_plan_signature(anchor_bundle),
+            "anchor_source_labels": summarize_selected_anchor_sources(anchor_bundle),
+        }
+        if anchor_ready_time is not None and to_central_time(checkpoint_time) < anchor_ready_time:
+            return {
+                **metadata,
+                "spx_lines": {},
+                "es_lines": {},
+                "override_decisions": {},
+                "unavailable_reason": f"Selected anchor completes at {format_timestamp(anchor_ready_time)}.",
+            }
+        try:
+            projected_es = project_six_lines(anchor_bundle["anchors"], checkpoint_time)
+        except ValueError:
+            return {
+                **metadata,
+                "spx_lines": {},
+                "es_lines": {},
+                "override_decisions": {},
+                "unavailable_reason": f"Selected anchor cannot be projected cleanly at {label}.",
+            }
         projected_spx = convert_projected_lines(projected_es, es_spx_offset, "spx")
         override_result = apply_overnight_pivot_overrides(
             projected_spx, overnight_high=overnight_high, overnight_low=overnight_low,
         )
         final_spx = override_result["projected_lines"]
         final_es = convert_projected_lines(final_spx, es_spx_offset, "es")
-        return {"label": label, "checkpoint_time": checkpoint_time,
+        return {**metadata,
                 "spx_lines": final_spx, "es_lines": final_es,
                 "override_decisions": override_result["decisions"]}
 
@@ -14365,6 +14397,8 @@ def render_evening_debug(
         "es_spx_offset": round_price(es_spx_offset),
         "current_es_input": round_price(current_es_price),
         "checkpoint_labels": [checkpoint["label"] for checkpoint in checkpoint_views],
+        "anchor_sources": checkpoint_views[0].get("anchor_source_labels", []) if checkpoint_views else [],
+        "anchor_plan_signature": checkpoint_views[0].get("anchor_plan_signature", "") if checkpoint_views else "",
         "checkpoints": {
             checkpoint["label"]: {
                 "spx_values": {
@@ -17392,6 +17426,7 @@ def render_live_mode_shell(
             '</div></div></div>',
             unsafe_allow_html=True,
         )
+        render_active_anchor_strip(anchor_bundle, compact=not developer_mode)
 
         if not checkpoint_views:
             st.warning("Pre-market checkpoint views are unavailable for the current inputs.")
@@ -17430,7 +17465,13 @@ def render_live_mode_shell(
                         _es_vals = {n: d["projected_price"] for n, d in _cp["es_lines"].items()}
                         _res, _sup = find_nearest_lines(_es_vals, _current_es) if _current_es else (None, None)
                         _rows = ""
-                        for _ln in LINE_DISPLAY_ORDER:
+                        if _cp.get("unavailable_reason"):
+                            _rows = (
+                                f'<div style="font-size:0.72rem;color:rgba(180,205,240,0.48);'
+                                f'line-height:1.45;padding:5px 0;">'
+                                f'{escape(str(_cp.get("unavailable_reason")))}</div>'
+                            )
+                        for _ln in ([] if _cp.get("unavailable_reason") else LINE_DISPLAY_ORDER):
                             if _ln not in _cp["es_lines"]:
                                 continue
                             _lp = _cp["es_lines"][_ln]["projected_price"]
