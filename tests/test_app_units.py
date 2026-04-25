@@ -15,6 +15,8 @@ from app import (
     build_anchor_candidate_table,
     build_ladder_display_dataframe,
     build_line_polarity_decision,
+    build_active_polarity_summary,
+    build_historical_play_authority,
     build_render_fallback_payload,
     build_historical_mode_tab_labels,
     build_live_mode_tab_labels,
@@ -1568,6 +1570,69 @@ class AppUnitTests(unittest.TestCase):
         self.assertTrue(decision["polarity_conflict"])
         self.assertEqual(decision["decision"], "NO TRADE")
         self.assertEqual(decision["confirmed_direction"], "CALL")
+
+    def test_active_polarity_summary_uses_touched_asian_floor_not_news_ceiling(self) -> None:
+        anchor_bundle = {
+            "anchor_selection": {
+                "by_line": {
+                    "asc_floor": {
+                        "session_source": "ASIAN",
+                        "pivot_time": app_module.at_central(date(2026, 4, 22), 22, 0),
+                    },
+                    "desc_ceiling": {
+                        "session_source": "NEWS_730",
+                        "pivot_time": app_module.at_central(date(2026, 4, 23), 7, 0),
+                    },
+                }
+            }
+        }
+        summary = build_active_polarity_summary(
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7120.0, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7145.0, "line_type": "channel"},
+            },
+            current_price=7121.5,
+            current_candle={"high": 7120.75, "low": 7119.5, "close": 7122.0},
+            anchor_bundle=anchor_bundle,
+        )
+
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["line_used"]["name"], "asc_floor")
+        self.assertEqual(summary["line_used"]["source"], "ASIAN")
+        self.assertEqual(summary["confirmed_direction"], "CALL")
+        self.assertTrue(summary["actionable"])
+        self.assertIn("Asian", summary["label"])
+
+    def test_historical_authority_blocks_primary_when_active_floor_confirms_call(self) -> None:
+        active = {
+            "available": True,
+            "label": "ASC Floor · Asian · CALL confirmed",
+            "confirmed_direction": "CALL",
+            "actionable": True,
+            "polarity_state": "support_hold",
+            "reason": "Touch confirmed as support with a close near the line.",
+        }
+        put_play = {"direction": "PUT", "stop": {"price": 7150.0}}
+        call_play = {"direction": "CALL", "stop": {"price": 7118.0}}
+
+        primary_authority = build_historical_play_authority(
+            play=put_play,
+            active_polarity=active,
+            default_decision="CONDITIONAL BUY",
+            default_reason="Historical review context",
+        )
+        alternate_authority = build_historical_play_authority(
+            play=call_play,
+            active_polarity=active,
+            default_decision="CONDITIONAL BUY",
+            default_reason="Historical review context",
+        )
+
+        self.assertEqual(primary_authority["decision"], "NO TRADE")
+        self.assertEqual(primary_authority["setup_state"], "INVALIDATED")
+        self.assertIn("CALL", primary_authority["reason_line"])
+        self.assertEqual(alternate_authority["decision"], "CONDITIONAL BUY")
+        self.assertEqual(alternate_authority["setup_state"], "READY")
 
     def test_execution_state_blocks_entry_when_line_reaction_is_extended(self) -> None:
         play = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}, "setup_tradable": True}

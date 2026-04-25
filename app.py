@@ -4293,6 +4293,194 @@ def build_line_polarity_decision(
     }
 
 
+def build_active_polarity_summary(
+    *,
+    projected_lines: dict[str, dict[str, Any]] | None,
+    current_price: float | None,
+    current_candle: dict[str, Any] | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
+    desired_direction: str | None = None,
+    vwap_value: float | None = None,
+) -> dict[str, Any]:
+    """Resolve the active line nearest price so UI does not confuse anchor families with the trade line."""
+
+    candidates = build_polarity_line_candidates(
+        projected_lines,
+        current_price=current_price,
+        anchor_bundle=anchor_bundle,
+        nearest_count=1,
+    )
+    if not candidates:
+        return {
+            "available": False,
+            "label": "Active line unavailable",
+            "line_used": {},
+            "polarity_state": "unavailable",
+            "confirmed_direction": "",
+            "actionable": False,
+            "reason": "No projected polarity lines are available.",
+        }
+
+    if current_candle is not None:
+        decision = build_line_polarity_decision(
+            projected_lines=projected_lines,
+            current_price=current_price,
+            current_candle=current_candle,
+            desired_direction=desired_direction,
+            vwap_value=vwap_value,
+            anchor_bundle=anchor_bundle,
+            pending_retest_store={},
+        )
+    else:
+        nearest = candidates[0]
+        decision = {
+            "decision": "WATCH",
+            "score": 0,
+            "line_used": nearest,
+            "polarity_state": "nearest",
+            "actionable": False,
+            "polarity_conflict": False,
+            "distance_to_line": nearest.get("distance"),
+            "close_distance": None,
+            "vwap_alignment": "UNAVAILABLE",
+            "reason": "Nearest active polarity line by current price.",
+            "confirmed_direction": "",
+            "pending_retest": False,
+            "enforced": False,
+        }
+
+    line_used = dict(decision.get("line_used") or {})
+    source_raw = str(line_used.get("source", "") or "")
+    source_label = ANCHOR_SOURCE_SHORT_LABELS.get(source_raw, ANCHOR_SOURCE_LABELS.get(source_raw, source_raw))
+    state = str(decision.get("polarity_state", "unavailable") or "unavailable")
+    direction = str(decision.get("confirmed_direction", "") or "")
+    label_parts = [
+        str(line_used.get("label") or line_used.get("name") or "Active Line"),
+        source_label,
+    ]
+    if direction:
+        label_parts.append(f"{direction} confirmed")
+    elif state and state != "nearest":
+        label_parts.append(state.replace("_", " ").title())
+    if decision.get("distance_to_line") is not None:
+        label_parts.append(f"{format_price(decision.get('distance_to_line'))} pts away")
+
+    return {
+        "available": True,
+        "label": " · ".join(part for part in label_parts if part),
+        "line_used": line_used,
+        "polarity_state": state,
+        "confirmed_direction": direction,
+        "actionable": bool(decision.get("actionable")),
+        "polarity_conflict": bool(decision.get("polarity_conflict")),
+        "decision": str(decision.get("decision", "")),
+        "distance_to_line": decision.get("distance_to_line"),
+        "close_distance": decision.get("close_distance"),
+        "reason": str(decision.get("reason", "")),
+    }
+
+
+def resolve_play_label_for_direction(signal_package: dict[str, Any] | None, direction: str | None) -> str:
+    """Return primary/alternate for the play matching a confirmed active-line direction."""
+
+    desired = str(direction or "").upper()
+    scenario = (signal_package or {}).get("scenario", {}) if isinstance(signal_package, dict) else {}
+    for label, key in (("primary", "primary_play"), ("alternate", "alternate_play")):
+        play = scenario.get(key)
+        if isinstance(play, dict) and str(play.get("direction", "")).upper() == desired:
+            return label
+    return "primary"
+
+
+def build_historical_play_authority(
+    *,
+    play: dict[str, Any] | None,
+    active_polarity: dict[str, Any] | None,
+    default_decision: str,
+    default_reason: str,
+    confidence_score: int = 62,
+) -> dict[str, Any]:
+    """Build a small historical-mode authority overlay from the active polarity line."""
+
+    direction = str((play or {}).get("direction", "") or "").upper()
+    active = active_polarity or {}
+    confirmed = str(active.get("confirmed_direction", "") or "").upper()
+    state = str(active.get("polarity_state", "") or "")
+    active_label = str(active.get("label", "Active polarity line") or "Active polarity line")
+    active_reason = str(active.get("reason", "") or default_reason)
+
+    if confirmed and direction and confirmed != direction:
+        return {
+            "decision": "NO TRADE",
+            "confidence_score": max(35, int(confidence_score) - 18),
+            "expected_value": None,
+            "risk_class": "HIGH",
+            "reason_line": f"Active line confirms {confirmed}; this {direction} play is blocked.",
+            "top_reasons": [active_label, "Opposite polarity confirmation"],
+            "condition_required": "",
+            "structure_valid": False,
+            "stop_valid": bool((play or {}).get("stop")),
+            "use_allowed": False,
+            "override_required": True,
+            "setup_state": "INVALIDATED",
+            "setup_state_reason": active_reason,
+            "evidence_level": "Historical polarity",
+        }
+
+    if confirmed and direction == confirmed and active.get("actionable"):
+        return {
+            "decision": "CONDITIONAL BUY",
+            "confidence_score": min(88, int(confidence_score) + 10),
+            "expected_value": None,
+            "risk_class": "MEDIUM",
+            "reason_line": f"{active_label}; {direction} is the active confirmed side.",
+            "top_reasons": [active_label, "Polarity confirmed near line"],
+            "condition_required": "",
+            "structure_valid": True,
+            "stop_valid": bool((play or {}).get("stop")),
+            "use_allowed": False,
+            "override_required": False,
+            "setup_state": "READY",
+            "setup_state_reason": active_reason,
+            "evidence_level": "Historical polarity",
+        }
+
+    if state in {"extended_rejection", "pending_retest"}:
+        return {
+            "decision": "NO TRADE",
+            "confidence_score": max(40, int(confidence_score) - 10),
+            "expected_value": None,
+            "risk_class": "MEDIUM",
+            "reason_line": active_reason,
+            "top_reasons": [active_label, "Wait for retest"],
+            "condition_required": "Wait for retest close near the active line.",
+            "structure_valid": True,
+            "stop_valid": bool((play or {}).get("stop")),
+            "use_allowed": False,
+            "override_required": True,
+            "setup_state": "ARMED",
+            "setup_state_reason": active_reason,
+            "evidence_level": "Historical polarity",
+        }
+
+    return {
+        "decision": default_decision,
+        "confidence_score": int(confidence_score),
+        "expected_value": None,
+        "risk_class": "MEDIUM",
+        "reason_line": default_reason,
+        "top_reasons": [active_label] if active.get("available") else ["Historical review context"],
+        "condition_required": "",
+        "structure_valid": default_decision != "NO TRADE",
+        "stop_valid": bool((play or {}).get("stop")),
+        "use_allowed": False,
+        "override_required": default_decision == "NO TRADE",
+        "setup_state": "LOCKED",
+        "setup_state_reason": default_reason,
+        "evidence_level": "Historical",
+    }
+
+
 def resolve_budget_execution_status(
     *,
     selected_budget_status: str,
@@ -16816,14 +17004,22 @@ def render_review_card(title: str, review: dict[str, Any]) -> None:
             st.write(f"TP2 trigger: {format_timestamp(review.get('tp2_time'))}")
 
 
-def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anchor_bundle: dict[str, Any]) -> None:
+def render_historical_context_banner(
+    inputs: dict[str, Any],
+    nine_am_target,
+    anchor_bundle: dict[str, Any],
+    active_polarity: dict[str, Any] | None = None,
+) -> None:
     """Render the historical mode premium header with session metadata."""
 
-    source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual"
+    data_mode_value = str(inputs.get("data_mode", "") or "")
+    source_mode = "Auto-fetch" if data_mode_value.lower().startswith("auto") else "Manual input"
     anchor_selection = anchor_bundle.get("anchor_selection") or {}
     anchor_source = anchor_bundle.get("source", "Session anchors")
     compact_sources = " | ".join(summarize_selected_anchor_sources(anchor_bundle)[:2])
     anchor_source_display = compact_sources or str(anchor_source)
+    anchor_mode = "Manual anchor override" if anchor_selection.get("override_used") else "Auto anchors"
+    active_line_display = str((active_polarity or {}).get("label") or "Nearest line unavailable")
     prior_str = inputs["prior_session_date"].strftime("%b %d, %Y")
     next_str = inputs["next_trading_date"].strftime("%b %d, %Y")
     target_str = format_timestamp(nine_am_target)
@@ -16832,7 +17028,9 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
         ("Prior Session", prior_str),
         ("Next Trading Day", next_str),
         ("Projection Target", target_str),
-        ("Anchor Source", f"{anchor_source_display} · {source_mode}"),
+        ("Anchor Families", f"{anchor_source_display} · {anchor_mode}"),
+        ("Active Line", active_line_display),
+        ("Data Source", source_mode),
     ]
     stats_html = "".join([
         f'<div style="flex:1;min-width:120px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.05);">'
@@ -19690,17 +19888,59 @@ def render_historical_projection_mode(
     developer_mode = bool(inputs.get("developer_mode"))
     projection_tab, review_tab, backtest_tab = st.tabs(build_historical_mode_tab_labels())
     synthetic_spx_session = build_synthetic_spx_session(get_next_day_session_candles(es_candles, inputs["next_trading_date"]), effective_offset)
+    historical_candle = None
+    if not synthetic_spx_session.empty and nine_am_target is not None:
+        try:
+            target_time = to_central_time(nine_am_target)
+            candle_frame = synthetic_spx_session.copy()
+            candle_frame["_time_delta"] = candle_frame["timestamp"].apply(lambda value: abs((to_central_time(value) - target_time).total_seconds()))
+            row = candle_frame.sort_values("_time_delta").iloc[0]
+            historical_candle = {
+                "timestamp": row.get("timestamp"),
+                "open": row.get("open"),
+                "high": row.get("high"),
+                "low": row.get("low"),
+                "close": row.get("close"),
+            }
+        except Exception:
+            historical_candle = None
+    active_polarity = build_active_polarity_summary(
+        projected_lines=final_projected_lines,
+        current_price=inputs.get("current_spx_price"),
+        current_candle=historical_candle,
+        anchor_bundle=anchor_bundle,
+    )
 
     with projection_tab:
         historical_authority = None
+        active_play_label = "Historical"
+        primary_historical_authority = None
+        alternate_historical_authority = None
         if signal_package is not None:
+            confidence_score = {"High": 78, "Medium": 62, "Low": 44}.get(str(signal_package["scenario"].get("confidence_level", "Medium")), 62)
+            default_decision = "NO TRADE" if signal_package["sit_out"]["sit_out"] else "CONDITIONAL BUY"
+            default_reason = str(signal_package["scenario"].get("description", "Historical review context"))
+            confirmed_direction = str(active_polarity.get("confirmed_direction", "") or "")
+            if confirmed_direction:
+                active_play_label = resolve_play_label_for_direction(signal_package, confirmed_direction)
+            primary_historical_authority = build_historical_play_authority(
+                play=signal_package["scenario"].get("primary_play"),
+                active_polarity=active_polarity,
+                default_decision=default_decision,
+                default_reason=default_reason,
+                confidence_score=confidence_score,
+            )
+            alternate_historical_authority = build_historical_play_authority(
+                play=signal_package["scenario"].get("alternate_play"),
+                active_polarity=active_polarity,
+                default_decision=default_decision,
+                default_reason=default_reason,
+                confidence_score=confidence_score,
+            )
+            historical_authority = alternate_historical_authority if active_play_label == "alternate" else primary_historical_authority
             historical_authority = {
-                "decision": "NO TRADE" if signal_package["sit_out"]["sit_out"] else "CONDITIONAL BUY",
-                "confidence_score": {"High": 78, "Medium": 62, "Low": 44}.get(str(signal_package["scenario"].get("confidence_level", "Medium")), 62),
+                **historical_authority,
                 "expected_value": None,
-                "risk_class": "MEDIUM",
-                "reason_line": str(signal_package["scenario"].get("description", "Historical review context")),
-                "evidence_level": "Historical",
             }
         render_live_decision_center(
             signal_package,
@@ -19708,17 +19948,17 @@ def render_historical_projection_mode(
             inputs["current_es_price"],
             effective_offset,
             hero_authority=historical_authority,
-            active_play_label="Historical",
+            active_play_label=active_play_label,
         )
-        render_historical_context_banner(inputs, nine_am_target, anchor_bundle)
+        render_historical_context_banner(inputs, nine_am_target, anchor_bundle, active_polarity)
         if signal_package is not None:
             historical_final_status = "NOT ELIGIBLE" if signal_package["sit_out"]["sit_out"] else "ELIGIBLE"
             render_trade_decision_summary(signal_package, final_projected_lines, final_status=historical_final_status)
             decision_col1, decision_col2 = st.columns(2, gap="large")
             with decision_col1:
-                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode)
+                render_play_card("Primary Trade", signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode, current_spx_price=inputs.get("current_spx_price"), authority=primary_historical_authority)
             with decision_col2:
-                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode)
+                render_play_card("Alternate Trade", signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, compact=not developer_mode, effective_offset=effective_offset, developer_mode=developer_mode, current_spx_price=inputs.get("current_spx_price"), authority=alternate_historical_authority)
         else:
             st.info("Enter historical SPX and ES prices to generate scenario and trade cards.")
 
