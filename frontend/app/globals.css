@@ -201,10 +201,10 @@ button {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(300px, 0.82fr) minmax(440px, 1.45fr) minmax(270px, 0.76fr);
+  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr) minmax(300px, 0.72fr);
   align-items: stretch;
-  gap: 18px;
-  min-height: 132px;
+  gap: 14px;
+  min-height: 116px;
   margin-bottom: 20px;
   border: 1px solid rgba(242,239,231,0.11);
   border-radius: 28px;
@@ -257,21 +257,18 @@ button {
 .masthead-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 18px;
+  gap: 15px;
   min-width: 0;
-  text-align: center;
-  padding: 0 12px;
 }
 
 .prophet-mark {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 84px;
+  height: 84px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 32px;
+  border-radius: 28px;
   border: 1px solid rgba(122,215,223,0.22);
   background:
     radial-gradient(circle at 38% 30%, rgba(255,255,255,0.16), transparent 34%),
@@ -312,8 +309,8 @@ button {
 .prophet-mark svg {
   position: relative;
   z-index: 1;
-  width: 82px;
-  height: 82px;
+  width: 72px;
+  height: 72px;
   overflow: visible;
 }
 
@@ -371,11 +368,11 @@ button {
 
 .brand-kicker {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   color: var(--cyan);
-  font-size: 0.72rem;
-  font-weight: 860;
-  letter-spacing: 0.24em;
+  font-size: 0.68rem;
+  font-weight: 820;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
@@ -395,15 +392,14 @@ button {
 .wordmark {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(2.6rem, 4.45vw, 5.45rem);
-  line-height: 0.78;
-  font-weight: 920;
-  letter-spacing: -0.095em;
+  font-size: clamp(1.85rem, 2.8vw, 3.15rem);
+  line-height: 0.84;
+  font-weight: 880;
+  letter-spacing: -0.075em;
   display: flex;
   align-items: baseline;
-  justify-content: center;
   flex-wrap: wrap;
-  gap: 0.14em;
+  gap: 0.18em;
   text-transform: uppercase;
 }
 
@@ -421,11 +417,11 @@ button {
 }
 
 .masthead-brand p {
-  margin: 10px 0 0;
+  margin: 7px 0 0;
   color: var(--faint);
-  font-size: 0.8rem;
-  font-weight: 860;
-  letter-spacing: 0.24em;
+  font-size: 0.74rem;
+  font-weight: 820;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
