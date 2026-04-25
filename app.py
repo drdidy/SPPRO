@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta
@@ -6339,6 +6340,27 @@ def format_price(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{round_price(value):,.2f}"
+
+
+def format_contract_short_label(
+    contract_symbol: str | None,
+    strike: Any = None,
+    option_type: str | None = None,
+) -> str:
+    """Convert an OCC/Tastytrade symbol into a trader-readable label like 7155P."""
+
+    symbol = str(contract_symbol or "").strip().upper()
+    match = re.search(r"([CP])(\d{8})$", symbol.replace(" ", ""))
+    parsed_side = match.group(1) if match else ""
+    parsed_strike = None
+    if match:
+        parsed_strike = _to_float_or_none(int(match.group(2)) / 1000.0)
+    strike_value = _to_float_or_none(strike) if strike not in {"", None} else parsed_strike
+    side = parsed_side or ("P" if str(option_type or "").upper().startswith("P") else "C" if str(option_type or "").upper().startswith("C") else "")
+    if strike_value is None:
+        return symbol or "-"
+    strike_text = f"{int(strike_value)}" if float(strike_value).is_integer() else f"{strike_value:.1f}".rstrip("0").rstrip(".")
+    return f"{strike_text}{side}" if side else strike_text
 
 
 def format_timestamp(value: Any) -> str:
@@ -17579,23 +17601,37 @@ def render_operator_play_card(
         _bc_fill = (preferred_contract_row or {}).get("projected_fill_at_entry") or best_contract_fill
         _bc_target_label = str((preferred_contract_row or {}).get("projection_target_label") or projection_target_label or "At Entry")
         _bc_fill_label = _bc_target_label.replace("Projected @", "Expected Fill @") if _bc_target_label.startswith("Projected @") else "Expected Fill"
-        _bc_header = "Best candidate · informational only" if decision == "NO TRADE" else "Best Contract"
+        _bc_header = "Best Candidate | Informational Only" if decision == "NO TRADE" else "Best Contract"
         _bc_border = "#ffd740" if decision == "NO TRADE" else "#00e676"
         _bc_budget = budget_execution_status or selected_budget_status or "-"
         _bc_budget_col = "#ef5350" if "over" in _bc_budget.lower() else ("#ffd740" if "tight" in _bc_budget.lower() else "#00e676")
+        _bc_option_type = str((preferred_contract_row or {}).get("option_type") or (display_contract_quote or {}).get("option_type") or play.get("direction", ""))
+        _bc_strike = _to_float_or_none((preferred_contract_row or {}).get("strike")) or displayed_strike
+        _bc_short_label = format_contract_short_label(best_contract_symbol_for_box, _bc_strike, _bc_option_type)
+        _bc_raw_symbol_line = (
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:rgba(142,184,212,0.70);margin-top:2px;">{escape(best_contract_symbol_for_box)}</div>'
+            if developer_mode and best_contract_symbol_for_box != _bc_short_label
+            else ""
+        )
         st.markdown(
-            f'<div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);'
-            f'border-left:3px solid {_bc_border};border-radius:8px;padding:12px 16px;margin:10px 0;">'
-            f'<div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:#8eb8d4;margin-bottom:6px;">{escape(_bc_header)}</div>'
-            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;color:#e0eeff;margin-bottom:8px;">{escape(best_contract_symbol_for_box)}</div>'
-            f'<div style="display:flex;gap:14px;flex-wrap:wrap;">'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">Mark</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_target_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">{escape(_bc_fill_label)}</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">RR</div><div style="font-size:0.9rem;font-weight:600;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
-            f'<div style="flex:1;min-width:70px;"><div style="font-size:0.68rem;color:#8eb8d4;margin-bottom:2px;">Budget</div><div style="font-size:0.9rem;font-weight:600;color:{_bc_budget_col};">{escape(_bc_budget)}</div></div>'
+            f'<div style="background:linear-gradient(135deg,rgba(0,212,255,0.075),rgba(9,16,34,0.94));'
+            f'border:1px solid rgba(106,230,255,0.18);border-left:4px solid {_bc_border};'
+            f'box-shadow:0 14px 34px rgba(0,0,0,0.24);border-radius:14px;padding:15px 18px;margin:12px 0;">'
+            f'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;">'
+            f'<div>'
+            f'<div style="font-size:0.74rem;text-transform:uppercase;letter-spacing:0.10em;color:#8eb8d4;font-weight:800;margin-bottom:4px;">{escape(_bc_header)}</div>'
+            f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:1.34rem;line-height:1.1;font-weight:900;color:#f4f7ff;letter-spacing:0.01em;">{escape(_bc_short_label)}</div>'
+            f'{_bc_raw_symbol_line}'
             f'</div>'
-            f'<div style="margin-top:8px;font-size:0.68rem;color:#5a7a94;">{escape(strike_profile)} · {escape(projection_reason or best_contract_basis or "-")} · {escape(preferred_contract_mode)}</div>'
+            f'<div style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.045);border:1px solid {_bc_budget_col}55;color:{_bc_budget_col};font-size:0.76rem;font-weight:850;white-space:nowrap;">{escape(_bc_budget)}</div>'
+            f'</div>'
+            f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;">'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">Current Mark</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(best_contract_mark) if best_contract_mark is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">{escape(_bc_target_label)}</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(_bc_pred) if _bc_pred is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">{escape(_bc_fill_label)}</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{format_price(_bc_fill) if _bc_fill is not None else "-"}</div></div>'
+            f'<div style="border-radius:10px;background:rgba(255,255,255,0.035);border:1px solid rgba(255,255,255,0.065);padding:9px 10px;"><div style="font-size:0.72rem;color:#8eb8d4;margin-bottom:3px;font-weight:700;">RR</div><div style="font-size:1.06rem;font-weight:850;color:#e0eeff;">{best_contract_rr if best_contract_rr is not None else "-"}</div></div>'
+            f'</div>'
+            f'<div style="margin-top:10px;font-size:0.76rem;color:#7f9db6;line-height:1.45;">{escape(strike_profile)} | {escape(projection_reason or best_contract_basis or "-")} | {escape(preferred_contract_mode)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )

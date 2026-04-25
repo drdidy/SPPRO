@@ -50,6 +50,7 @@ from app import (
     evaluate_play_outcome,
     estimate_option_price_at_time,
     estimate_contract_value_at_planned_entry,
+    format_contract_short_label,
     get_structure_assertion_warnings,
     resolve_effective_offset,
     resolve_hero_action_label,
@@ -999,6 +1000,10 @@ class AppUnitTests(unittest.TestCase):
         self.assertFalse(report["quote_execution_allowed"])
         self.assertIn("too_thin", report["quote_quality_flags"])
         self.assertIn("no_bid", report["quote_quality_flags"])
+
+    def test_contract_short_label_formats_tastytrade_symbols(self) -> None:
+        self.assertEqual(format_contract_short_label("SPXW 260427P07155000"), "7155P")
+        self.assertEqual(format_contract_short_label("", 7140, "CALL"), "7140C")
 
     def test_live_data_health_surfaces_quote_quality_and_feed_status(self) -> None:
         report = build_live_data_health_report(
