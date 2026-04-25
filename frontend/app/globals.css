@@ -1750,6 +1750,29 @@ button {
     align-items: flex-start;
     flex-direction: column;
   }
+  .masthead .masthead-brand {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+    width: 100%;
+  }
+  .masthead .prophet-mark {
+    width: 112px;
+    height: 112px;
+    border-radius: 36px;
+    margin-inline: auto;
+  }
+  .masthead .prophet-mark svg {
+    width: 96px;
+    height: 96px;
+  }
+  .masthead .brand-lockup {
+    width: 100%;
+  }
+  .masthead .wordmark {
+    justify-content: center;
+  }
   .masthead-actions {
     grid-template-columns: 1fr;
   }
