@@ -88,30 +88,43 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       </motion.aside>
 
       <section className="main">
-        <motion.header className="topbar cinematic-topbar" variants={panelVariants}>
-          <div className="brand-block">
-            <span className="brand-kicker">Execution Intelligence</span>
-            <h1>SPX PROPHET</h1>
-            <p>Structure Into Execution</p>
+        <motion.header className="topbar cinematic-topbar masthead" variants={panelVariants}>
+          <div className="masthead-sheen" aria-hidden="true" />
+          <div className="masthead-brand">
+            <div className="brand-orb">
+              <span>SP</span>
+            </div>
+            <div>
+              <span className="brand-kicker">Execution Intelligence</span>
+              <h1>SPX PROPHET</h1>
+              <p>Structure Into Execution</p>
+            </div>
           </div>
-          <div className="status-strip">
-            <span className="chip live">Preview Feed</span>
-            <div className="quote-tape" aria-live="polite">
+
+          <div className="market-pulse" aria-live="polite">
+            <div className="pulse-head">
+              <span className="live-dot-label">Preview Feed</span>
+              <strong>{decision.state}</strong>
+            </div>
+            <div className="pulse-values">
               <span>SPX <strong>7,194.75</strong></span>
               <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
               <span>VIX <strong>17.42</strong></span>
               <span>0DTE IV <strong>Elevated</strong></span>
               <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
-            <button className="chip action-chip" onClick={() => setCommandOpen(true)} type="button">Command /</button>
+          </div>
+
+          <div className="masthead-actions">
+            <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">Command /</button>
             <button
-              className="chip action-chip"
+              className="masthead-button"
               onClick={() => setVisualTheme((value) => (value === "daylight" ? "obsidian" : "daylight"))}
               type="button"
             >
               {visualTheme === "daylight" ? "Obsidian" : "Daylight"}
             </button>
-            <span className="chip">Order Not Sent</span>
+            <span className="order-state">Order Not Sent</span>
           </div>
         </motion.header>
 
