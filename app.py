@@ -17,11 +17,9 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 try:
     import streamlit as st
-    import streamlit.components.v1 as components
     STREAMLIT_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
     st = None
-    components = None
     STREAMLIT_IMPORT_ERROR = f"Streamlit import failed: {exc.__class__.__name__}: {exc}"
 
 try:
@@ -42,7 +40,6 @@ try:
         project_six_lines,
     )
     from core.scenarios import (
-        build_profit_management_plan,
         build_signal_package,
         evaluate_830_confirmation,
         evaluate_trading_scenario,
@@ -64,7 +61,6 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     project_anchor_line = None
     round_price = round
     project_six_lines = None
-    build_profit_management_plan = None
     build_signal_package = None
     evaluate_830_confirmation = None
     evaluate_trading_scenario = None
@@ -3262,37 +3258,6 @@ def safe_render_section(
         render_section_fallback(build_render_fallback_payload(section_title, exc, developer_mode=developer_mode))
         if developer_mode:
             st.exception(exc)
-
-
-def render_release_hygiene() -> None:
-    """Render version, method, assumptions, and daily workflow guidance."""
-
-    st.markdown(
-        f"""
-        <div class="spx-shell">
-            <div class="spx-section-title">Release</div>
-            <div class="spx-section-subtitle">{APP_TITLE} {APP_VERSION}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    with st.expander("About / Method", expanded=False):
-        st.write("SPX Prophet projects diagonal structure from prior-session anchors, evaluates scenario location, and combines that with confirmation, sit-out logic, journaling, and performance intelligence.")
-        st.write("Version 3 focuses on edge proof analytics and productization prep while preserving the current operator workflow.")
-    with st.expander("Assumptions", expanded=False):
-        st.write("- Fixed rate = 1.04")
-        st.write("- Nearby threshold = 5 points")
-        st.write("- Override candidates must be projected to the same timestamp before comparison")
-        st.write("- Expectancy uses stored journal P&L previews for wins and losses")
-    with st.expander("Daily Workflow", expanded=False):
-        st.write("1. Review Tab 1 for the NY structure, scenario, confirmation, and sit-out state.")
-        st.write("2. Review Tab 2 if the evening ES session matters for the day.")
-        st.write("3. Log the trade in Tab 3 using the handoff buttons or manual entry.")
-        st.write("4. Review analytics, snapshots, and setup quality in Tab 3.")
-    with st.expander("Maintenance Note", expanded=False):
-        st.write(f"Current storage mode: local JSON files.")
-        st.write("Future migration target: SQLite or another database-backed storage layer.")
-        st.write(f"Current release: {APP_TITLE} {APP_VERSION}.")
 
 
 def get_scenario_tone(scenario_name: str) -> str:
