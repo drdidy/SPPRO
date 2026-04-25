@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import type { OperatorSnapshot, StrikeRow } from "@/lib/types";
 import { formatPrice, toneFor } from "@/lib/format";
 
@@ -6,15 +9,57 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const decision = snapshot.decision;
   const context = snapshot.market_context;
   const structure = snapshot.structure;
+  const primaryRows = snapshot.strike_ladders.primary;
+  const [activeRail, setActiveRail] = useState("OP");
+  const [selectedStrike, setSelectedStrike] = useState(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primaryRows[0]?.strike ?? "");
+  const [projectionMode, setProjectionMode] = useState<"current" | "retest">("retest");
+  const [quoteAge, setQuoteAge] = useState(4);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [armed, setArmed] = useState(false);
+
+  const selectedRow = primaryRows.find((row) => row.strike === selectedStrike) ?? primaryRows[0];
+  const ticketMark = selectedRow?.mark ?? primary.current_mark;
+  const ticketAtEntry = selectedRow?.at_entry ?? primary.at_entry;
+  const ticketFill = selectedRow?.fill ?? primary.expected_fill;
+  const ticketRR = selectedRow?.rr ?? primary.rr;
+  const activeContract = selectedRow?.strike ?? primary.contract;
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setQuoteAge((value) => (value >= 9 ? 3 : value + 1));
+    }, 1400);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.key === "/" && !event.metaKey && !event.ctrlKey) || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k")) {
+        event.preventDefault();
+        setCommandOpen((value) => !value);
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <main className="terminal-shell">
       <aside className="rail" aria-label="Operator navigation">
         <div className="rail-logo">SP</div>
-        <div className="rail-item active">OP</div>
-        <div className="rail-item">ST</div>
-        <div className="rail-item">RK</div>
-        <div className="rail-item">LG</div>
+        {["OP", "ST", "RK", "LG"].map((item) => (
+          <button
+            aria-pressed={activeRail === item}
+            className={`rail-item ${activeRail === item ? "active" : ""}`}
+            key={item}
+            onClick={() => setActiveRail(item)}
+            type="button"
+          >
+            {item}
+          </button>
+        ))}
       </aside>
 
       <section className="main">
@@ -25,7 +70,14 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
           </div>
           <div className="status-strip">
             <span className="chip live">Preview Feed</span>
-            <span className="chip">Quote Age 04s</span>
+            <div className="quote-tape" aria-live="polite">
+              <span>SPX <strong>7,194.75</strong></span>
+              <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
+              <span>VIX <strong>17.42</strong></span>
+              <span>0DTE IV <strong>Elevated</strong></span>
+              <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
+            </div>
+            <button className="chip action-chip" onClick={() => setCommandOpen(true)} type="button">Command /</button>
             <span className="chip">Order Not Sent</span>
             <span className="chip">0DTE | PM Cash</span>
           </div>
@@ -33,12 +85,20 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
 
         <div className="workspace">
           <div className="left-stack">
-            <section className="panel authority">
+            <section className="panel authority panel-live">
               <div className="authority-grid">
                 <div>
                   <p className="kicker">Order Authority</p>
                   <h2 className="decision-word">{decision.state}</h2>
-                  <p className="decision-reason">{decision.reason}</p>
+                  <p className="decision-reason">
+                    {projectionMode === "retest"
+                      ? decision.reason
+                      : "Current price is still away from the validated execution line."}
+                  </p>
+                  <div className="mode-switch" aria-label="Projection mode">
+                    <button className={projectionMode === "current" ? "active" : ""} onClick={() => setProjectionMode("current")} type="button">Current</button>
+                    <button className={projectionMode === "retest" ? "active" : ""} onClick={() => setProjectionMode("retest")} type="button">If Retest</button>
+                  </div>
                   <div className="state-row">
                     <span className={`pill tone-${toneFor(decision.bias)}`}>{decision.bias}</span>
                     <span className="pill">{decision.scenario}</span>
@@ -48,8 +108,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 </div>
                 <div className="metric-grid">
                   <Metric label="Planned Entry" value={`${formatPrice(decision.planned_entry)} SPX`} />
-                  <Metric label="Selected Strike" value={decision.selected_strike} />
-                  <Metric label="Expected Fill" value={formatPrice(decision.expected_fill)} />
+                  <Metric label="Selected Strike" value={activeContract} tone="warning" />
+                  <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
                   <Metric label="Current ES" value={formatPrice(structure.current_es)} />
                   <Metric label="Anchor Source" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
                   <Metric label="Confidence" value={`${decision.confidence}%`} tone={toneFor(String(decision.confidence))} />
@@ -66,13 +126,16 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 <span className="pill">Asian Anchor Active</span>
               </div>
               <div className="structure-chart">
+                <div className="price-sweep" />
                 {structure.levels.map((level, index) => (
                   <div
                     className={`price-line ${level.label.includes("Entry") ? "active" : ""}`}
                     data-label={`${level.label} ${formatPrice(level.value)}`}
                     key={level.label}
                     style={{ top: `${18 + index * 22}%` }}
-                  />
+                  >
+                    <span className="line-node" />
+                  </div>
                 ))}
               </div>
             </section>
@@ -85,34 +148,39 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 </div>
                 <span className="pill">Primary</span>
               </div>
-              <StrikeRows rows={snapshot.strike_ladders.primary} />
+              <StrikeRows rows={primaryRows} selectedStrike={selectedStrike} onSelect={setSelectedStrike} />
             </section>
           </div>
 
           <aside className="right-stack">
-            <section className="panel execution-ticket">
+            <section className={`panel execution-ticket ${armed ? "armed-ticket" : ""}`}>
               <div className="contract">
                 <div>
                   <p className="kicker">Execution Ticket</p>
-                  <h2>{primary.contract}</h2>
-                  <p>{primary.direction} | {primary.status} | {primary.quality} estimate</p>
+                  <h2>{activeContract}</h2>
+                  <p>{primary.direction} | {armed ? "Retest Armed" : primary.status} | {primary.quality} estimate</p>
                 </div>
-                <span className={`pill tone-${toneFor(primary.status)}`}>{primary.status}</span>
+                <span className={`pill tone-${armed ? "warning" : toneFor(primary.status)}`}>{armed ? "Armed" : primary.status}</span>
               </div>
               <div className="kv-grid">
-                <KV label="Current Mark" value={formatPrice(primary.current_mark)} />
-                <KV label="At Entry" value={formatPrice(primary.at_entry)} />
-                <KV label="Expected Fill" value={formatPrice(primary.expected_fill)} />
+                <KV label="Current Mark" value={formatPrice(ticketMark)} />
+                <KV label="At Entry" value={formatPrice(ticketAtEntry)} />
+                <KV label="Expected Fill" value={formatPrice(ticketFill)} />
               </div>
+              <p className="ticket-copy">
+                If price returns to planned entry, {activeContract} is estimated near {formatPrice(ticketAtEntry)} with likely fill near {formatPrice(ticketFill)}.
+              </p>
               <div className="risk-block">
-                <Risk label="Max Loss If Filled" value="$771 est." tone="warning" />
-                <Risk label="Spread Width" value="0.22 est." />
+                <Risk label="Max Loss If Filled" value={ticketFill == null ? "Unavailable" : `$${Math.round(ticketFill * 100)} est.`} tone="warning" />
+                <Risk label="RR at Entry" value={ticketRR == null ? "-" : ticketRR.toFixed(2)} />
                 <Risk label="Liquidity" value="Normal" tone="positive" />
                 <Risk label="Settlement" value="PM Cash | European" />
               </div>
               <div className="button-row">
-                <div className="button primary">Review Required</div>
-                <div className="button">Order Not Sent</div>
+                <button className="button primary" onClick={() => setArmed((value) => !value)} type="button">
+                  {armed ? "Retest Armed" : "Arm Retest"}
+                </button>
+                <button className="button" onClick={() => setCommandOpen(true)} type="button">Open Commands</button>
               </div>
             </section>
 
@@ -127,10 +195,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <p className="panel-copy muted">{context.interpretation}</p>
               <div className="headlines">
                 {context.headlines.slice(0, 3).map((headline) => (
-                  <div className="headline" key={headline.title}>
+                  <a className="headline" href={headline.url ?? "#"} key={headline.title}>
                     <strong>{headline.title}</strong>
                     <span>{headline.source} | {headline.time}</span>
-                  </div>
+                  </a>
                 ))}
               </div>
             </section>
@@ -152,13 +220,26 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
           </aside>
         </div>
       </section>
+
+      {commandOpen ? (
+        <div className="command-backdrop" onClick={() => setCommandOpen(false)}>
+          <section className="command-panel" onClick={(event) => event.stopPropagation()}>
+            <p className="kicker">Command Center</p>
+            <h3>Operator actions</h3>
+            <button onClick={() => { setProjectionMode("retest"); setCommandOpen(false); }} type="button">Focus retest plan</button>
+            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Arm selected strike</button>
+            <button onClick={() => { setActiveRail("RK"); setCommandOpen(false); }} type="button">Open risk view</button>
+            <span>Press Esc to close | Ctrl+K / Cmd+K opens this panel</span>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
 
 function Metric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="metric">
+    <div className="metric interactive-card">
       <span>{label}</span>
       <strong className={`text-${tone}`}>{value}</strong>
     </div>
@@ -167,7 +248,7 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: stri
 
 function KV({ label, value }: { label: string; value: string }) {
   return (
-    <div className="kv">
+    <div className="kv interactive-card">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -183,7 +264,15 @@ function Risk({ label, value, tone = "neutral" }: { label: string; value: string
   );
 }
 
-function StrikeRows({ rows }: { rows: StrikeRow[] }) {
+function StrikeRows({
+  rows,
+  selectedStrike,
+  onSelect
+}: {
+  rows: StrikeRow[];
+  selectedStrike: string;
+  onSelect: (strike: string) => void;
+}) {
   return (
     <div className="ladder-table">
       <div className="ladder-row table-head">
@@ -196,15 +285,20 @@ function StrikeRows({ rows }: { rows: StrikeRow[] }) {
         <span>Tag</span>
       </div>
       {rows.map((row) => (
-        <div className={`ladder-row ${row.tag === "Selected" ? "selected" : ""}`} key={row.strike}>
+        <button
+          className={`ladder-row ${row.strike === selectedStrike ? "selected" : ""}`}
+          key={row.strike}
+          onClick={() => onSelect(row.strike)}
+          type="button"
+        >
           <strong>{row.strike}</strong>
           <span>{formatPrice(row.mark)}</span>
           <span>{formatPrice(row.at_entry)}</span>
           <span>{formatPrice(row.fill)}</span>
           <span>{row.rr == null ? "-" : row.rr.toFixed(2)}</span>
           <span className={`text-${toneFor(row.budget)}`}>{row.budget}</span>
-          <span>{row.tag}</span>
-        </div>
+          <span>{row.strike === selectedStrike ? "Selected" : row.tag}</span>
+        </button>
       ))}
     </div>
   );
