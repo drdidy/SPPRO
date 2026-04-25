@@ -21,6 +21,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const [quoteAge, setQuoteAge] = useState(4);
   const [commandOpen, setCommandOpen] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [visualTheme, setVisualTheme] = useState<"daylight" | "obsidian">("daylight");
   const [pointer, setPointer] = useState({ x: 50, y: 50 });
   const reduceMotion = useReducedMotion();
 
@@ -57,7 +58,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
 
   return (
     <motion.main
-      className="terminal-shell cinematic-shell"
+      className={`terminal-shell cinematic-shell theme-${visualTheme}`}
       initial={reduceMotion ? false : "hidden"}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
@@ -103,6 +104,13 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
             <button className="chip action-chip" onClick={() => setCommandOpen(true)} type="button">Command /</button>
+            <button
+              className="chip action-chip"
+              onClick={() => setVisualTheme((value) => (value === "daylight" ? "obsidian" : "daylight"))}
+              type="button"
+            >
+              {visualTheme === "daylight" ? "Obsidian" : "Daylight"}
+            </button>
             <span className="chip">Order Not Sent</span>
           </div>
         </motion.header>
@@ -312,6 +320,7 @@ function SignalTheater({
   const chartLeft = 72;
   const chartRight = 444;
   const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
+  const drawableLevels = pricedLevels.filter((level) => plannedEntry == null || Math.abs(level.value - plannedEntry) > 0.25);
   const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
   const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
   const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
@@ -367,7 +376,7 @@ function SignalTheater({
         <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
         <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
         <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>Planned retest / entry</text>
-        {pricedLevels.map((level) => {
+        {drawableLevels.map((level) => {
           const y = yFor(level.value);
           return (
             <g key={level.label}>
@@ -380,6 +389,7 @@ function SignalTheater({
         <path className="retest-route" d={routeD} markerEnd="url(#routeArrow)" />
         <line className="current-price-line" x1={chartLeft} x2={chartRight} y1={currentY} y2={currentY} />
         <circle className="current-price-glow" cx={chartRight - 42} cy={currentY} r="42" fill="url(#currentGlow)" />
+        <circle className="current-price-ring" cx={chartRight - 42} cy={currentY} r="13" />
         <circle className="current-price-node" cx={chartRight - 42} cy={currentY} r="6" />
         <text className="current-price-label" x={chartRight - 36} y={currentY - 12}>Current ES</text>
       </svg>

@@ -46,6 +46,35 @@ button {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   min-height: 100vh;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(122, 215, 223, 0.11), transparent 34rem),
+    radial-gradient(circle at 82% 18%, rgba(214, 164, 72, 0.08), transparent 30rem),
+    linear-gradient(135deg, #030406 0%, #080b0e 48%, #020304 100%);
+  transition: background 260ms var(--ease-enter), color 260ms var(--ease-enter);
+}
+
+.theme-daylight {
+  --bg: #f3efe6;
+  --panel: rgba(255, 252, 244, 0.82);
+  --panel-2: rgba(255, 252, 244, 0.9);
+  --panel-3: rgba(246, 239, 226, 0.95);
+  --panel-hot: rgba(255, 244, 221, 0.92);
+  --line: rgba(18, 30, 38, 0.12);
+  --line-strong: rgba(21, 118, 153, 0.34);
+  --text: #101820;
+  --muted: rgba(16, 24, 32, 0.66);
+  --faint: rgba(16, 24, 32, 0.42);
+  --cyan: #16799b;
+  --blue: #51616c;
+  --green: #18865a;
+  --amber: #a66c16;
+  --red: #b9443e;
+  --shadow: 0 22px 70px rgba(59, 50, 36, 0.18);
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(22,121,155,0.13), transparent 32rem),
+    radial-gradient(circle at 84% 16%, rgba(166,108,22,0.13), transparent 28rem),
+    linear-gradient(135deg, #f8f4ea 0%, #ede5d6 48%, #f5efe3 100%);
 }
 
 .terminal-shell::before {
@@ -59,6 +88,34 @@ button {
     linear-gradient(90deg, rgba(148, 170, 196, 0.05) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.theme-daylight.terminal-shell::before {
+  opacity: 0.28;
+  background-image:
+    linear-gradient(rgba(16, 24, 32, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 24, 32, 0.055) 1px, transparent 1px);
+}
+
+.theme-daylight .aurora-field {
+  background:
+    radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(22,121,155,0.12), transparent 19rem),
+    linear-gradient(115deg, transparent 0 24%, rgba(16,24,32,0.035) 24.2% 24.7%, transparent 25% 52%, rgba(166,108,22,0.05) 52.2% 52.7%, transparent 53%);
+  mix-blend-mode: multiply;
+  opacity: 0.68;
+}
+
+.theme-daylight .rail {
+  background: rgba(246, 239, 226, 0.78);
+  border-right-color: rgba(16, 24, 32, 0.1);
+}
+
+.theme-daylight .quote-tape::before {
+  background: linear-gradient(90deg, rgba(246,239,226,0.96), transparent);
+}
+
+.theme-daylight .quote-tape::after {
+  background: linear-gradient(270deg, rgba(246,239,226,0.96), transparent);
 }
 
 .aurora-field {
@@ -555,6 +612,20 @@ button {
     rgba(8,10,12,0.86);
 }
 
+.theme-daylight .signal-theater {
+  background:
+    radial-gradient(circle at 52% 52%, rgba(22,121,155,0.13), transparent 15rem),
+    linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.12)),
+    rgba(255,252,244,0.76);
+}
+
+.theme-daylight .signal-theater::before {
+  border-color: rgba(16,24,32,0.08);
+  background:
+    linear-gradient(rgba(16,24,32,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16,24,32,0.035) 1px, transparent 1px);
+}
+
 .signal-theater::before {
   content: "";
   position: absolute;
@@ -691,13 +762,22 @@ button {
 
 .current-price-glow {
   opacity: 0.42;
-  animation: core-pulse 3.4s ease-in-out infinite;
+  animation: current-glow-pulse 3.4s ease-in-out infinite;
+}
+
+.current-price-ring {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-width: 1.5;
+  opacity: 0.78;
+  filter: drop-shadow(0 0 12px rgba(122,215,223,0.58));
+  animation: current-ring-pulse 2.2s ease-in-out infinite;
 }
 
 .current-price-node {
   fill: var(--cyan);
   filter: drop-shadow(0 0 14px rgba(122,215,223,0.7));
-  animation: node-breathe 2.4s ease-in-out infinite;
+  animation: current-dot-pulse 2.2s ease-in-out infinite;
 }
 
 .cone-fill {
@@ -934,6 +1014,15 @@ button {
   box-shadow:
     0 0 0 1px rgba(214,164,72,0.08),
     0 28px 80px rgba(214,164,72,0.12),
+    var(--shadow);
+}
+
+.theme-daylight .armed-ticket {
+  background:
+    linear-gradient(180deg, rgba(255,244,221,0.92), rgba(255,252,244,0.88));
+  box-shadow:
+    0 0 0 1px rgba(166,108,22,0.08),
+    0 24px 72px rgba(166,108,22,0.12),
     var(--shadow);
 }
 
@@ -1244,6 +1333,21 @@ button {
 
 @keyframes current-line-pulse {
   0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+@keyframes current-glow-pulse {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.52; }
+}
+
+@keyframes current-ring-pulse {
+  0%, 100% { opacity: 0.26; stroke-width: 1.25; }
+  50% { opacity: 0.92; stroke-width: 2.4; }
+}
+
+@keyframes current-dot-pulse {
+  0%, 100% { opacity: 0.78; }
   50% { opacity: 1; }
 }
 
