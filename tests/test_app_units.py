@@ -15,6 +15,7 @@ from app import (
     build_ladder_display_dataframe,
     build_line_polarity_decision,
     build_render_fallback_payload,
+    build_top_level_tab_labels,
     build_entry_zone_model,
     build_execution_checklist,
     build_execution_state,
@@ -542,6 +543,10 @@ class AppUnitTests(unittest.TestCase):
     def test_blank_trade_result_remains_unreviewed(self) -> None:
         self.assertEqual(normalize_result_value(""), "Unreviewed")
         self.assertEqual(normalize_trade_record({"trade_date": "2026-04-22", "session": "NY Options", "scenario_name": "Scenario", "direction": "CALL", "entry_line_label": "asc_floor"})["result"], "Unreviewed")
+
+    def test_intelligence_tab_is_edge_lab_only(self) -> None:
+        self.assertEqual(build_top_level_tab_labels("Production Mode"), ["LIVE MODE", "HISTORICAL", "TRADE LOG"])
+        self.assertEqual(build_top_level_tab_labels("Edge Lab"), ["LIVE MODE", "HISTORICAL", "TRADE LOG", "INTELLIGENCE"])
 
     def test_trade_record_preserves_forward_pricing_and_anchor_metadata(self) -> None:
         record = normalize_trade_record(

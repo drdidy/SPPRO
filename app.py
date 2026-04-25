@@ -472,6 +472,15 @@ def resolve_presentation_state(decision: Any, bias_label: str) -> dict[str, str]
     }
 
 
+def build_top_level_tab_labels(visibility_mode: str) -> list[str]:
+    """Return the top-level product tabs for the selected visibility mode."""
+
+    labels = ["LIVE MODE", "HISTORICAL", "TRADE LOG"]
+    if str(visibility_mode or "") == "Edge Lab":
+        labels.append("INTELLIGENCE")
+    return labels
+
+
 def normalize_tags(tags: Any) -> list[str]:
     """Normalize tags into a stable list format."""
 
@@ -17657,9 +17666,10 @@ def main() -> None:
     except Exception:
         pass
 
-    top_live_tab, top_historical_tab, top_trade_log_tab, top_intelligence_tab = st.tabs([
-        "◉  LIVE MODE", "◷  HISTORICAL", "◈  TRADE LOG", "◍  INTELLIGENCE"
-    ])
+    top_tab_labels = build_top_level_tab_labels(inputs.get("visibility_mode", "Production Mode"))
+    top_tabs = st.tabs(top_tab_labels)
+    top_live_tab, top_historical_tab, top_trade_log_tab = top_tabs[:3]
+    top_intelligence_tab = top_tabs[3] if len(top_tabs) > 3 else None
 
     with top_live_tab:
         if inputs["operating_mode"] == "Live Mode":
@@ -17710,8 +17720,9 @@ def main() -> None:
     with top_trade_log_tab:
         render_trade_log_tab(signal_package, persisted_settings, settings_message=settings_message)
 
-    with top_intelligence_tab:
-        render_intelligence_tab(effective_offset=effective_offset, inputs=inputs)
+    if top_intelligence_tab is not None:
+        with top_intelligence_tab:
+            render_intelligence_tab(effective_offset=effective_offset, inputs=inputs)
 
 if __name__ == "__main__":
     main()
