@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from html import escape
 from pathlib import Path
@@ -35,6 +36,7 @@ try:
         LINE_DISPLAY_ORDER,
         apply_overnight_pivot_overrides,
         convert_projected_lines,
+        project_anchor_line,
         round_price,
         project_six_lines,
     )
@@ -44,7 +46,7 @@ try:
         evaluate_830_confirmation,
         evaluate_trading_scenario,
     )
-    from core.time_utils import at_central, build_session_windows, current_central_time, filter_time_range
+    from core.time_utils import at_central, build_session_windows, current_central_time, filter_time_range, to_central_time
     from core import intelligence as _intelligence
     CORE_IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - deployment environment issue
@@ -56,6 +58,7 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     LINE_DISPLAY_ORDER = []
     apply_overnight_pivot_overrides = None
     convert_projected_lines = None
+    project_anchor_line = None
     round_price = round
     project_six_lines = None
     build_profit_management_plan = None
@@ -67,6 +70,7 @@ except Exception as exc:  # pragma: no cover - deployment environment issue
     current_central_time = None
     filter_time_range = None
     _intelligence = None
+    to_central_time = None
     CORE_IMPORT_ERROR = f"Core import failed: {exc.__class__.__name__}: {exc}"
 
 try:
@@ -197,9 +201,35 @@ DEFAULT_SETTINGS = {
     "options_mode_enabled": DEFAULT_OPTIONS_PROVIDER != "none",
     "session_plan_lock_cutoff": "8:25 AM CT",
     "max_estimated_entry_cost": 500.0,
+    "anchor_source_override": "Auto",
 }
 
 MIN_EXECUTION_MARK = 0.20
+TOUCH_TOLERANCE_POINTS = 1.5
+MIN_TEST_TOUCHES = 2
+ANCHOR_REACTION_TOLERANCE_POINTS = 2.0
+ANCHOR_SOURCE_OPTIONS = ["Auto", "PM Window", "Asian", "London", "Pre-NY"]
+ANCHOR_SOURCE_LABELS = {
+    "PM_WINDOW": "PM Window",
+    "ASIAN": "Asian Session",
+    "LONDON": "London",
+    "PRE_NY": "Pre-NY",
+    "MANUAL": "Manual",
+}
+ANCHOR_SOURCE_SHORT_LABELS = {
+    "PM_WINDOW": "PM",
+    "ASIAN": "Asian",
+    "LONDON": "London",
+    "PRE_NY": "Pre-NY",
+    "MANUAL": "Manual",
+}
+ANCHOR_SESSION_WEIGHTS = {
+    "PM_WINDOW": 8.0,
+    "ASIAN": 10.0,
+    "LONDON": 9.0,
+    "PRE_NY": 7.0,
+    "MANUAL": 12.0,
+}
 FORWARD_PRICING_MAX_THETA_DAYS = 2.0
 FORWARD_PRICING_MAX_EVENT_IV_FACTOR = 0.35
 FORWARD_PRICING_MAX_LIQUIDITY_PENALTY = 0.35
@@ -488,6 +518,8 @@ def normalize_settings_record(raw_settings: dict[str, Any] | None) -> dict[str, 
         merged["options_provider"] = DEFAULT_SETTINGS["options_provider"]
     if merged.get("session_plan_lock_cutoff") not in ["8:15 AM CT", "8:20 AM CT", "8:25 AM CT", "8:29 AM CT"]:
         merged["session_plan_lock_cutoff"] = DEFAULT_SETTINGS["session_plan_lock_cutoff"]
+    if merged.get("anchor_source_override") not in ANCHOR_SOURCE_OPTIONS:
+        merged["anchor_source_override"] = DEFAULT_SETTINGS["anchor_source_override"]
     merged["options_mode_enabled"] = bool(merged.get("options_mode_enabled", DEFAULT_SETTINGS["options_mode_enabled"]))
     return merged
 
@@ -3858,6 +3890,287 @@ def classify_trigger_state(
     }
 
 
+def _normalize_price_candle(candle: dict[str, Any] | None, fallback_price: float | None = None) -> dict[str, Any] | None:
+    """Return a minimal OHLC candle for polarity checks."""
+
+    source = candle or {}
+    close_value = _to_float_or_none(source.get("close")) or _to_float_or_none(fallback_price)
+    high_value = _to_float_or_none(source.get("high")) or close_value
+    low_value = _to_float_or_none(source.get("low")) or close_value
+    open_value = _to_float_or_none(source.get("open")) or close_value
+    if close_value is None or high_value is None or low_value is None:
+        return None
+    return {
+        "timestamp": source.get("timestamp"),
+        "open": open_value,
+        "high": max(high_value, low_value, close_value),
+        "low": min(high_value, low_value, close_value),
+        "close": close_value,
+    }
+
+
+def _polarity_line_type(line_name: str, line_details: dict[str, Any] | None = None) -> str:
+    details = line_details or {}
+    raw_type = str(details.get("type") or details.get("line_type") or "").lower()
+    if "ascending" in raw_type:
+        return "ascending"
+    if "descending" in raw_type:
+        return "descending"
+    name = str(line_name or "").lower()
+    if "asc" in name or name == "hw":
+        return "ascending"
+    if "desc" in name or name == "lw":
+        return "descending"
+    return "polarity"
+
+
+def _polarity_line_source(
+    line_name: str,
+    line_details: dict[str, Any] | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
+) -> str:
+    details = line_details or {}
+    selection = (anchor_bundle or {}).get("anchor_selection") if isinstance(anchor_bundle, dict) else None
+    by_line = selection.get("by_line", {}) if isinstance(selection, dict) else {}
+    selected = by_line.get(line_name, {}) if isinstance(by_line, dict) else {}
+    source = selected.get("session_label") or selected.get("session_source") or details.get("session_label") or details.get("session_source")
+    if source:
+        return str(source)
+    name = str(line_name or "").lower()
+    if "floor" in name or name == "lw":
+        return "Asian Low"
+    if "ceiling" in name or name == "hw":
+        return "Asian High"
+    return "NY"
+
+
+def build_polarity_line_candidates(
+    projected_lines: dict[str, dict[str, Any]] | None,
+    *,
+    current_price: float | None,
+    anchor_bundle: dict[str, Any] | None = None,
+    nearest_count: int | None = None,
+) -> list[dict[str, Any]]:
+    """Build nearest projected polarity lines without changing projection math."""
+
+    price = _to_float_or_none(current_price)
+    rows: list[dict[str, Any]] = []
+    for name, details in (projected_lines or {}).items():
+        if not isinstance(details, dict):
+            continue
+        line_price = _to_float_or_none(details.get("projected_price"))
+        if line_price is None:
+            continue
+        rows.append(
+            {
+                "name": str(name),
+                "label": str(details.get("label") or name),
+                "type": _polarity_line_type(str(name), details),
+                "source": _polarity_line_source(str(name), details, anchor_bundle),
+                "projected_price": round_price(line_price),
+                "distance": round_price(abs(price - line_price)) if price is not None else None,
+            }
+        )
+    if price is not None:
+        rows.sort(key=lambda row: row["distance"] if row["distance"] is not None else float("inf"))
+    return rows[: max(1, int(nearest_count or POLARITY_NEAREST_LINE_COUNT))]
+
+
+def evaluate_line_polarity(
+    *,
+    line: dict[str, Any],
+    candle: dict[str, Any] | None,
+    desired_direction: str | None = None,
+    vwap_value: float | None = None,
+    pending_retest_store: dict[str, Any] | None = None,
+    touch_tolerance: float | None = None,
+    close_threshold: float | None = None,
+) -> dict[str, Any]:
+    """Evaluate whether a polarity line has actionable support/resistance confirmation."""
+
+    line_price = _to_float_or_none(line.get("projected_price"))
+    normalized_candle = _normalize_price_candle(candle)
+    line_key = f"{line.get('name', '')}|{format_price(line_price) if line_price is not None else 'na'}"
+    touch_tolerance_value = _to_float_or_none(touch_tolerance)
+    close_threshold_value = _to_float_or_none(close_threshold)
+    if touch_tolerance_value is None:
+        touch_tolerance_value = POLARITY_TOUCH_TOLERANCE_POINTS
+    if close_threshold_value is None:
+        close_threshold_value = POLARITY_CLOSE_CONFIRMATION_POINTS
+    if line_price is None or normalized_candle is None:
+        return {
+            "decision": "WATCH",
+            "score": 0,
+            "line_used": dict(line),
+            "polarity_state": "unavailable",
+            "actionable": False,
+            "distance_to_line": line.get("distance"),
+            "close_distance": None,
+            "vwap_alignment": "UNAVAILABLE",
+            "reason": "Line confirmation unavailable without candle data.",
+            "pending_retest": bool((pending_retest_store or {}).get(line_key)),
+            "confirmed_direction": "",
+        }
+
+    high_value = float(normalized_candle["high"])
+    low_value = float(normalized_candle["low"])
+    close_value = float(normalized_candle["close"])
+    touched = low_value <= line_price + touch_tolerance_value and high_value >= line_price - touch_tolerance_value
+    close_distance = round_price(abs(close_value - line_price))
+    close_above = close_value > line_price
+    close_below = close_value < line_price
+    pending = bool((pending_retest_store or {}).get(line_key))
+    desired = str(desired_direction or "").upper()
+
+    vwap = _to_float_or_none(vwap_value)
+    confirmed_direction = "CALL" if close_above else "PUT" if close_below else ""
+    if vwap is None or not confirmed_direction:
+        vwap_alignment = "UNAVAILABLE"
+    elif confirmed_direction == "CALL":
+        vwap_alignment = "CONFIRMED" if close_value > vwap else "DOWNGRADED"
+    else:
+        vwap_alignment = "CONFIRMED" if close_value < vwap else "DOWNGRADED"
+
+    state = "no_touch"
+    actionable = False
+    decision = "WATCH"
+    reason = "No touch of this polarity line."
+    score = 25
+
+    if touched and close_distance <= close_threshold_value and close_above:
+        state = "support_hold"
+        actionable = desired in {"", "CALL"} or pending
+        decision = "TRADE" if actionable else "WATCH"
+        reason = "Touch confirmed as support with a close near the line."
+        score = 72
+        if pending_retest_store is not None:
+            pending_retest_store.pop(line_key, None)
+    elif touched and close_distance <= close_threshold_value and close_below:
+        state = "resistance_rejection"
+        actionable = desired in {"", "PUT"} or pending
+        decision = "TRADE" if actionable else "WATCH"
+        reason = "Touch confirmed as resistance with a close near the line."
+        score = 72
+        if pending_retest_store is not None:
+            pending_retest_store.pop(line_key, None)
+    elif touched and close_distance > close_threshold_value:
+        state = "extended_rejection"
+        actionable = False
+        decision = "WAIT"
+        reason = "Extended rejection from the line. Wait for a retest close within 3 points."
+        score = 34
+        if pending_retest_store is not None:
+            pending_retest_store[line_key] = {
+                "line_name": line.get("name"),
+                "line_price": line_price,
+                "created_at": str(normalized_candle.get("timestamp") or current_central_time().isoformat()),
+                "state": "pending_retest",
+            }
+    elif pending:
+        state = "pending_retest"
+        actionable = False
+        decision = "WAIT"
+        reason = "Prior reaction was extended. Waiting for price to retest and close near the same line."
+        score = 30
+
+    if actionable and vwap_alignment == "CONFIRMED":
+        score += 12
+        reason = f"{reason} VWAP confirms direction."
+    elif actionable and vwap_alignment == "DOWNGRADED":
+        score -= 18
+        reason = f"{reason} VWAP is not aligned, so execution quality is downgraded."
+    if actionable and close_distance <= max(1.0, close_threshold_value / 2):
+        score += 6
+    if desired and confirmed_direction and desired != confirmed_direction and state in {"support_hold", "resistance_rejection"}:
+        actionable = False
+        decision = "WATCH"
+        score = min(score, 35)
+        reason = "Line polarity confirmed the opposite direction from this play."
+
+    return {
+        "decision": decision,
+        "score": int(max(0, min(100, score))),
+        "line_used": dict(line),
+        "polarity_state": state,
+        "actionable": bool(actionable),
+        "distance_to_line": line.get("distance"),
+        "close_distance": close_distance,
+        "vwap_alignment": vwap_alignment,
+        "reason": reason,
+        "pending_retest": bool(state == "pending_retest" or (pending_retest_store or {}).get(line_key)),
+        "confirmed_direction": confirmed_direction,
+    }
+
+
+def build_line_polarity_decision(
+    *,
+    projected_lines: dict[str, dict[str, Any]] | None,
+    current_price: float | None,
+    current_candle: dict[str, Any] | None,
+    desired_direction: str | None,
+    vwap_value: float | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
+    pending_retest_store: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return one deterministic polarity decision across the nearest projected lines."""
+
+    candidates = build_polarity_line_candidates(
+        projected_lines,
+        current_price=current_price,
+        anchor_bundle=anchor_bundle,
+    )
+    if not candidates:
+        return {
+            "decision": "WATCH",
+            "score": 0,
+            "line_used": {},
+            "polarity_state": "unavailable",
+            "actionable": False,
+            "distance_to_line": None,
+            "close_distance": None,
+            "vwap_alignment": "UNAVAILABLE",
+            "reason": "No projected polarity lines are available.",
+            "candidate_count": 0,
+            "pending_retest": False,
+            "enforced": False,
+        }
+
+    evaluations = [
+        evaluate_line_polarity(
+            line=line,
+            candle=current_candle,
+            desired_direction=desired_direction,
+            vwap_value=vwap_value,
+            pending_retest_store=pending_retest_store,
+        )
+        for line in candidates
+    ]
+    desired = str(desired_direction or "").upper()
+    actionable = [row for row in evaluations if row["actionable"] and (not desired or row.get("confirmed_direction") == desired)]
+    extended = [row for row in evaluations if row["polarity_state"] == "extended_rejection" and (not desired or row.get("confirmed_direction") == desired)]
+    pending = [row for row in evaluations if row["polarity_state"] == "pending_retest"]
+    touched = [row for row in evaluations if row["polarity_state"] in {"support_hold", "resistance_rejection", "extended_rejection"}]
+
+    if actionable:
+        chosen = max(actionable, key=lambda row: row["score"])
+    elif extended:
+        chosen = max(extended, key=lambda row: row["score"])
+    elif pending:
+        chosen = max(pending, key=lambda row: row["score"])
+    elif touched:
+        chosen = max(touched, key=lambda row: row["score"])
+    else:
+        chosen = min(evaluations, key=lambda row: row["distance_to_line"] if row["distance_to_line"] is not None else float("inf"))
+
+    return {
+        **chosen,
+        "candidate_count": len(candidates),
+        "candidate_lines": candidates,
+        "evaluations": evaluations,
+        "enforced": True,
+    }
+
+
 def resolve_budget_execution_status(
     *,
     selected_budget_status: str,
@@ -4041,6 +4354,11 @@ def build_execution_state(
     current_spx_price: float | None,
     structure_valid: bool,
     event_risk_context: dict[str, Any] | None = None,
+    projected_lines_spx: dict[str, dict[str, Any]] | None = None,
+    current_candle: dict[str, Any] | None = None,
+    vwap_value: float | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
+    polarity_state_key: str | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic execution overlay using existing scenario and pricing fields."""
 
@@ -4079,6 +4397,33 @@ def build_execution_state(
         stop_spx=authority_levels["authoritative_stop_spx"],
         move_completion_pct=_to_float_or_none(intelligence.get("move_completion_pct")),
     )
+    polarity_store = None
+    if projected_lines_spx:
+        store_root = st.session_state.setdefault("line_polarity_retest_store", {})
+        store_key = str(polarity_state_key or f"{original_scenario}|{direction}|{planned_entry_spx}")
+        polarity_store = store_root.setdefault(store_key, {})
+    line_polarity = build_line_polarity_decision(
+        projected_lines=projected_lines_spx,
+        current_price=current_spx_price,
+        current_candle=current_candle,
+        desired_direction=direction,
+        vwap_value=vwap_value,
+        anchor_bundle=anchor_bundle,
+        pending_retest_store=polarity_store,
+    ) if projected_lines_spx else {
+        "decision": "WATCH",
+        "score": 0,
+        "line_used": {},
+        "polarity_state": "unavailable",
+        "actionable": False,
+        "distance_to_line": None,
+        "close_distance": None,
+        "vwap_alignment": "UNAVAILABLE",
+        "reason": "Polarity confirmation not available.",
+        "candidate_count": 0,
+        "pending_retest": False,
+        "enforced": False,
+    }
     move_completion_bucket = classify_move_completion_bucket(_to_float_or_none(intelligence.get("move_completion_pct")))
     preferred_row = choose_contract_for_strike_profile(
         ladder_rows,
@@ -4119,6 +4464,19 @@ def build_execution_state(
         structure_valid,
         cheaper_valid_strike_exists=cheaper_valid_strike_exists,
     )
+    polarity_enforced = bool(line_polarity.get("enforced"))
+    polarity_actionable = bool(line_polarity.get("actionable"))
+    if polarity_enforced and not polarity_actionable and structure_valid and plan_validity["label"] not in {"invalid", "stale"}:
+        if line_polarity.get("polarity_state") in {"extended_rejection", "pending_retest"}:
+            action = {
+                "action": "WAIT FOR RETEST",
+                "reason": str(line_polarity.get("reason") or "Extended reaction requires retest confirmation."),
+            }
+        else:
+            action = {
+                "action": "WAIT",
+                "reason": str(line_polarity.get("reason") or "Waiting for polarity confirmation."),
+            }
     trigger = classify_trigger_state(
         direction=direction,
         entry_zone=entry_zone,
@@ -4128,6 +4486,35 @@ def build_execution_state(
         structure_valid=structure_valid,
         move_completion_pct=_to_float_or_none(intelligence.get("move_completion_pct")),
     )
+    if polarity_enforced:
+        if polarity_actionable:
+            trigger = {
+                **trigger,
+                "trigger_type": "IMMEDIATE" if trigger.get("trigger_type") == "NONE" else trigger.get("trigger_type", "IMMEDIATE"),
+                "trigger_state": "TRIGGERED",
+                "trigger_reason": str(line_polarity.get("reason") or "Polarity confirmed near the line."),
+                "trigger_has_been_touched": True,
+                "trigger_has_been_reclaimed_or_rejected": True,
+                "trigger_invalidated": False,
+                "trigger_invalidation_reason": "",
+            }
+        elif line_polarity.get("polarity_state") in {"extended_rejection", "pending_retest"}:
+            trigger = {
+                **trigger,
+                "trigger_type": "RETEST_AND_REJECT",
+                "trigger_state": "ARMED",
+                "trigger_reason": str(line_polarity.get("reason") or "Waiting for line retest confirmation."),
+                "trigger_has_been_touched": line_polarity.get("polarity_state") == "extended_rejection",
+                "trigger_has_been_reclaimed_or_rejected": False,
+            }
+        elif trigger.get("trigger_state") == "TRIGGERED":
+            trigger = {
+                **trigger,
+                "trigger_type": "NONE",
+                "trigger_state": "NOT_READY",
+                "trigger_reason": str(line_polarity.get("reason") or "Waiting for polarity confirmation."),
+                "trigger_has_been_reclaimed_or_rejected": False,
+            }
     selected_delta = _to_float_or_none((selected_contract_quote or {}).get("delta"))
     retest_projected_mark = project_if_return_to_entry(
         planned_entry_spx,
@@ -4284,6 +4671,17 @@ def build_execution_state(
         "trigger_expiry_reason": trigger["trigger_expiry_reason"],
         "trigger_distance_from_entry": trigger["trigger_distance_from_entry"],
         "trigger_progress_pct": trigger["trigger_progress_pct"],
+        "line_polarity_decision": line_polarity.get("decision"),
+        "line_polarity_score": line_polarity.get("score"),
+        "line_polarity_state": line_polarity.get("polarity_state"),
+        "line_polarity_actionable": bool(line_polarity.get("actionable")),
+        "line_polarity_reason": str(line_polarity.get("reason", "")),
+        "line_polarity_vwap_alignment": str(line_polarity.get("vwap_alignment", "")),
+        "line_polarity_distance_to_line": line_polarity.get("distance_to_line"),
+        "line_polarity_close_distance": line_polarity.get("close_distance"),
+        "line_polarity_line_used": line_polarity.get("line_used", {}),
+        "line_polarity_pending_retest": bool(line_polarity.get("pending_retest", False)),
+        "line_polarity_enforced": polarity_enforced,
         "entry_zone_low_spx": entry_zone["low"],
         "entry_zone_high_spx": entry_zone["high"],
         "entry_zone_mid_spx": entry_zone["mid"],
@@ -4506,6 +4904,9 @@ ENTRY_ZONE_MAX_WIDTH_SPX = 4.0
 ENTRY_ZONE_STOP_FACTOR = 0.18
 ENTRY_ZONE_NEAR_MULTIPLIER = 2.0
 ENTRY_ZONE_MISSED_MULTIPLIER = 2.5
+POLARITY_TOUCH_TOLERANCE_POINTS = 1.0
+POLARITY_CLOSE_CONFIRMATION_POINTS = 3.0
+POLARITY_NEAREST_LINE_COUNT = 4
 EXECUTION_READINESS_MAX_SCORE = 100
 
 
@@ -4835,6 +5236,7 @@ def render_key_levels_card(
     effective_offset: float,
     *,
     compact: bool = False,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> None:
     """Render a premium visual key-levels ladder."""
 
@@ -4946,6 +5348,14 @@ def render_key_levels_card(
             f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:rgba(244,247,255,0.5);">'
             f'Offset&nbsp;<strong>{format_price(effective_offset)}</strong></span>'
         )
+    anchor_badges = "".join(
+        [
+            f'<span style="font-size:0.67rem;padding:3px 10px;border-radius:20px;'
+            f'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);'
+            f'color:rgba(244,247,255,0.65);">{escape(label)}</span>'
+            for label in summarize_selected_anchor_sources(anchor_bundle)[:3]
+        ]
+    )
 
     st.markdown(
         f'<div style="background:rgba(3,7,18,0.96);border-radius:16px;'
@@ -4957,6 +5367,7 @@ def render_key_levels_card(
         f'text-transform:uppercase;letter-spacing:0.05em;">&#128208; Key Levels &mdash; ES Structure</span>'
         f'<div>{price_badge_html}</div>'
         f'</div>'
+        f'{f"<div style=\"display:flex;flex-wrap:wrap;gap:8px;padding:10px 18px 0 18px;\">{anchor_badges}</div>" if anchor_badges else ""}'
         f'{rows_html_inline}'
         f'</div>',
         unsafe_allow_html=True,
@@ -5493,6 +5904,670 @@ def build_manual_anchor_bundle(
     }
 
 
+def _anchor_candle_color(row: Any) -> str:
+    """Return a stable candle color label for anchor selection helpers."""
+
+    open_price = float(row["open"])
+    close_price = float(row["close"])
+    if close_price > open_price:
+        return "green"
+    if close_price < open_price:
+        return "red"
+    return "neutral"
+
+
+def _row_to_anchor_candle(row: Any) -> dict[str, Any]:
+    """Convert a dataframe row into consistent Central-Time candle metadata."""
+
+    return {
+        "timestamp": to_central_time(row["timestamp"]),
+        "open": float(row["open"]),
+        "high": float(row["high"]),
+        "low": float(row["low"]),
+        "close": float(row["close"]),
+        "color": _anchor_candle_color(row),
+    }
+
+
+def _normalize_anchor_candles(candles: pd.DataFrame) -> pd.DataFrame:
+    """Return a clean Central-Time-sorted candle frame for anchor scoring."""
+
+    normalized = candles.copy()
+    normalized["timestamp"] = pd.to_datetime(normalized["timestamp"]).map(to_central_time)
+    return normalized.sort_values("timestamp").reset_index(drop=True)
+
+
+def _anchor_window_specs(prior_session_date: date, next_trading_date: date) -> dict[str, dict[str, Any]]:
+    """Return the deterministic candidate windows used by the anchor engine."""
+
+    evening_date = next_trading_date - timedelta(days=1)
+    return {
+        "PM_WINDOW": {
+            "label": "PM Window",
+            "start": at_central(prior_session_date, 12, 0),
+            "end": at_central(prior_session_date, 15, 0),
+        },
+        "ASIAN": {
+            "label": "Asian Session",
+            "start": at_central(evening_date, 17, 0),
+            "end": at_central(next_trading_date, 0, 0),
+        },
+        "LONDON": {
+            "label": "London",
+            "start": at_central(next_trading_date, 0, 0),
+            "end": at_central(next_trading_date, 7, 0),
+        },
+        "PRE_NY": {
+            "label": "Pre-NY",
+            "start": at_central(next_trading_date, 7, 0),
+            "end": at_central(next_trading_date, 8, 25),
+        },
+    }
+
+
+def _anchor_override_to_source(override_label: str | None) -> str | None:
+    """Normalize the sidebar override label into an internal anchor source key."""
+
+    normalized = str(override_label or "Auto").strip().lower()
+    return {
+        "pm window": "PM_WINDOW",
+        "asian": "ASIAN",
+        "london": "LONDON",
+        "pre-ny": "PRE_NY",
+    }.get(normalized)
+
+
+def _build_anchor_context(previous_row: Any, pivot_row: Any, next_row: Any, pivot_type: str) -> dict[str, Any]:
+    """Resolve the three-candle pivot context used for candidate metadata."""
+
+    previous_candle = _row_to_anchor_candle(previous_row)
+    pivot_candle = _row_to_anchor_candle(pivot_row)
+    next_candle = _row_to_anchor_candle(next_row)
+    context_candles = [previous_candle, pivot_candle, next_candle]
+    green_candle = next((candle for candle in context_candles if candle["color"] == "green"), pivot_candle)
+    red_candle = next((candle for candle in context_candles if candle["color"] == "red"), pivot_candle)
+    pivot_extreme = (
+        max(context_candles, key=lambda candle: float(candle["high"]))
+        if pivot_type == "HIGH"
+        else min(context_candles, key=lambda candle: float(candle["low"]))
+    )
+    return {
+        "previous_candle": previous_candle,
+        "pivot_candle": pivot_candle,
+        "next_candle": next_candle,
+        "green_candle": green_candle,
+        "red_candle": red_candle,
+        "pivot_extreme": pivot_extreme,
+    }
+
+
+def _find_anchor_candidate_in_window(
+    window: pd.DataFrame,
+    *,
+    pivot_type: str,
+    session_source: str,
+    window_label: str,
+) -> dict[str, Any] | None:
+    """Extract the strongest candidate pivot inside one session window."""
+
+    if window is None or window.empty:
+        return None
+
+    candidate_rows: list[dict[str, Any]] = []
+    if len(window) >= 3:
+        for index in range(1, len(window) - 1):
+            prev_close = float(window.iloc[index - 1]["close"])
+            pivot_close = float(window.iloc[index]["close"])
+            next_close = float(window.iloc[index + 1]["close"])
+            is_match = (
+                pivot_close > prev_close and pivot_close > next_close
+                if pivot_type == "HIGH"
+                else pivot_close < prev_close and pivot_close < next_close
+            )
+            if not is_match:
+                continue
+            context = _build_anchor_context(
+                window.iloc[max(index - 1, 0)],
+                window.iloc[index],
+                window.iloc[min(index + 1, len(window) - 1)],
+                pivot_type,
+            )
+            candidate_rows.append(
+                {
+                    "pivot_index": index,
+                    "context": context,
+                    "pivot_time": context["pivot_candle"]["timestamp"],
+                    "true_extreme_price": float(
+                        context["pivot_extreme"]["high"] if pivot_type == "HIGH" else context["pivot_extreme"]["low"]
+                    ),
+                    "true_extreme_time": context["pivot_extreme"]["timestamp"],
+                    "confirmed": True,
+                }
+            )
+
+    if not candidate_rows:
+        fallback_index = (
+            int(window["close"].astype(float).idxmax())
+            if pivot_type == "HIGH"
+            else int(window["close"].astype(float).idxmin())
+        )
+        local_index = int(window.index.get_loc(fallback_index))
+        context = _build_anchor_context(
+            window.iloc[max(local_index - 1, 0)],
+            window.iloc[local_index],
+            window.iloc[min(local_index + 1, len(window) - 1)],
+            pivot_type,
+        )
+        candidate_rows.append(
+            {
+                "pivot_index": local_index,
+                "context": context,
+                "pivot_time": context["pivot_candle"]["timestamp"],
+                "true_extreme_price": float(
+                    context["pivot_extreme"]["high"] if pivot_type == "HIGH" else context["pivot_extreme"]["low"]
+                ),
+                "true_extreme_time": context["pivot_extreme"]["timestamp"],
+                "confirmed": False,
+                "fallback_reason": "no_strict_pivot_in_window",
+            }
+        )
+
+    selected = (
+        max(candidate_rows, key=lambda item: item["true_extreme_price"])
+        if pivot_type == "HIGH"
+        else min(candidate_rows, key=lambda item: item["true_extreme_price"])
+    )
+    context = selected["context"]
+    pivot_price = selected["true_extreme_price"]
+    touch_count = 0
+    for _, row in window.iterrows():
+        candle = _row_to_anchor_candle(row)
+        reference = float(candle["high"] if pivot_type == "HIGH" else candle["low"])
+        if abs(reference - pivot_price) <= TOUCH_TOLERANCE_POINTS:
+            touch_count += 1
+
+    return {
+        "pivot_price": round_price(pivot_price),
+        "pivot_time": selected["pivot_time"],
+        "pivot_type": pivot_type,
+        "session_source": session_source,
+        "session_label": window_label,
+        "candle_context": context,
+        "true_extreme_price": round_price(selected["true_extreme_price"]),
+        "true_extreme_time": selected["true_extreme_time"],
+        "touch_count_if_available": touch_count,
+        "confirmed": bool(selected.get("confirmed", True)),
+        "fallback_reason": str(selected.get("fallback_reason", "")),
+        "pivot_payload": {
+            "pivot_type": pivot_type.lower(),
+            "pivot_time": selected["pivot_time"],
+            "pivot_extreme": context["pivot_extreme"],
+            "green_candle": context["green_candle"],
+            "red_candle": context["red_candle"],
+            "previous_candle": context["previous_candle"],
+            "pivot_candle": context["pivot_candle"],
+            "next_candle": context["next_candle"],
+        },
+    }
+
+
+def _build_projection_anchor_from_candidate(candidate: dict[str, Any], line_name: str) -> dict[str, Any]:
+    """Build one compatible channel anchor from a selected candidate pivot."""
+
+    pivot_payload = candidate.get("pivot_payload", {})
+    context = candidate.get("candle_context", {})
+    pivot_extreme = dict(pivot_payload.get("pivot_extreme", context.get("pivot_extreme", {})) or {})
+    pivot_time = candidate.get("pivot_time")
+    if line_name == "asc_ceiling":
+        associated_context = pivot_payload.get("red_candle") or context.get("red_candle")
+        direction = "ascending"
+        label = "ASC Ceiling"
+    elif line_name == "desc_ceiling":
+        associated_context = pivot_payload.get("green_candle") or context.get("green_candle")
+        direction = "descending"
+        label = "DESC Ceiling"
+    elif line_name == "asc_floor":
+        associated_context = pivot_payload.get("red_candle") or context.get("red_candle")
+        direction = "ascending"
+        label = "ASC Floor"
+    else:
+        associated_context = pivot_payload.get("green_candle") or context.get("green_candle")
+        direction = "descending"
+        label = "DESC Floor"
+
+    return {
+        "price": float(candidate.get("pivot_price")),
+        "timestamp": pivot_extreme.get("timestamp", pivot_time),
+        "projection_start_time": pivot_time,
+        "source": pivot_extreme or {"timestamp": pivot_time},
+        "associated_context_candle": associated_context,
+        "pivot_extreme": pivot_extreme,
+        "anchor_basis": "pivot_candidate_selection",
+        "direction": direction,
+        "label": label,
+        "line_type": "channel",
+        "session_source": candidate.get("session_source"),
+        "selection_reason": candidate.get("selection_reason", ""),
+    }
+
+
+def _count_line_reactions(
+    frame: pd.DataFrame,
+    *,
+    projected_price: float,
+    pivot_type: str,
+    tolerance: float,
+) -> tuple[int, bool]:
+    """Count nearby reaction candles and whether the line appears respected."""
+
+    touches = 0
+    respected = False
+    for _, row in frame.iterrows():
+        candle = _row_to_anchor_candle(row)
+        low = float(candle["low"])
+        high = float(candle["high"])
+        close = float(candle["close"])
+        if low - tolerance <= projected_price <= high + tolerance:
+            touches += 1
+            if pivot_type == "HIGH" and close <= projected_price + tolerance:
+                respected = True
+            if pivot_type == "LOW" and close >= projected_price - tolerance:
+                respected = True
+    return touches, respected
+
+
+def _safe_project_anchor_level(line_name: str, anchor: dict[str, Any], target_time) -> float:
+    """Project one anchor level while handling sub-hour targets near the anchor start."""
+
+    start_time = to_central_time(anchor.get("projection_start_time", anchor.get("timestamp")))
+    target_ct = to_central_time(target_time)
+    if target_ct < start_time + timedelta(hours=1):
+        return round_price(float(anchor["price"]))
+    return round_price(float(project_anchor_line(line_name, anchor, target_ct)["projected_price"]))
+
+
+def score_anchor_candidate(candidate: dict[str, Any], current_context: dict[str, Any]) -> float:
+    """Score one anchor candidate using deterministic structural relevance rules."""
+
+    session_weight = ANCHOR_SESSION_WEIGHTS.get(str(candidate.get("session_source", "")), 8.0)
+    extremeness_score = float(candidate.get("extremeness_score", 0.0))
+    projection_distance = float(candidate.get("projection_distance", 99.0) or 99.0)
+    projection_proximity_score = max(0.0, 42.0 - min(projection_distance, 12.0) * 4.0)
+    reaction_touches = int(candidate.get("reaction_touch_count", 0) or 0)
+    reaction_evidence_score = min(20.0, reaction_touches * 5.0)
+    if candidate.get("line_respected"):
+        reaction_evidence_score += 8.0
+    time_relevance_score = float(candidate.get("time_relevance_score", 0.0))
+    total = session_weight + extremeness_score + projection_proximity_score + reaction_evidence_score + time_relevance_score
+    return round(total, 2)
+
+
+def _confidence_from_anchor_score(score: float, reaction_touches: int) -> str:
+    """Convert anchor score into a compact confidence label."""
+
+    if score >= 48.0 and reaction_touches >= 1:
+        return "HIGH"
+    if score >= 32.0:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _select_anchor_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    pivot_type: str,
+    forced_source: str | None = None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str, str]:
+    """Rank and choose the active anchor candidate for one pivot side."""
+
+    if not candidates:
+        return None, [], "", "LOW"
+
+    if pivot_type == "HIGH":
+        max_price = max(float(candidate["pivot_price"]) for candidate in candidates)
+        min_price = min(float(candidate["pivot_price"]) for candidate in candidates)
+    else:
+        max_price = max(float(candidate["pivot_price"]) for candidate in candidates)
+        min_price = min(float(candidate["pivot_price"]) for candidate in candidates)
+    price_range = max(max_price - min_price, 0.01)
+
+    for candidate in candidates:
+        pivot_price = float(candidate["pivot_price"])
+        if pivot_type == "HIGH":
+            candidate["extremeness_score"] = round(((pivot_price - min_price) / price_range) * 12.0, 2)
+        else:
+            candidate["extremeness_score"] = round(((max_price - pivot_price) / price_range) * 12.0, 2)
+        candidate["candidate_rank_score"] = score_anchor_candidate(candidate, {})
+
+    ranked = sorted(candidates, key=lambda item: float(item.get("candidate_rank_score", 0.0)), reverse=True)
+    selected = next((candidate for candidate in ranked if candidate.get("session_source") == forced_source), ranked[0]) if forced_source else ranked[0]
+    pm_candidate = next((candidate for candidate in ranked if candidate.get("session_source") == "PM_WINDOW"), None)
+
+    if forced_source:
+        reason = f"Manual anchor source override selected the {ANCHOR_SOURCE_LABELS.get(forced_source, forced_source)} pivot."
+    elif selected.get("session_source") != "PM_WINDOW" and pm_candidate and float(selected.get("candidate_rank_score", 0.0)) > float(pm_candidate.get("candidate_rank_score", 0.0)):
+        reason = (
+            f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
+            "projected line was respected before the PM-window pivot was reached."
+        )
+    elif selected.get("line_respected"):
+        reason = (
+            f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
+            "line is closest to the active NY reaction price."
+        )
+    else:
+        reason = (
+            f"{ANCHOR_SOURCE_LABELS.get(str(selected.get('session_source')), str(selected.get('session_source')))} pivot "
+            "ranked highest on projection proximity and session relevance."
+        )
+
+    selected["selection_reason"] = reason
+    selected["selected"] = True
+    confidence = _confidence_from_anchor_score(float(selected.get("candidate_rank_score", 0.0)), int(selected.get("reaction_touch_count", 0) or 0))
+    alternatives = [dict(candidate, selected=bool(candidate is selected)) for candidate in ranked if candidate is not selected]
+    return selected, alternatives, reason, confidence
+
+
+def _resolve_anchor_selection_for_play(anchor_bundle: dict[str, Any] | None, play_spx: dict[str, Any] | None) -> dict[str, Any]:
+    """Resolve the selected anchor metadata for the line used by one play."""
+
+    if not anchor_bundle or not play_spx:
+        return {}
+    line_label = str(((play_spx.get("entry") or {}).get("label")) or "").strip().lower()
+    selection = (anchor_bundle.get("anchor_selection") or {}).get("by_line", {})
+    selected = selection.get(line_label) or selection.get(line_label.replace(" ", "_")) or {}
+    alternatives = list(selected.get("alternative_candidates", [])) if isinstance(selected, dict) else []
+    return {
+        "selected_anchor_source": str(selected.get("session_source", "") or ""),
+        "selected_anchor_price": _to_float_or_none(selected.get("pivot_price")),
+        "selected_anchor_time": str(selected.get("pivot_time", "") or ""),
+        "selected_anchor_confidence": str(selected.get("anchor_confidence", "") or ""),
+        "alternative_anchor_sources": [str(candidate.get("session_source", "") or "") for candidate in alternatives],
+        "anchor_selection_reason": str(selected.get("selection_reason", "") or ""),
+        "anchor_override_used": bool((anchor_bundle.get("anchor_selection") or {}).get("override_used", False)),
+    }
+
+
+def build_anchor_candidate_table(anchor_bundle: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Build an Edge-Lab-friendly table of all anchor candidates."""
+
+    if not anchor_bundle:
+        return []
+    rows: list[dict[str, Any]] = []
+    for candidate in list((anchor_bundle.get("anchor_selection") or {}).get("candidate_table", [])):
+        rows.append(
+            {
+                "pivot_type": candidate.get("pivot_type"),
+                "session_source": ANCHOR_SOURCE_LABELS.get(str(candidate.get("session_source", "")), str(candidate.get("session_source", ""))),
+                "pivot_price": round_price(float(candidate.get("pivot_price", 0.0))),
+                "pivot_time": format_timestamp(candidate.get("pivot_time")),
+                "projected_8_30": round_price(float(candidate.get("projected_level_at_8_30", 0.0))),
+                "projected_9_00": round_price(float(candidate.get("projected_level_at_9_00", 0.0))),
+                "projected_current": round_price(float(candidate.get("projected_level_at_current", 0.0))),
+                "projection_line": candidate.get("line_projection_to_NY_open"),
+                "score": round(float(candidate.get("candidate_rank_score", 0.0)), 2),
+                "selected": bool(candidate.get("selected")),
+                "reason": candidate.get("selection_reason", ""),
+            }
+        )
+    return rows
+
+
+def summarize_selected_anchor_sources(anchor_bundle: dict[str, Any] | None) -> list[str]:
+    """Build compact production labels for the chosen anchor sources."""
+
+    if not anchor_bundle:
+        return []
+    selection = anchor_bundle.get("anchor_selection") or {}
+    by_line = selection.get("by_line") or {}
+    summaries: list[str] = []
+    for line_name, short_label in (("asc_floor", "Asc Floor"), ("desc_ceiling", "Desc Ceiling")):
+        candidate = by_line.get(line_name) or {}
+        if not candidate:
+            continue
+        source_label = ANCHOR_SOURCE_SHORT_LABELS.get(str(candidate.get("session_source", "")), str(candidate.get("session_source", "")))
+        time_label = format_timestamp(candidate.get("pivot_time"))
+        if time_label:
+            time_label = time_label.split(",")[-1].strip()
+        summaries.append(f"{short_label}: {source_label} {time_label}".strip())
+    confidence = str(selection.get("anchor_confidence", "") or "")
+    if confidence:
+        summaries.append(f"Anchor Confidence: {confidence.title()}")
+    if selection.get("alternative_anchor_note"):
+        summaries.append(str(selection["alternative_anchor_note"]))
+    return summaries
+
+
+def _build_session_aware_anchor_bundle(
+    *,
+    candles: pd.DataFrame,
+    prior_session_date: date,
+    next_trading_date: date,
+    current_es_price: float | None,
+    anchor_source_override: str = "Auto",
+) -> dict[str, Any]:
+    """Build a compatible anchor bundle using ranked PM/Asian/London/Pre-NY candidates."""
+
+    base_bundle = build_six_line_anchors(candles, prior_session_date)
+    normalized = _normalize_anchor_candles(candles)
+    session_windows = _anchor_window_specs(prior_session_date, next_trading_date)
+    current_time = current_central_time()
+    comparison_time = current_time if current_time.date() == next_trading_date else at_central(next_trading_date, 9, 0)
+    comparison_price = _to_float_or_none(current_es_price)
+    if comparison_price is None:
+        latest_row = normalized.iloc[-1] if not normalized.empty else None
+        comparison_price = float(latest_row["close"]) if latest_row is not None else None
+    reaction_window_end = min(comparison_time, at_central(next_trading_date, 9, 0))
+    reaction_window = filter_time_range(
+        normalized,
+        start_time=at_central(next_trading_date, 7, 0),
+        end_time=reaction_window_end,
+    )
+    ny_open = at_central(next_trading_date, 8, 30)
+    nine_am = at_central(next_trading_date, 9, 0)
+
+    candidate_table: list[dict[str, Any]] = []
+    high_candidates: list[dict[str, Any]] = []
+    low_candidates: list[dict[str, Any]] = []
+    for session_source, spec in session_windows.items():
+        window = filter_time_range(normalized, start_time=spec["start"], end_time=spec["end"])
+        for pivot_type in ("HIGH", "LOW"):
+            candidate = _find_anchor_candidate_in_window(
+                window,
+                pivot_type=pivot_type,
+                session_source=session_source,
+                window_label=spec["label"],
+            )
+            if candidate is None:
+                continue
+            line_names = ["asc_ceiling", "desc_ceiling"] if pivot_type == "HIGH" else ["asc_floor", "desc_floor"]
+            projection_details: list[dict[str, Any]] = []
+            for line_name in line_names:
+                anchor = _build_projection_anchor_from_candidate(candidate, line_name)
+                projected_830 = _safe_project_anchor_level(line_name, anchor, ny_open)
+                projected_900 = _safe_project_anchor_level(line_name, anchor, nine_am)
+                projected_current = _safe_project_anchor_level(line_name, anchor, comparison_time)
+                distance = abs(projected_current - comparison_price) if comparison_price is not None else abs(projected_900 - projected_830)
+                projection_details.append(
+                    {
+                        "line_name": line_name,
+                        "projected_level_at_8_30": round_price(projected_830),
+                        "projected_level_at_9_00": round_price(projected_900),
+                        "projected_level_at_current": round_price(projected_current),
+                        "projection_distance": round_price(distance),
+                    }
+                )
+            active_projection = min(projection_details, key=lambda item: item["projection_distance"])
+            reaction_touch_count, line_respected = _count_line_reactions(
+                reaction_window,
+                projected_price=float(active_projection["projected_level_at_current"]),
+                pivot_type=pivot_type,
+                tolerance=ANCHOR_REACTION_TOLERANCE_POINTS,
+            )
+            minutes_to_open = abs((ny_open - candidate["pivot_time"]).total_seconds()) / 60.0
+            candidate.update(
+                {
+                    "distance_to_current_price": round_price(float(active_projection["projection_distance"])),
+                    "line_projection_to_NY_open": active_projection["line_name"],
+                    "projected_level_at_8_30": float(active_projection["projected_level_at_8_30"]),
+                    "projected_level_at_9_00": float(active_projection["projected_level_at_9_00"]),
+                    "projected_level_at_current": float(active_projection["projected_level_at_current"]),
+                    "projection_distance": float(active_projection["projection_distance"]),
+                    "reaction_touch_count": reaction_touch_count,
+                    "line_respected": line_respected,
+                    "time_relevance_score": round(max(2.0, 12.0 - min(minutes_to_open / 180.0, 8.0)), 2),
+                }
+            )
+            candidate_table.append(candidate)
+            if pivot_type == "HIGH":
+                high_candidates.append(candidate)
+            else:
+                low_candidates.append(candidate)
+
+    forced_source = _anchor_override_to_source(anchor_source_override)
+    selected_high, alternative_highs, high_reason, high_confidence = _select_anchor_candidates(
+        high_candidates,
+        pivot_type="HIGH",
+        forced_source=forced_source,
+    )
+    selected_low, alternative_lows, low_reason, low_confidence = _select_anchor_candidates(
+        low_candidates,
+        pivot_type="LOW",
+        forced_source=forced_source,
+    )
+
+    if selected_high is None or selected_low is None:
+        base_bundle["anchor_selection"] = {
+            "candidate_table": candidate_table,
+            "anchor_locked": False,
+            "override_used": forced_source is not None,
+        }
+        return base_bundle
+
+    selected_high["selection_reason"] = high_reason
+    selected_high["anchor_confidence"] = high_confidence
+    selected_low["selection_reason"] = low_reason
+    selected_low["anchor_confidence"] = low_confidence
+    selected_high["alternative_candidates"] = alternative_highs
+    selected_low["alternative_candidates"] = alternative_lows
+    selected_high["selected"] = True
+    selected_low["selected"] = True
+    for candidate in candidate_table:
+        if candidate.get("pivot_type") == "HIGH" and candidate.get("session_source") == selected_high.get("session_source") and candidate.get("pivot_time") == selected_high.get("pivot_time"):
+            candidate["selected"] = True
+            candidate["selection_reason"] = high_reason
+        if candidate.get("pivot_type") == "LOW" and candidate.get("session_source") == selected_low.get("session_source") and candidate.get("pivot_time") == selected_low.get("pivot_time"):
+            candidate["selected"] = True
+            candidate["selection_reason"] = low_reason
+
+    updated_bundle = deepcopy(base_bundle)
+    updated_bundle["anchors"]["asc_ceiling"] = _build_projection_anchor_from_candidate(selected_high, "asc_ceiling")
+    updated_bundle["anchors"]["desc_ceiling"] = _build_projection_anchor_from_candidate(selected_high, "desc_ceiling")
+    updated_bundle["anchors"]["asc_floor"] = _build_projection_anchor_from_candidate(selected_low, "asc_floor")
+    updated_bundle["anchors"]["desc_floor"] = _build_projection_anchor_from_candidate(selected_low, "desc_floor")
+    updated_bundle["pivot_high"] = dict(selected_high.get("pivot_payload", {}))
+    updated_bundle["pivot_low"] = dict(selected_low.get("pivot_payload", {}))
+    updated_bundle["source_points"]["pivot_high"] = {
+        "timestamp": selected_high.get("true_extreme_time"),
+        "price": float(selected_high.get("true_extreme_price")),
+        "source": selected_high.get("candle_context", {}).get("pivot_extreme"),
+        "search_window": ANCHOR_SOURCE_LABELS.get(str(selected_high.get("session_source", "")), str(selected_high.get("session_source", ""))),
+    }
+    updated_bundle["source_points"]["pivot_low"] = {
+        "timestamp": selected_low.get("true_extreme_time"),
+        "price": float(selected_low.get("true_extreme_price")),
+        "source": selected_low.get("candle_context", {}).get("pivot_extreme"),
+        "search_window": ANCHOR_SOURCE_LABELS.get(str(selected_low.get("session_source", "")), str(selected_low.get("session_source", ""))),
+    }
+    updated_bundle["source"] = "session_aware_anchor_bundle"
+    updated_bundle["anchor_selection"] = {
+        "selected_high": selected_high,
+        "selected_low": selected_low,
+        "selected_anchor_source": str(selected_low.get("session_source") or selected_high.get("session_source") or ""),
+        "selected_anchor_confidence": high_confidence if high_confidence == low_confidence else high_confidence if high_confidence == "HIGH" or low_confidence == "LOW" else low_confidence,
+        "candidate_table": candidate_table,
+        "override_used": forced_source is not None,
+        "override_source": forced_source or "AUTO",
+        "selected_anchor_reason": high_reason if high_reason == low_reason else f"Ceiling: {high_reason} | Floor: {low_reason}",
+        "anchor_confidence": high_confidence if high_confidence == low_confidence else "MEDIUM",
+        "ceiling_touch_count": int(selected_high.get("touch_count_if_available", 0) or 0),
+        "floor_touch_count": int(selected_low.get("touch_count_if_available", 0) or 0),
+        "overnight_ceiling_touch_count": int(selected_high.get("touch_count_if_available", 0) or 0),
+        "overnight_floor_touch_count": int(selected_low.get("touch_count_if_available", 0) or 0),
+        "by_line": {
+            "asc_ceiling": selected_high,
+            "desc_ceiling": selected_high,
+            "asc_floor": selected_low,
+            "desc_floor": selected_low,
+        },
+        "selected_anchor_compact_labels": summarize_selected_anchor_sources(
+            {
+                "anchor_selection": {
+                    "by_line": {
+                        "asc_floor": selected_low,
+                        "desc_ceiling": selected_high,
+                    },
+                    "anchor_confidence": high_confidence if high_confidence == low_confidence else "MEDIUM",
+                }
+            }
+        ),
+    }
+    return updated_bundle
+
+
+def _anchor_selection_signature(anchor_bundle: dict[str, Any] | None) -> tuple[Any, ...]:
+    """Build a compact selection signature for lock-vs-live comparison."""
+
+    if not anchor_bundle:
+        return ()
+    by_line = (anchor_bundle.get("anchor_selection") or {}).get("by_line", {})
+    signature: list[tuple[Any, ...]] = []
+    for line_name in ("asc_ceiling", "desc_ceiling", "asc_floor", "desc_floor"):
+        candidate = by_line.get(line_name) or {}
+        signature.append(
+            (
+                line_name,
+                candidate.get("session_source"),
+                round_price(float(candidate.get("pivot_price", 0.0))) if candidate.get("pivot_price") is not None else None,
+                str(candidate.get("pivot_time", "") or ""),
+            )
+        )
+    return tuple(signature)
+
+
+def resolve_locked_anchor_bundle(
+    anchor_bundle: dict[str, Any],
+    *,
+    next_trading_date: date,
+    cutoff_label: str,
+) -> dict[str, Any]:
+    """Freeze selected anchors at the NY session lock without mutating line math."""
+
+    if st is None or not hasattr(st, "session_state"):
+        return anchor_bundle
+    lock_timestamp = build_session_plan_lock_timestamp(next_trading_date, cutoff_label)
+    now_ct = current_central_time()
+    lock_store = st.session_state.setdefault("anchor_selection_store", {})
+    store_key = next_trading_date.isoformat()
+    existing = lock_store.get(store_key)
+    current_bundle = deepcopy(anchor_bundle)
+    if isinstance(existing, dict):
+        locked_bundle = deepcopy(existing)
+        locked_selection = locked_bundle.setdefault("anchor_selection", {})
+        locked_selection["anchor_locked"] = True
+        locked_selection["anchor_lock_timestamp"] = str(locked_selection.get("anchor_lock_timestamp") or lock_timestamp.isoformat())
+        if _anchor_selection_signature(locked_bundle) != _anchor_selection_signature(current_bundle):
+            locked_selection["alternative_anchor_note"] = "Alternative anchor line being respected"
+            locked_selection["live_alternative_summary"] = summarize_selected_anchor_sources(current_bundle)
+        return locked_bundle
+    current_selection = current_bundle.setdefault("anchor_selection", {})
+    current_selection["anchor_locked"] = False
+    if now_ct >= lock_timestamp:
+        current_selection["anchor_locked"] = True
+        current_selection["anchor_lock_timestamp"] = now_ct.isoformat()
+        lock_store[store_key] = deepcopy(current_bundle)
+    return current_bundle
+
 def load_trades() -> tuple[list[dict[str, Any]], str | None]:
     """Load saved trades from local JSON storage."""
 
@@ -5640,6 +6715,13 @@ def normalize_trade_record(raw_trade: dict[str, Any]) -> dict[str, Any]:
         "estimated_fill_cost": round_price(float(raw_trade.get("estimated_fill_cost", 0.0))) if raw_trade.get("estimated_fill_cost", "") not in {"", None} else None,
         "budget_status": str(raw_trade.get("budget_status", "")),
         "ladder_anchor_strike": round_price(float(raw_trade.get("ladder_anchor_strike", 0.0))) if raw_trade.get("ladder_anchor_strike", "") not in {"", None} else None,
+        "selected_anchor_source": str(raw_trade.get("selected_anchor_source", "")),
+        "selected_anchor_price": round_price(float(raw_trade.get("selected_anchor_price", 0.0))) if raw_trade.get("selected_anchor_price", "") not in {"", None} else None,
+        "selected_anchor_time": str(raw_trade.get("selected_anchor_time", "")),
+        "selected_anchor_confidence": str(raw_trade.get("selected_anchor_confidence", "")),
+        "alternative_anchor_sources": list(raw_trade.get("alternative_anchor_sources", [])) if isinstance(raw_trade.get("alternative_anchor_sources", []), list) else [],
+        "anchor_selection_reason": str(raw_trade.get("anchor_selection_reason", "")),
+        "anchor_override_used": bool(raw_trade.get("anchor_override_used", False)),
         "best_contract_selected": bool(raw_trade.get("best_contract_selected", bool(raw_trade.get("selected_contract_symbol", "")))),
         "stop_value": round_price(float(raw_trade.get("stop_value", 0.0))),
         "suggested_stop_spx": round_price(float(raw_trade.get("suggested_stop_spx", 0.0))),
@@ -6131,6 +7213,7 @@ def build_live_play_trade_prefill(
     live_context: dict[str, Any] | None = None,
     recommended_contract_quote: dict[str, Any] | None = None,
     selection_context: dict[str, Any] | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
     override_flag: bool = False,
     override_reason: str = "",
 ) -> dict[str, Any]:
@@ -6158,6 +7241,7 @@ def build_live_play_trade_prefill(
     estimated_fill_cost = _to_float_or_none((lead_option_quote or {}).get("estimated_fill_cost"))
     budget_status = str((lead_option_quote or {}).get("budget_status", "") or "")
     ladder_anchor_strike = _to_float_or_none(selection_context.get("ladder_anchor_strike"))
+    anchor_metadata = _resolve_anchor_selection_for_play(anchor_bundle, play_spx)
     manual_strike_override = bool(
         selection_context.get("manual_override")
         or (
@@ -6198,6 +7282,13 @@ def build_live_play_trade_prefill(
         "estimated_fill_cost": round_price(estimated_fill_cost) if estimated_fill_cost is not None else None,
         "budget_status": budget_status,
         "ladder_anchor_strike": round_price(ladder_anchor_strike) if ladder_anchor_strike is not None else None,
+        "selected_anchor_source": anchor_metadata.get("selected_anchor_source", ""),
+        "selected_anchor_price": round_price(anchor_metadata["selected_anchor_price"]) if anchor_metadata.get("selected_anchor_price") is not None else None,
+        "selected_anchor_time": str(anchor_metadata.get("selected_anchor_time", "") or ""),
+        "selected_anchor_confidence": str(anchor_metadata.get("selected_anchor_confidence", "") or ""),
+        "alternative_anchor_sources": list(anchor_metadata.get("alternative_anchor_sources", [])),
+        "anchor_selection_reason": str(anchor_metadata.get("anchor_selection_reason", "") or ""),
+        "anchor_override_used": bool(anchor_metadata.get("anchor_override_used", False)),
         "option_mark_at_decision": current_mark,
         "current_mark": current_mark,
         "predicted_entry_price": predicted_entry,
@@ -7279,6 +8370,10 @@ def build_play_decision_authority(
     option_display_state: dict[str, Any] | None = None,
     current_spx_price: float | None = None,
     event_risk_context: dict[str, Any] | None = None,
+    projected_lines_spx: dict[str, dict[str, Any]] | None = None,
+    current_candle: dict[str, Any] | None = None,
+    vwap_value: float | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one authoritative operator decision without changing strategy logic."""
 
@@ -7392,6 +8487,11 @@ def build_play_decision_authority(
         current_spx_price=current_spx_price,
         structure_valid=structure_valid,
         event_risk_context=event_risk_context,
+        projected_lines_spx=projected_lines_spx,
+        current_candle=current_candle,
+        vwap_value=vwap_value,
+        anchor_bundle=anchor_bundle,
+        polarity_state_key=f"{play_role}|{(signal_package or {}).get('scenario', {}).get('scenario_name', '')}|{(play or {}).get('entry', {}).get('label', '')}",
     )
 
     expectancy_snapshot = get_history_expectancy_snapshot(
@@ -7422,6 +8522,10 @@ def build_play_decision_authority(
         decision = "STRONG BUY"
         condition_required = ""
 
+    if execution_state.get("line_polarity_enforced") and not execution_state.get("line_polarity_actionable"):
+        decision = "CONDITIONAL BUY"
+        condition_required = str(execution_state.get("line_polarity_reason") or "Wait for polarity confirmation")
+
     reasons = build_authority_reason_candidates(
         structure_valid=structure_valid,
         stop_valid=stop_valid,
@@ -7445,6 +8549,8 @@ def build_play_decision_authority(
         reason_line = execution_state["execution_action_reason"]
     elif execution_state["execution_action"] == "WAIT FOR RETEST":
         reason_line = "Plan still valid. Premium expanded. Wait for retest."
+    elif execution_state.get("line_polarity_enforced") and not execution_state.get("line_polarity_actionable"):
+        reason_line = str(execution_state.get("line_polarity_reason") or "Waiting for polarity confirmation.")
     elif decision == "STRONG BUY":
         reason_line = execution_state["execution_action_reason"] or "Structure valid, entry still near planned zone, RR acceptable, no chase penalty"
     elif decision == "CONDITIONAL BUY":
@@ -7531,6 +8637,17 @@ def build_play_decision_authority(
         "trigger_expiry_reason": execution_state["trigger_expiry_reason"],
         "trigger_distance_from_entry": execution_state["trigger_distance_from_entry"],
         "trigger_progress_pct": execution_state["trigger_progress_pct"],
+        "line_polarity_decision": execution_state.get("line_polarity_decision"),
+        "line_polarity_score": execution_state.get("line_polarity_score"),
+        "line_polarity_state": execution_state.get("line_polarity_state"),
+        "line_polarity_actionable": execution_state.get("line_polarity_actionable"),
+        "line_polarity_reason": execution_state.get("line_polarity_reason"),
+        "line_polarity_vwap_alignment": execution_state.get("line_polarity_vwap_alignment"),
+        "line_polarity_distance_to_line": execution_state.get("line_polarity_distance_to_line"),
+        "line_polarity_close_distance": execution_state.get("line_polarity_close_distance"),
+        "line_polarity_line_used": execution_state.get("line_polarity_line_used"),
+        "line_polarity_pending_retest": execution_state.get("line_polarity_pending_retest"),
+        "line_polarity_enforced": execution_state.get("line_polarity_enforced"),
         "entry_zone_low_spx": execution_state["entry_zone_low_spx"],
         "entry_zone_high_spx": execution_state["entry_zone_high_spx"],
         "entry_zone_mid_spx": execution_state["entry_zone_mid_spx"],
@@ -10602,6 +11719,14 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
                 step=25.0,
                 format="%.2f",
             )
+            anchor_source_override = st.selectbox(
+                "Anchor source",
+                ANCHOR_SOURCE_OPTIONS,
+                index=safe_option_index(
+                    ANCHOR_SOURCE_OPTIONS,
+                    settings.get("anchor_source_override", DEFAULT_SETTINGS["anchor_source_override"]),
+                ),
+            )
             manual_event_levels = ["None", "Low", "Medium", "High", "Extreme"]
             manual_event_risk_level = st.selectbox(
                 "Manual event risk",
@@ -10699,6 +11824,7 @@ def get_inputs(settings: dict[str, Any]) -> dict[str, Any]:
         "manual_price_space": manual_price_space,
         "session_plan_lock_cutoff": session_plan_lock_cutoff,
         "max_estimated_entry_cost": max_estimated_entry_cost,
+        "anchor_source_override": anchor_source_override,
         "options_mode_enabled": options_mode_enabled,
         "options_provider": options_provider,
         "pivot_high_time": at_central(prior_session_date, pivot_high_hour, 0),
@@ -10730,22 +11856,51 @@ def resolve_anchor_bundle(
 
     es_candles = None
     if inputs["data_mode"] == "Manual input":
+        manual_bundle = build_manual_anchor_bundle(
+            prior_session_date=inputs["prior_session_date"],
+            pivot_high_time=inputs["pivot_high_time"],
+            pivot_green_high=inputs["pivot_green_high"],
+            pivot_red_high=inputs["pivot_red_high"],
+            pivot_low_time=inputs["pivot_low_time"],
+            pivot_red_low=inputs["pivot_red_low"],
+            pivot_green_low=inputs["pivot_green_low"],
+            hw_time=inputs["hw_time"],
+            hw_price=inputs["hw_price"],
+            lw_time=inputs["lw_time"],
+            lw_price=inputs["lw_price"],
+            price_space=inputs["manual_price_space"],
+            es_spx_offset=conversion_offset,
+        )
+        manual_selection = {
+            "session_source": "MANUAL",
+            "pivot_price": _to_float_or_none(manual_bundle.get("anchors", {}).get("asc_floor", {}).get("price")),
+            "pivot_time": manual_bundle.get("anchors", {}).get("asc_floor", {}).get("timestamp"),
+            "selection_reason": "Manual anchor inputs are active.",
+            "anchor_confidence": "HIGH",
+            "alternative_candidates": [],
+        }
+        manual_bundle["source"] = "manual_anchor_bundle"
+        manual_bundle["anchor_selection"] = {
+            "selected_anchor_source": "MANUAL",
+            "selected_anchor_reason": "Manual anchor inputs are active.",
+            "anchor_confidence": "HIGH",
+            "override_used": True,
+            "override_source": "MANUAL",
+            "anchor_locked": False,
+            "candidate_table": [],
+            "ceiling_touch_count": 0,
+            "floor_touch_count": 0,
+            "overnight_ceiling_touch_count": 0,
+            "overnight_floor_touch_count": 0,
+            "by_line": {
+                "asc_ceiling": dict(manual_selection, pivot_price=_to_float_or_none(manual_bundle.get("anchors", {}).get("asc_ceiling", {}).get("price")), pivot_time=manual_bundle.get("anchors", {}).get("asc_ceiling", {}).get("timestamp")),
+                "desc_ceiling": dict(manual_selection, pivot_price=_to_float_or_none(manual_bundle.get("anchors", {}).get("desc_ceiling", {}).get("price")), pivot_time=manual_bundle.get("anchors", {}).get("desc_ceiling", {}).get("timestamp")),
+                "asc_floor": dict(manual_selection),
+                "desc_floor": dict(manual_selection, pivot_price=_to_float_or_none(manual_bundle.get("anchors", {}).get("desc_floor", {}).get("price")), pivot_time=manual_bundle.get("anchors", {}).get("desc_floor", {}).get("timestamp")),
+            },
+        }
         return (
-            build_manual_anchor_bundle(
-                prior_session_date=inputs["prior_session_date"],
-                pivot_high_time=inputs["pivot_high_time"],
-                pivot_green_high=inputs["pivot_green_high"],
-                pivot_red_high=inputs["pivot_red_high"],
-                pivot_low_time=inputs["pivot_low_time"],
-                pivot_red_low=inputs["pivot_red_low"],
-                pivot_green_low=inputs["pivot_green_low"],
-                hw_time=inputs["hw_time"],
-                hw_price=inputs["hw_price"],
-                lw_time=inputs["lw_time"],
-                lw_price=inputs["lw_price"],
-                price_space=inputs["manual_price_space"],
-                es_spx_offset=conversion_offset,
-            ),
+            manual_bundle,
             es_candles,
             None,
             None,
@@ -10790,7 +11945,19 @@ def resolve_anchor_bundle(
         )
 
     try:
-        return build_six_line_anchors(es_candles, inputs["prior_session_date"]), es_candles, None, diagnostics
+        anchor_bundle = _build_session_aware_anchor_bundle(
+            candles=es_candles,
+            prior_session_date=inputs["prior_session_date"],
+            next_trading_date=inputs["next_trading_date"],
+            current_es_price=_to_float_or_none(inputs.get("current_es_price")),
+            anchor_source_override=str(inputs.get("anchor_source_override", "Auto")),
+        )
+        anchor_bundle = resolve_locked_anchor_bundle(
+            anchor_bundle,
+            next_trading_date=inputs["next_trading_date"],
+            cutoff_label=str(inputs.get("session_plan_lock_cutoff", DEFAULT_SETTINGS["session_plan_lock_cutoff"])),
+        )
+        return anchor_bundle, es_candles, None, diagnostics
     except Exception as exc:
         diagnostics = enrich_auto_fetch_diagnostics(
             base_diagnostics,
@@ -12126,6 +13293,13 @@ def render_debug_section(
 
     with st.expander("Pivot Anchors", expanded=False):
         st.json(pivot_anchor_debug, expanded=False)
+
+    with st.expander("Anchor Candidates", expanded=False):
+        candidate_rows = build_anchor_candidate_table(anchor_bundle)
+        if candidate_rows:
+            st.dataframe(candidate_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("No session-aware anchor candidates available.")
 
     with st.expander("Auto-Fetch Diagnostics", expanded=False):
         if fetch_diagnostics is None:
@@ -13783,7 +14957,10 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
     """Render the historical mode premium header with session metadata."""
 
     source_mode = "Auto-fetch" if inputs.get("data_mode") == "auto" else "Manual"
+    anchor_selection = anchor_bundle.get("anchor_selection") or {}
     anchor_source = anchor_bundle.get("source", "Session anchors")
+    compact_sources = " | ".join(summarize_selected_anchor_sources(anchor_bundle)[:2])
+    anchor_source_display = compact_sources or str(anchor_source)
     prior_str = inputs["prior_session_date"].strftime("%b %d, %Y")
     next_str = inputs["next_trading_date"].strftime("%b %d, %Y")
     target_str = format_timestamp(nine_am_target)
@@ -13792,7 +14969,7 @@ def render_historical_context_banner(inputs: dict[str, Any], nine_am_target, anc
         ("Prior Session", prior_str),
         ("Next Trading Day", next_str),
         ("Projection Target", target_str),
-        ("Anchor Source", f"{anchor_source} · {source_mode}"),
+        ("Anchor Source", f"{anchor_source_display} · {source_mode}"),
     ]
     stats_html = "".join([
         f'<div style="flex:1;min-width:120px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.05);">'
@@ -14341,6 +15518,7 @@ def render_operator_play_card(
     live_context: dict[str, Any] | None = None,
     selected_contract_quote: dict[str, Any] | None = None,
     option_display_state: dict[str, Any] | None = None,
+    anchor_bundle: dict[str, Any] | None = None,
 ) -> None:
     """Render a calmer operator-first play card for live mode."""
 
@@ -14657,6 +15835,7 @@ def render_operator_play_card(
                         "manual_override": manual_override_active,
                         "ladder_anchor_strike": _to_float_or_none((session_plan or {}).get("planned_strike")) or displayed_strike,
                     },
+                    anchor_bundle=anchor_bundle,
                 )
             )
             st.success("Trade Log prefilled from this play.")
@@ -14696,6 +15875,7 @@ def render_operator_play_card(
                                 "manual_override": manual_override_active,
                                 "ladder_anchor_strike": _to_float_or_none((session_plan or {}).get("planned_strike")) or displayed_strike,
                             },
+                            anchor_bundle=anchor_bundle,
                             override_flag=True,
                             override_reason=override_reason_input.strip(),
                         )
@@ -15067,6 +16247,10 @@ def render_live_mode_shell(
             option_display_state=primary_option_display,
             current_spx_price=live_current_spx,
             event_risk_context=event_risk_context,
+            projected_lines_spx=final_projected_lines,
+            current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
+            vwap_value=inputs.get("vwap"),
+            anchor_bundle=anchor_bundle,
         )
         alternate_authority = build_play_decision_authority(
             signal_package=display_signal_package,
@@ -15083,6 +16267,10 @@ def render_live_mode_shell(
             option_display_state=alternate_option_display,
             current_spx_price=live_current_spx,
             event_risk_context=event_risk_context,
+            projected_lines_spx=final_projected_lines,
+            current_candle=confirmation.get("candle") if isinstance(confirmation, dict) else None,
+            vwap_value=inputs.get("vwap"),
+            anchor_bundle=anchor_bundle,
         )
         hero_active_play, hero_authority = choose_hero_authority(primary_authority, alternate_authority)
         safe_render_section(
@@ -15138,6 +16326,7 @@ def render_live_mode_shell(
                         authority=primary_authority,
                         live_context=live_context,
                         selection_context=primary_option_display,
+                        anchor_bundle=anchor_bundle,
                     )
                 )
                 st.success("Trade Log prefilled from Live Mode.")
@@ -15235,17 +16424,17 @@ def render_live_mode_shell(
             with decision_col1:
                 safe_render_section(
                     "Primary Trade",
-                    lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display),
+                    lambda: render_operator_play_card("Primary Trade", display_signal_package["scenario"]["primary_play"], final_projected_lines, final_projected_lines_es, primary_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=final_status, status_breakdown=final_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=primary_planned_anchor_key, session_plan=primary_session_plan, calibration_preview=primary_calibration_preview, adaptive_overlay=primary_adaptive_overlay, authority=primary_authority, live_context=live_context, selected_contract_quote=primary_selected_contract_quote, option_display_state=primary_option_display, anchor_bundle=anchor_bundle),
                     developer_mode=developer_mode,
                 )
             with decision_col2:
                 safe_render_section(
                     "Alternate Trade",
-                    lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display),
+                    lambda: render_operator_play_card("Alternate Trade", display_signal_package["scenario"]["alternate_play"], final_projected_lines, final_projected_lines_es, alternate_display_contract_quote, compact=not developer_mode, effective_offset=effective_offset, offset_diagnostics=offset_diagnostics, developer_mode=developer_mode, final_status=alternate_status_breakdown["final_status"], status_breakdown=alternate_status_breakdown, current_spx_price=live_current_spx, planned_anchor_key=alternate_planned_anchor_key, session_plan=alternate_session_plan, calibration_preview=alternate_calibration_preview, adaptive_overlay=alternate_adaptive_overlay, authority=alternate_authority, live_context=live_context, selected_contract_quote=alternate_selected_contract_quote, option_display_state=alternate_option_display, anchor_bundle=anchor_bundle),
                     developer_mode=developer_mode,
                 )
 
-        safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode), developer_mode=developer_mode)
+        safe_render_section("Key Levels", lambda: render_key_levels_card(final_projected_lines_es, inputs["current_es_price"], effective_offset, compact=not developer_mode, anchor_bundle=anchor_bundle), developer_mode=developer_mode)
 
         if developer_mode:
             with st.expander("Structure Details", expanded=False):

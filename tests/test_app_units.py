@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import date
 import unittest
 import app as app_module
+import pandas as pd
 
 from app import (
     _non_negative_option_price,
     align_play_conversion_to_effective_offset,
     apply_event_risk_to_execution_guidance,
+    build_anchor_candidate_table,
     build_ladder_display_dataframe,
+    build_line_polarity_decision,
     build_render_fallback_payload,
     build_entry_zone_model,
     build_execution_checklist,
@@ -35,9 +38,11 @@ from app import (
     resolve_live_current_spx,
     resolve_play_display_values,
     resolve_recommended_contract_row,
+    resolve_locked_anchor_bundle,
     resolve_selected_contract_row,
     summarize_event_risk,
     validate_contract_binding,
+    evaluate_line_polarity,
 )
 
 
@@ -65,6 +70,65 @@ class AppUnitTests(unittest.TestCase):
         ]
         app_module.st.session_state.setdefault("contract_override_store", {})
         app_module.st.session_state["contract_override_store"].clear()
+        app_module.st.session_state.setdefault("anchor_selection_store", {})
+        app_module.st.session_state["anchor_selection_store"].clear()
+
+    def _build_anchor_candidate_frame(
+        self,
+        *,
+        pm_low: float = 7131.9,
+        asian_low: float = 7125.2,
+        london_low: float = 7127.4,
+    ) -> pd.DataFrame:
+        prior_session_date = date(2026, 4, 22)
+        next_trading_date = date(2026, 4, 23)
+        rows: list[dict[str, float | object]] = []
+
+        def add(ts, close: float) -> None:
+            rows.append(
+                {
+                    "timestamp": ts,
+                    "open": close - 0.25,
+                    "high": close + 0.5,
+                    "low": close - 0.5,
+                    "close": close,
+                }
+            )
+
+        for hour, close in [
+            (8, 7146.0),
+            (9, 7144.0),
+            (10, 7147.0),
+            (11, 7145.0),
+            (12, 7140.0),
+            (13, pm_low),
+            (14, 7150.0),
+            (15, 7142.0),
+            (16, 7144.0),
+            (17, 7130.0),
+            (18, asian_low),
+            (19, 7132.0),
+            (20, 7131.0),
+            (21, 7130.0),
+            (22, 7129.5),
+            (23, 7130.0),
+        ]:
+            add(app_module.at_central(prior_session_date, hour, 0), close)
+
+        for hour, close in [
+            (0, 7129.0),
+            (1, 7130.0),
+            (2, 7131.0),
+            (3, london_low),
+            (4, 7132.0),
+            (5, 7133.0),
+            (6, 7134.0),
+            (7, 7135.0),
+            (8, 7136.0),
+        ]:
+            add(app_module.at_central(next_trading_date, hour, 0), close)
+
+        return pd.DataFrame(rows)
 
     def test_build_line_rows_uses_es_unit_labels(self) -> None:
         rows = build_line_rows(
@@ -941,6 +1005,266 @@ class AppUnitTests(unittest.TestCase):
         self.assertIn("projected_mark_at_entry", display_state["selected_quote"])
         self.assertIn("premium_projection_confidence", display_state["selected_quote"])
         self.assertIn("projection_target_label", display_state["selected_quote"])
+
+    def test_line_polarity_support_hold_requires_close_near_line(self) -> None:
+        result = evaluate_line_polarity(
+            line={"name": "asc_floor", "projected_price": 7120.0, "distance": 1.0},
+            candle={"high": 7121.0, "low": 7119.25, "close": 7122.5},
+            desired_direction="CALL",
+            vwap_value=7118.0,
+            pending_retest_store={},
+        )
+
+        self.assertTrue(result["actionable"])
+        self.assertEqual(result["polarity_state"], "support_hold")
+        self.assertEqual(result["decision"], "TRADE")
+        self.assertEqual(result["vwap_alignment"], "CONFIRMED")
+
+    def test_line_polarity_extended_rejection_blocks_entry_and_marks_retest(self) -> None:
+        store: dict[str, object] = {}
+        result = evaluate_line_polarity(
+            line={"name": "desc_ceiling", "projected_price": 7120.0, "distance": 5.0},
+            candle={"high": 7120.5, "low": 7119.25, "close": 7115.75},
+            desired_direction="PUT",
+            pending_retest_store=store,
+        )
+
+        self.assertFalse(result["actionable"])
+        self.assertEqual(result["decision"], "WAIT")
+        self.assertEqual(result["polarity_state"], "extended_rejection")
+        self.assertTrue(result["pending_retest"])
+        self.assertTrue(store)
+
+    def test_line_polarity_retest_confirmation_allows_trade_after_extended_rejection(self) -> None:
+        store: dict[str, object] = {}
+        evaluate_line_polarity(
+            line={"name": "desc_ceiling", "projected_price": 7120.0, "distance": 5.0},
+            candle={"high": 7120.5, "low": 7119.25, "close": 7115.75},
+            desired_direction="PUT",
+            pending_retest_store=store,
+        )
+        retest = evaluate_line_polarity(
+            line={"name": "desc_ceiling", "projected_price": 7120.0, "distance": 1.0},
+            candle={"high": 7120.75, "low": 7119.25, "close": 7118.0},
+            desired_direction="PUT",
+            pending_retest_store=store,
+        )
+
+        self.assertTrue(retest["actionable"])
+        self.assertEqual(retest["polarity_state"], "resistance_rejection")
+        self.assertFalse(store)
+
+    def test_polarity_decision_uses_nearest_actionable_line(self) -> None:
+        decision = build_line_polarity_decision(
+            projected_lines={
+                "asc_floor": {"label": "ASC Floor", "projected_price": 7120.0, "line_type": "channel"},
+                "desc_ceiling": {"label": "DESC Ceiling", "projected_price": 7145.0, "line_type": "channel"},
+            },
+            current_price=7119.75,
+            current_candle={"high": 7120.5, "low": 7119.0, "close": 7118.25},
+            desired_direction="PUT",
+            pending_retest_store={},
+        )
+
+        self.assertEqual(decision["decision"], "TRADE")
+        self.assertEqual(decision["polarity_state"], "resistance_rejection")
+        self.assertEqual(decision["line_used"]["name"], "asc_floor")
+
+    def test_execution_state_blocks_entry_when_line_reaction_is_extended(self) -> None:
+        play = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}, "setup_tradable": True}
+        quote = {"contract_symbol": "SPXW 260422P07100000", "price": 4.8, "predicted_entry_price": 4.2, "budget_status": "Within Budget"}
+        state = build_execution_state(
+            play=play,
+            play_es={"entry": {"price": 7159.5}},
+            intelligence={"rr_ratio": 1.4, "planned_entry_mark": 4.2, "locked_entry_spx": 7120.0, "move_completion_pct": 10, "entry_zone_status": "IN ZONE", "prediction_confidence": "HIGH"},
+            live_context={"scenario_origin": "SCENARIO 3: INSIDE DESCENDING CHANNEL", "live_scenario": "SCENARIO 3: INSIDE DESCENDING CHANNEL"},
+            risk_class="LOW",
+            selected_contract_quote=quote,
+            option_display_state={"budget_cap": 500.0, "ladder_rows": [quote], "recommended_contract_symbol": quote["contract_symbol"]},
+            current_spx_price=7115.75,
+            structure_valid=True,
+            projected_lines_spx={"desc_floor": {"label": "DESC Floor", "projected_price": 7120.0, "line_type": "channel"}},
+            current_candle={"high": 7120.5, "low": 7119.25, "close": 7115.75},
+        )
+
+        self.assertEqual(state["line_polarity_state"], "extended_rejection")
+        self.assertFalse(state["line_polarity_actionable"])
+        self.assertEqual(state["execution_action"], "WAIT FOR RETEST")
+        self.assertEqual(state["setup_state"], "ARMED")
+
+    def test_pm_window_anchor_still_selected_when_most_relevant(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7152.2,
+            anchor_source_override="Auto",
+        )
+
+        selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
+        self.assertEqual(selected_floor["session_source"], "PM_WINDOW")
+
+    def test_asian_anchor_can_override_pm_when_structurally_closer(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="Auto",
+        )
+
+        selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
+        self.assertEqual(selected_floor["session_source"], "ASIAN")
+        self.assertIn("PM-window", selected_floor["selection_reason"])
+
+    def test_london_anchor_can_override_when_pre_ny_structure_respects_it(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7134.2,
+            anchor_source_override="Auto",
+        )
+
+        selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
+        self.assertEqual(selected_floor["session_source"], "LONDON")
+
+    def test_anchor_candidate_projection_to_ny_open_is_computed(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="Auto",
+        )
+
+        rows = build_anchor_candidate_table(bundle)
+        asian_low = next(
+            row for row in rows if row["session_source"] == "Asian Session" and row["pivot_type"] == "LOW"
+        )
+        self.assertAlmostEqual(asian_low["projected_9_00"], 7140.30, places=2)
+
+    def test_candidate_closest_to_reaction_price_gets_higher_score(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="Auto",
+        )
+
+        rows = build_anchor_candidate_table(bundle)
+        asian_score = next(row["score"] for row in rows if row["session_source"] == "Asian Session" and row["pivot_type"] == "LOW")
+        pm_score = next(row["score"] for row in rows if row["session_source"] == "PM Window" and row["pivot_type"] == "LOW")
+        self.assertGreater(asian_score, pm_score)
+
+    def test_selected_anchor_freezes_at_session_lock(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        original_now = app_module.current_central_time
+        try:
+            app_module.current_central_time = lambda: app_module.at_central(date(2026, 4, 23), 8, 30)
+            asian_bundle = app_module._build_session_aware_anchor_bundle(
+                candles=frame,
+                prior_session_date=date(2026, 4, 22),
+                next_trading_date=date(2026, 4, 23),
+                current_es_price=7141.4,
+                anchor_source_override="Auto",
+            )
+            locked_bundle = resolve_locked_anchor_bundle(
+                asian_bundle,
+                next_trading_date=date(2026, 4, 23),
+                cutoff_label="8:25 AM CT",
+            )
+            pm_bundle = app_module._build_session_aware_anchor_bundle(
+                candles=frame,
+                prior_session_date=date(2026, 4, 22),
+                next_trading_date=date(2026, 4, 23),
+                current_es_price=7152.2,
+                anchor_source_override="Auto",
+            )
+            frozen_bundle = resolve_locked_anchor_bundle(
+                pm_bundle,
+                next_trading_date=date(2026, 4, 23),
+                cutoff_label="8:25 AM CT",
+            )
+        finally:
+            app_module.current_central_time = original_now
+
+        self.assertEqual(locked_bundle["anchor_selection"]["by_line"]["asc_floor"]["session_source"], "ASIAN")
+        self.assertEqual(frozen_bundle["anchor_selection"]["by_line"]["asc_floor"]["session_source"], "ASIAN")
+        self.assertEqual(frozen_bundle["anchor_selection"]["alternative_anchor_note"], "Alternative anchor line being respected")
+
+    def test_manual_anchor_source_override_prevents_auto_selection(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="PM Window",
+        )
+
+        selected_floor = bundle["anchor_selection"]["by_line"]["asc_floor"]
+        self.assertEqual(selected_floor["session_source"], "PM_WINDOW")
+        self.assertTrue(bundle["anchor_selection"]["override_used"])
+
+    def test_edge_lab_anchor_candidate_table_includes_all_session_candidates(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="Auto",
+        )
+
+        rows = build_anchor_candidate_table(bundle)
+        session_sources = {row["session_source"] for row in rows}
+        self.assertTrue({"PM Window", "Asian Session", "London", "Pre-NY"}.issubset(session_sources))
+
+    def test_trade_prefill_stores_selected_anchor_metadata(self) -> None:
+        frame = self._build_anchor_candidate_frame()
+        bundle = app_module._build_session_aware_anchor_bundle(
+            candles=frame,
+            prior_session_date=date(2026, 4, 22),
+            next_trading_date=date(2026, 4, 23),
+            current_es_price=7141.4,
+            anchor_source_override="Auto",
+        )
+        signal_package = {"scenario": {"scenario_name": "SCENARIO 3: INSIDE DESCENDING CHANNEL", "confidence_level": "High"}}
+        play_spx = {"direction": "PUT", "strike": 7100, "contracts": 1, "entry": {"label": "desc_floor", "price": 7120.0}, "stop": {"price": 7158.0}}
+        prefill = build_live_play_trade_prefill(
+            signal_package=signal_package,
+            play_type="primary",
+            play_spx=play_spx,
+            play_es={"entry": {"price": 7159.5}},
+            lead_option_quote={
+                "contract_symbol": "SPXW 260422P07100000",
+                "strike": 7100,
+                "price": 4.8,
+                "predicted_entry_price": 4.2,
+                "budget_status": "Within Budget",
+            },
+            intelligence={
+                "planned_entry_mark": 4.2,
+                "live_predicted_entry_mark": 4.2,
+                "locked_entry_spx": 7120.0,
+                "lock_cutoff_label": "8:25 AM CT",
+                "session_plan_locked": True,
+                "locked_timestamp": "2026-04-23T08:25:00-05:00",
+            },
+            final_status="ELIGIBLE",
+            anchor_bundle=bundle,
+        )
+
+        self.assertEqual(prefill["selected_anchor_source"], "ASIAN")
+        self.assertIsNotNone(prefill["selected_anchor_price"])
+        self.assertTrue(prefill["anchor_selection_reason"])
 
 
 if __name__ == "__main__":
