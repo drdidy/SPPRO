@@ -43,6 +43,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     decision.state.toUpperCase().includes("WAIT") && decision.planned_entry != null
       ? `Wait for ${formatPrice(decision.planned_entry)} retest`
       : decision.reason;
+  const scenarioLabel = `${decision.bias} / ${decision.scenario}`;
+  const executionLine = `${primary.status} | ${primary.zone} | ${structure.anchor_source} anchor`;
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
 
   const stageLevels = useMemo(() => structure.levels.slice(0, 4), [structure.levels]);
@@ -136,13 +138,19 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             <div className="pulse-decision">
               <span>Trade State</span>
               <strong>{decision.state}</strong>
-              <p>{triggerLabel}</p>
+              <p>
+                <b>{triggerLabel}</b>
+                <small>{scenarioLabel}</small>
+              </p>
             </div>
             <div className="pulse-values">
-              <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
+              <span>Setup <strong>{executionLine}</strong></span>
+              <span>Strike <strong>{activeContract}</strong></span>
               <span>Entry <strong>{formatPrice(decision.planned_entry)}</strong></span>
-              <span>Distance <strong>{distanceLabel}</strong></span>
-              <span>Fill <strong>{formatPrice(ticketFill)}</strong></span>
+              <span>ES Distance <strong>{distanceLabel}</strong></span>
+              <span>Fill / Budget <strong>{formatPrice(ticketFill)} | {decision.budget}</strong></span>
+              <span>Confidence <strong>{decision.confidence}% | {decision.risk} Risk</strong></span>
+              <span>Context <strong>{context.risk_mode}</strong></span>
               <span>Quote Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
           </div>

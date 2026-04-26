@@ -537,6 +537,25 @@ button {
   align-self: center;
 }
 
+.pulse-decision p b,
+.pulse-decision p small {
+  display: block;
+}
+
+.pulse-decision p b {
+  color: var(--text);
+  font-weight: 780;
+}
+
+.pulse-decision p small {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .live-dot-label {
   display: inline-flex;
   align-items: center;
@@ -560,7 +579,7 @@ button {
 
 .pulse-values {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: 1.35fr 0.72fr 0.76fr 1fr 1.16fr 0.9fr 0.92fr 0.7fr;
   gap: 0;
   overflow: visible;
   mask-image: none;
