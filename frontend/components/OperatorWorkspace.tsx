@@ -491,6 +491,8 @@ function SignalTheater({
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
   const distanceTop = Math.max(15, Math.min(78, (((currentY + entryY) / 2) / 420) * 100));
   const entryTop = Math.max(16, Math.min(80, (entryY / 420) * 100));
+  const putGateTop = aboveLine ? Math.max(16, Math.min(80, (yFor(aboveLine.value) / 420) * 100)) : null;
+  const callGateTop = belowLine ? Math.max(16, Math.min(80, (yFor(belowLine.value) / 420) * 100)) : null;
   const contractSide = isPutSetup
     ? "Selected Put"
     : isCallSetup
@@ -610,7 +612,21 @@ function SignalTheater({
         <span>Distance to wait</span>
         <strong>{distanceLabel}</strong>
       </div>
-      <div className="entry-ticket-badge" style={{ top: `${entryTop}%` }}>
+      {putGateTop != null && aboveLine ? (
+        <div className="gate-ticket-badge put-ticket-badge" style={{ top: `${putGateTop}%` }}>
+          <span>Put Rejection Zone</span>
+          <strong>{formatPrice(aboveLine.value)}</strong>
+          {isPutSetup ? <small>{activeContract} selected</small> : <small>wait for close below</small>}
+        </div>
+      ) : null}
+      {callGateTop != null && belowLine ? (
+        <div className="gate-ticket-badge call-ticket-badge" style={{ top: `${callGateTop}%` }}>
+          <span>Call Hold Zone</span>
+          <strong>{formatPrice(belowLine.value)}</strong>
+          {isCallSetup ? <small>{activeContract} selected</small> : <small>wait for close above</small>}
+        </div>
+      ) : null}
+      <div className="entry-ticket-badge selected-ticket-badge" style={{ top: `${entryTop}%` }}>
         <span>{contractSide}</span>
         <strong>{activeContract}</strong>
         <small>Est. fill {formatPrice(expectedFill)}</small>

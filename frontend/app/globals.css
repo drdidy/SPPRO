@@ -1721,7 +1721,8 @@ button {
 .right { right: 24px; top: 86px; }
 
 .distance-badge,
-.entry-ticket-badge {
+.entry-ticket-badge,
+.gate-ticket-badge {
   position: absolute;
   z-index: 4;
   border: 1px solid rgba(242,239,231,0.08);
@@ -1747,8 +1748,25 @@ button {
   background: linear-gradient(145deg, rgba(216,170,87,0.14), rgba(3,4,6,0.6));
 }
 
+.gate-ticket-badge {
+  left: 24px;
+  transform: translateY(-50%);
+  min-width: 170px;
+}
+
+.put-ticket-badge {
+  border-color: rgba(216,170,87,0.24);
+  background: linear-gradient(145deg, rgba(216,170,87,0.12), rgba(3,4,6,0.58));
+}
+
+.call-ticket-badge {
+  border-color: rgba(122,215,223,0.24);
+  background: linear-gradient(145deg, rgba(122,215,223,0.1), rgba(3,4,6,0.58));
+}
+
 .distance-badge span,
-.entry-ticket-badge span {
+.entry-ticket-badge span,
+.gate-ticket-badge span {
   color: var(--faint);
   font-size: 0.62rem;
   font-weight: 840;
@@ -1757,7 +1775,8 @@ button {
 }
 
 .distance-badge strong,
-.entry-ticket-badge strong {
+.entry-ticket-badge strong,
+.gate-ticket-badge strong {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.88rem;
@@ -1765,7 +1784,8 @@ button {
   letter-spacing: -0.035em;
 }
 
-.entry-ticket-badge small {
+.entry-ticket-badge small,
+.gate-ticket-badge small {
   color: var(--amber);
   font-size: 0.74rem;
   font-weight: 760;
@@ -1773,9 +1793,14 @@ button {
   text-transform: uppercase;
 }
 
+.call-ticket-badge small {
+  color: var(--cyan);
+}
+
 .theme-daylight .stage-readout,
 .theme-daylight .distance-badge,
-.theme-daylight .entry-ticket-badge {
+.theme-daylight .entry-ticket-badge,
+.theme-daylight .gate-ticket-badge {
   background: rgba(255,252,244,0.72);
   border-color: rgba(16,24,32,0.08);
   box-shadow: 0 16px 38px rgba(70, 64, 47, 0.12);
@@ -1783,6 +1808,10 @@ button {
 
 .theme-daylight .entry-ticket-badge {
   background: linear-gradient(145deg, rgba(216,170,87,0.17), rgba(255,252,244,0.72));
+}
+
+.theme-daylight .call-ticket-badge {
+  background: linear-gradient(145deg, rgba(122,215,223,0.13), rgba(255,252,244,0.72));
 }
 
 .stage-levels {
@@ -2502,12 +2531,14 @@ button {
   }
   .distance-badge,
   .entry-ticket-badge,
+  .gate-ticket-badge,
   .stage-readout {
     position: static;
     transform: none;
   }
   .distance-badge,
-  .entry-ticket-badge {
+  .entry-ticket-badge,
+  .gate-ticket-badge {
     margin-inline: 18px;
     width: calc(100% - 36px);
   }
