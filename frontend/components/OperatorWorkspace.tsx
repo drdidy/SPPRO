@@ -51,6 +51,25 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     ? `${activeContract} waits for confirmation at the planned line.`
     : `${decision.state} | ${triggerLabel}`;
   const nextThemeLabel = visualTheme === "daylight" ? "Obsidian" : "Daylight";
+  const authorityTone = toneFor(decision.state);
+  const currentAuthorityText = "No fill authority at current price. Await structure return.";
+  const retestAuthorityText = decision.reason;
+  const authorityReason = projectionMode === "retest" ? retestAuthorityText : currentAuthorityText;
+  const triggerCondition =
+    decision.planned_entry == null
+      ? "Trigger line unavailable until planned entry loads."
+      : `Retest ${formatPrice(decision.planned_entry)} and confirm the Asian polarity line.`;
+  const constraintLabels = [
+    `Event ${decision.event_risk}`,
+    decision.budget,
+    `${decision.risk} Risk`
+  ];
+  const constraintSummary = constraintLabels.join(" | ");
+  const authoritySubtitle = armed
+    ? "Retest armed. Still wait for confirmation."
+    : decision.state.toUpperCase().includes("WAIT")
+      ? "Stand down until the retest confirms."
+      : "Execution authority follows confirmed structure.";
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
 
   const stageLevels = useMemo(() => structure.levels.slice(0, 4), [structure.levels]);
@@ -194,24 +213,58 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         </motion.header>
 
         <motion.section className="cinematic-hero" variants={panelVariants}>
-          <div className="hero-copy">
-            <p className="kicker">Order Authority</p>
-            <div className="decision-lockup">
-              <span className="decision-index">01</span>
-              <h2 className="decision-word">{decision.state}</h2>
+          <div className={`hero-copy authority-card tone-${authorityTone}`}>
+            <div className="authority-topline">
+              <p className="kicker">Order Authority</p>
+              <span className="decision-index">Gate 01</span>
             </div>
-            <p className="decision-reason">
-              {projectionMode === "retest"
-                ? decision.reason
-                : "Current price is still away from the validated execution line."}
-            </p>
-            <div className="mode-switch" aria-label="Projection mode">
-              <button className={projectionMode === "current" ? "active" : ""} onClick={() => setProjectionMode("current")} type="button">Current</button>
+            <div className="decision-lockup">
+              <h2 className="decision-word">{decision.state}</h2>
+              <span className="authority-subtitle">{authoritySubtitle}</span>
+            </div>
+            <p className="decision-reason">{authorityReason}</p>
+            <div className="authority-trigger">
+              <span>Trigger</span>
+              <strong>{triggerCondition}</strong>
+            </div>
+            <div className="authority-ticket-row" aria-label="Execution ticket facts">
+              <div>
+                <span>Entry</span>
+                <strong>{formatPrice(decision.planned_entry)}</strong>
+              </div>
+              <div>
+                <span>Contract</span>
+                <strong>{activeContract}</strong>
+              </div>
+              <div>
+                <span>Fill</span>
+                <strong>{formatPrice(ticketFill)}</strong>
+              </div>
+              <div>
+                <span>RR</span>
+                <strong>{ticketRR == null ? "-" : ticketRR.toFixed(2)}</strong>
+              </div>
+            </div>
+            <div className="authority-condition-grid" aria-label="Order authority conditions">
+              <div>
+                <span>Bias</span>
+                <strong>{decision.bias}</strong>
+              </div>
+              <div>
+                <span>Location</span>
+                <strong>{decision.scenario}</strong>
+              </div>
+              <div>
+                <span>Constraints</span>
+                <strong>{constraintSummary}</strong>
+              </div>
+            </div>
+            <div className="mode-switch authority-mode-switch" aria-label="Projection mode">
+              <button className={projectionMode === "current" ? "active" : ""} onClick={() => setProjectionMode("current")} type="button">Current Price</button>
               <button className={projectionMode === "retest" ? "active" : ""} onClick={() => setProjectionMode("retest")} type="button">If Retest</button>
             </div>
-            <div className="state-row">
+            <div className="state-row authority-state-row">
               <span className={`pill tone-${toneFor(decision.bias)}`}>{decision.bias}</span>
-              <span className="pill">{decision.scenario}</span>
               <span className={`pill tone-${toneFor(decision.event_risk)}`}>Event {decision.event_risk}</span>
               <span className={`pill tone-${toneFor(decision.budget)}`}>{decision.budget}</span>
             </div>
