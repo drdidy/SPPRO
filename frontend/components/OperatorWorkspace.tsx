@@ -399,29 +399,43 @@ function ExecutionTicket({
   primary: OperatorSnapshot["primary_play"];
   rr: number | null;
 }) {
+  const isPut = activeContract.toUpperCase().endsWith("P");
+  const isCall = activeContract.toUpperCase().endsWith("C");
+  const contractSide = isPut ? "Put" : isCall ? "Call" : primary.direction;
+  const ticketState = armed ? "Retest Armed" : primary.status;
+  const gateLabel = isPut ? "rejection line" : isCall ? "hold line" : "planned entry";
+  const fillCost = expectedFill == null ? "Unavailable" : `$${Math.round(expectedFill * 100)} est.`;
+
   return (
     <motion.section className={`panel execution-ticket hero-ticket ${armed ? "armed-ticket" : ""}`} variants={panelVariants}>
-      <div className="contract">
+      <div className="ticket-head">
         <div>
           <p className="kicker">Execution Ticket</p>
-          <h2>{activeContract}</h2>
-          <p>{primary.direction} | {armed ? "Retest Armed" : primary.status} | {primary.quality} estimate</p>
+          <div className="ticket-contract-line">
+            <h2>{activeContract}</h2>
+            <span>{contractSide}</span>
+          </div>
+          <p>Selected contract for the active polarity gate.</p>
         </div>
-        <span className={`pill tone-${armed ? "warning" : toneFor(primary.status)}`}>{armed ? "Armed" : primary.status}</span>
+        <div className="ticket-state">
+          <span>State</span>
+          <strong>{ticketState}</strong>
+          <small>{primary.quality} estimate</small>
+        </div>
       </div>
-      <div className="kv-grid">
+      <div className="kv-grid ticket-premium-grid">
         <KV label="Current Mark" value={formatPrice(currentMark)} />
-        <KV label="At Entry" value={formatPrice(atEntry)} />
+        <KV label="At Gate" value={formatPrice(atEntry)} />
         <KV label="Expected Fill" value={formatPrice(expectedFill)} />
       </div>
       <p className="ticket-copy">
-        If price returns to planned entry, {activeContract} is estimated near {formatPrice(atEntry)} with likely fill near {formatPrice(expectedFill)}.
+        If ES reaches the {gateLabel}, {activeContract} is estimated near {formatPrice(atEntry)} with a likely fill near {formatPrice(expectedFill)}.
       </p>
-      <div className="risk-block">
-        <Risk label="Max Loss If Filled" value={expectedFill == null ? "Unavailable" : `$${Math.round(expectedFill * 100)} est.`} tone="warning" />
+      <div className="ticket-risk-grid">
+        <Risk label="Cost If Filled" value={fillCost} tone="warning" />
         <Risk label="RR at Entry" value={rr == null ? "-" : rr.toFixed(2)} />
         <Risk label="Liquidity" value="Normal" tone="positive" />
-        <Risk label="Settlement" value="PM Cash | European" />
+        <Risk label="Settlement" value="PM Cash" />
       </div>
       <div className="button-row">
         <button className="button primary" onClick={onArm} type="button">
