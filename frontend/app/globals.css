@@ -1861,7 +1861,7 @@ button {
 
 .sequence-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 14px;
 }
@@ -1971,9 +1971,75 @@ button {
   flex-direction: column;
 }
 
+.play-stack {
+  gap: 12px;
+}
+
 .hero-ticket .risk-block,
 .hero-ticket .ticket-risk-grid {
   margin-top: auto;
+}
+
+.play-stack-head {
+  align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,0.065);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+}
+
+.play-stack-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.26rem;
+  font-weight: 760;
+  letter-spacing: -0.035em;
+}
+
+.play-ticket-list {
+  display: grid;
+  gap: 10px;
+}
+
+.play-ticket-card {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.052), rgba(255,255,255,0.018)),
+    rgba(255,255,255,0.018);
+  padding: 12px;
+  transition: border-color 180ms var(--ease-enter), background 180ms var(--ease-enter), transform 180ms var(--ease-enter);
+}
+
+.play-ticket-card.active {
+  border-color: rgba(216,170,87,0.3);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(216,170,87,0.13), transparent 42%),
+    linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.018));
+}
+
+.play-ticket-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(122,215,223,0.2);
+}
+
+.play-ticket-top {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.play-label {
+  color: var(--cyan);
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 860;
+  letter-spacing: 0.16em;
+  margin-bottom: 3px;
+  text-transform: uppercase;
 }
 
 .contract,
@@ -1995,7 +2061,7 @@ button {
 .ticket-contract-line h2 {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: clamp(2.2rem, 3vw, 3.25rem);
+  font-size: clamp(1.8rem, 2.3vw, 2.65rem);
   letter-spacing: -0.04em;
 }
 
@@ -2018,7 +2084,7 @@ button {
 }
 
 .ticket-state {
-  min-width: 128px;
+  min-width: 116px;
   border: 1px solid rgba(216,170,87,0.24);
   border-radius: 16px;
   background: linear-gradient(145deg, rgba(216,170,87,0.12), rgba(255,255,255,0.025));
@@ -2049,11 +2115,11 @@ button {
   border: 1px solid rgba(216,170,87,0.16);
   border-radius: 16px;
   background: rgba(216,170,87,0.055);
-  margin: -2px 0 12px;
-  padding: 12px;
+  margin: -1px 0 10px;
+  padding: 10px;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .armed-ticket {
@@ -2085,20 +2151,56 @@ button {
 .kv-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
-  margin-bottom: 14px;
+  gap: 7px;
+  margin-bottom: 11px;
 }
 
 .kv {
   border: 1px solid rgba(255,255,255,0.075);
   border-radius: 13px;
   background: rgba(255,255,255,0.028);
-  padding: 11px;
+  padding: 9px;
 }
 
 .ticket-premium-grid .kv:nth-child(3) {
   border-color: rgba(216,170,87,0.24);
   background: rgba(216,170,87,0.07);
+}
+
+.play-level-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: -2px 0 10px;
+}
+
+.play-level-strip span {
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.play-level-strip em {
+  color: var(--faint);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 860;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.play-level-strip strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 880;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .risk-block,
@@ -2119,7 +2221,7 @@ button {
   border: 1px solid rgba(255,255,255,0.065);
   border-radius: 13px;
   background: rgba(255,255,255,0.024);
-  padding: 10px;
+  padding: 8px 9px;
 }
 
 .risk-row:last-child {
@@ -2169,6 +2271,48 @@ button {
   padding: 0 12px 12px;
   display: grid;
   gap: 6px;
+}
+
+.ladder-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+
+.ladder-pane {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,0.038), rgba(255,255,255,0.012));
+  overflow: hidden;
+}
+
+.ladder-pane .ladder-table {
+  padding: 0 10px 10px;
+}
+
+.ladder-pane-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px 8px;
+}
+
+.ladder-pane-head span {
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 860;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ladder-pane-head strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 900;
 }
 
 .ladder-row {
@@ -2255,6 +2399,33 @@ button {
 .panel-copy {
   padding: 0 18px 14px;
   margin: 0;
+}
+
+.next-event-row {
+  align-items: center;
+  border: 1px solid rgba(216,170,87,0.16);
+  border-radius: 14px;
+  background: rgba(216,170,87,0.055);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 18px 14px;
+  padding: 11px 12px;
+}
+
+.next-event-row span {
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 860;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.next-event-row strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 780;
+  text-align: right;
 }
 
 .tone-positive { color: var(--green); }
@@ -2488,6 +2659,12 @@ button {
   .operator-strip {
     grid-template-columns: repeat(3, 1fr);
   }
+  .sequence-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ladder-split {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -2578,7 +2755,11 @@ button {
   .operator-strip,
   .metric-grid,
   .kv-grid,
+  .ticket-risk-grid,
   .button-row,
+  .ladder-split,
+  .play-level-strip,
+  .sequence-grid,
   .authority-condition-grid {
     grid-template-columns: 1fr;
   }

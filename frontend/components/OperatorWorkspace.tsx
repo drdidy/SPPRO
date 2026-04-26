@@ -11,12 +11,17 @@ type ProjectionMode = "current" | "retest";
 
 export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) {
   const primary = snapshot.primary_play;
+  const alternate = snapshot.alternate_play;
   const decision = snapshot.decision;
   const context = snapshot.market_context;
   const structure = snapshot.structure;
   const primaryRows = snapshot.strike_ladders.primary;
+  const alternateRows = snapshot.strike_ladders.alternate;
   const [activeRail, setActiveRail] = useState("OP");
   const [selectedStrike, setSelectedStrike] = useState(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primaryRows[0]?.strike ?? "");
+  const [selectedAlternateStrike, setSelectedAlternateStrike] = useState(
+    alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternateRows[0]?.strike ?? ""
+  );
   const [projectionMode, setProjectionMode] = useState<ProjectionMode>("retest");
   const [quoteAge, setQuoteAge] = useState(4);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -26,11 +31,17 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const reduceMotion = useReducedMotion();
 
   const selectedRow = primaryRows.find((row) => row.strike === selectedStrike) ?? primaryRows[0];
+  const selectedAlternateRow = alternateRows.find((row) => row.strike === selectedAlternateStrike) ?? alternateRows[0];
   const ticketMark = selectedRow?.mark ?? primary.current_mark;
   const ticketAtEntry = selectedRow?.at_entry ?? primary.at_entry;
   const ticketFill = selectedRow?.fill ?? primary.expected_fill;
   const ticketRR = selectedRow?.rr ?? primary.rr;
   const activeContract = selectedRow?.strike ?? primary.contract;
+  const alternateMark = selectedAlternateRow?.mark ?? alternate.current_mark;
+  const alternateAtEntry = selectedAlternateRow?.at_entry ?? alternate.at_entry;
+  const alternateFill = selectedAlternateRow?.fill ?? alternate.expected_fill;
+  const alternateRR = selectedAlternateRow?.rr ?? alternate.rr;
+  const alternateContract = selectedAlternateRow?.strike ?? alternate.contract;
   const distanceToEntry =
     structure.current_es != null && decision.planned_entry != null
       ? structure.current_es - decision.planned_entry
@@ -278,26 +289,36 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             plannedEntry={decision.planned_entry}
           />
 
-          <ExecutionTicket
-            activeContract={activeContract}
+          <PlayStack
+            alternate={{
+              atEntry: alternateAtEntry,
+              contract: alternateContract,
+              currentMark: alternateMark,
+              expectedFill: alternateFill,
+              play: alternate,
+              rr: alternateRR
+            }}
             armed={armed}
-            currentMark={ticketMark}
-            expectedFill={ticketFill}
             onArm={() => setArmed((value) => !value)}
             onCommands={() => setCommandOpen(true)}
-            primary={primary}
-            rr={ticketRR}
-            atEntry={ticketAtEntry}
+            primary={{
+              atEntry: ticketAtEntry,
+              contract: activeContract,
+              currentMark: ticketMark,
+              expectedFill: ticketFill,
+              play: primary,
+              rr: ticketRR
+            }}
           />
         </motion.section>
 
         <motion.section className="operator-strip" variants={panelVariants} aria-label="Operator summary">
           <Metric label="Planned Entry" value={`${formatPrice(decision.planned_entry)} SPX`} />
-          <Metric label="Selected Strike" value={activeContract} tone="warning" />
+          <Metric label="Primary Strike" value={activeContract} tone="warning" />
+          <Metric label="Alternate Strike" value={alternateContract} />
           <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
           <Metric label="Current ES" value={formatPrice(structure.current_es)} />
           <Metric label="Anchor Source" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
-          <Metric label="Confidence" value={`${decision.confidence}%`} tone={toneFor(String(decision.confidence))} />
         </motion.section>
 
         <div className="workspace studio-workspace">
@@ -308,24 +329,40 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                   <p className="kicker">Strike Selection</p>
                   <h3>Plan-locked nearby strikes</h3>
                 </div>
-                <span className="pill">Primary</span>
+                <span className="pill">Primary + Alternate</span>
               </div>
-              <StrikeRows rows={primaryRows} selectedStrike={selectedStrike} onSelect={setSelectedStrike} />
+              <div className="ladder-split">
+                <div className="ladder-pane">
+                  <div className="ladder-pane-head">
+                    <span>Primary Ladder</span>
+                    <strong>{activeContract}</strong>
+                  </div>
+                  <StrikeRows rows={primaryRows} selectedStrike={selectedStrike} onSelect={setSelectedStrike} />
+                </div>
+                <div className="ladder-pane">
+                  <div className="ladder-pane-head">
+                    <span>Alternate Ladder</span>
+                    <strong>{alternateContract}</strong>
+                  </div>
+                  <StrikeRows rows={alternateRows} selectedStrike={selectedAlternateStrike} onSelect={setSelectedAlternateStrike} />
+                </div>
+              </div>
             </motion.section>
 
             <motion.section className="panel narrative-panel" variants={panelVariants}>
               <div className="panel-header">
                 <div>
                   <p className="kicker">Execution Sequence</p>
-                  <h3>From structure to action</h3>
+                  <h3>Execution checklist</h3>
                 </div>
-                <span className="pill">Live Ritual</span>
+                <span className="pill">Operator Flow</span>
               </div>
               <div className="sequence-grid">
                 <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity`} active />
                 <SequenceStep index="02" title="Retest" value="Wait for clean line return" active={projectionMode === "retest"} />
-                <SequenceStep index="03" title="Contract" value={`${activeContract} selected`} active />
-                <SequenceStep index="04" title="Authority" value={armed ? "Retest armed" : "Review required"} active={armed} />
+                <SequenceStep index="03" title="Primary" value={`${activeContract} | ${primary.status}`} active />
+                <SequenceStep index="04" title="Alternate" value={`${alternateContract} | ${alternate.status}`} active={alternate.status !== "Blocked"} />
+                <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "No alert armed"} active={armed} />
               </div>
             </motion.section>
           </div>
@@ -338,6 +375,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                   <h3>Event risk</h3>
                 </div>
                 <span className={`pill tone-${toneFor(context.event_risk)}`}>{context.risk_mode}</span>
+              </div>
+              <div className="next-event-row">
+                <span>Next Event</span>
+                <strong>{context.next_event}</strong>
               </div>
               <p className="panel-copy muted">{context.interpretation}</p>
               <div className="headlines">
@@ -367,8 +408,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             <p className="kicker">Command Center</p>
             <h3>Operator actions</h3>
             <button onClick={() => { setProjectionMode("retest"); setCommandOpen(false); }} type="button">Focus retest plan</button>
-            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Arm selected strike</button>
-            <button onClick={() => { setActiveRail("RK"); setCommandOpen(false); }} type="button">Open risk view</button>
+            <button onClick={() => { setSelectedStrike(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primary.contract); setActiveRail("OP"); setCommandOpen(false); }} type="button">Focus primary play</button>
+            <button onClick={() => { setSelectedAlternateStrike(alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternate.contract); setActiveRail("OP"); setCommandOpen(false); }} type="button">Focus alternate play</button>
+            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Arm retest alert</button>
+            <button onClick={() => { setActiveRail("RK"); setCommandOpen(false); }} type="button">Review risk and context</button>
             <span>Press Esc to close | Ctrl+K / Cmd+K opens this panel</span>
           </motion.section>
         </motion.div>
@@ -378,72 +421,106 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   );
 }
 
-function ExecutionTicket({
-  activeContract,
-  armed,
-  atEntry,
-  currentMark,
-  expectedFill,
-  onArm,
-  onCommands,
-  primary,
-  rr
-}: {
-  activeContract: string;
-  armed: boolean;
+type PlayTicketData = {
   atEntry: number | null;
+  contract: string;
   currentMark: number | null;
   expectedFill: number | null;
+  play: OperatorSnapshot["primary_play"];
+  rr: number | null;
+};
+
+function PlayStack({
+  alternate,
+  armed,
+  onArm,
+  onCommands,
+  primary
+}: {
+  alternate: PlayTicketData;
+  armed: boolean;
   onArm: () => void;
   onCommands: () => void;
-  primary: OperatorSnapshot["primary_play"];
-  rr: number | null;
+  primary: PlayTicketData;
 }) {
-  const isPut = activeContract.toUpperCase().endsWith("P");
-  const isCall = activeContract.toUpperCase().endsWith("C");
-  const contractSide = isPut ? "Put" : isCall ? "Call" : primary.direction;
-  const ticketState = armed ? "Retest Armed" : primary.status;
-  const gateLabel = isPut ? "rejection line" : isCall ? "hold line" : "planned entry";
-  const fillCost = expectedFill == null ? "Unavailable" : `$${Math.round(expectedFill * 100)} est.`;
-
   return (
-    <motion.section className={`panel execution-ticket hero-ticket ${armed ? "armed-ticket" : ""}`} variants={panelVariants}>
-      <div className="ticket-head">
+    <motion.section className={`panel execution-ticket hero-ticket play-stack ${armed ? "armed-ticket" : ""}`} variants={panelVariants}>
+      <div className="play-stack-head">
         <div>
-          <p className="kicker">Execution Ticket</p>
-          <div className="ticket-contract-line">
-            <h2>{activeContract}</h2>
-            <span>{contractSide}</span>
-          </div>
-          <p>Selected contract for the active polarity gate.</p>
+          <p className="kicker">Execution Tickets</p>
+          <h3>Primary + Alternate</h3>
         </div>
-        <div className="ticket-state">
-          <span>State</span>
-          <strong>{ticketState}</strong>
-          <small>{primary.quality} estimate</small>
-        </div>
+        <span className={`pill ${armed ? "tone-warning" : ""}`}>{armed ? "Retest Alert Armed" : "No Order Submitted"}</span>
       </div>
-      <div className="kv-grid ticket-premium-grid">
-        <KV label="Current Mark" value={formatPrice(currentMark)} />
-        <KV label="At Gate" value={formatPrice(atEntry)} />
-        <KV label="Expected Fill" value={formatPrice(expectedFill)} />
-      </div>
-      <p className="ticket-copy">
-        If ES reaches the {gateLabel}, {activeContract} is estimated near {formatPrice(atEntry)} with a likely fill near {formatPrice(expectedFill)}.
-      </p>
-      <div className="ticket-risk-grid">
-        <Risk label="Cost If Filled" value={fillCost} tone="warning" />
-        <Risk label="RR at Entry" value={rr == null ? "-" : rr.toFixed(2)} />
-        <Risk label="Liquidity" value="Normal" tone="positive" />
-        <Risk label="Settlement" value="PM Cash" />
+      <div className="play-ticket-list">
+        <PlayTicketCard data={primary} label="Primary Play" active armed={armed} />
+        <PlayTicketCard data={alternate} label="Alternate Play" armed={false} />
       </div>
       <div className="button-row">
         <button className="button primary" onClick={onArm} type="button">
-          {armed ? "Retest Armed" : "Arm Retest"}
+          {armed ? "Disarm Retest Alert" : "Arm Retest Alert"}
         </button>
         <button className="button" onClick={onCommands} type="button">Open Commands</button>
       </div>
     </motion.section>
+  );
+}
+
+function PlayTicketCard({
+  active = false,
+  armed,
+  data,
+  label
+}: {
+  active?: boolean;
+  armed: boolean;
+  data: PlayTicketData;
+  label: string;
+}) {
+  const isPut = data.contract.toUpperCase().endsWith("P");
+  const isCall = data.contract.toUpperCase().endsWith("C");
+  const contractSide = isPut ? "Put" : isCall ? "Call" : data.play.direction;
+  const ticketState = armed ? "Retest Alert Armed" : data.play.status;
+  const gateLabel = isPut ? "upper rejection line" : isCall ? "lower hold line" : "planned trigger";
+  const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
+
+  return (
+    <article className={`play-ticket-card ${active ? "active" : ""}`}>
+      <div className="play-ticket-top">
+        <div>
+          <span className="play-label">{label}</span>
+          <div className="ticket-contract-line">
+            <h2>{data.contract}</h2>
+            <span>{contractSide}</span>
+          </div>
+        </div>
+        <div className="ticket-state">
+          <span>Status</span>
+          <strong>{ticketState}</strong>
+          <small>{data.play.quality} estimate</small>
+        </div>
+      </div>
+      <div className="kv-grid ticket-premium-grid">
+        <KV label="Current" value={formatPrice(data.currentMark)} />
+        <KV label="At Trigger" value={formatPrice(data.atEntry)} />
+        <KV label="Expected Fill" value={formatPrice(data.expectedFill)} />
+      </div>
+      <div className="play-level-strip" aria-label={`${label} execution levels`}>
+        <span><em>Entry</em><strong>{formatPrice(data.play.planned_entry)}</strong></span>
+        <span><em>Stop</em><strong>{formatPrice(data.play.stop)}</strong></span>
+        <span><em>T1</em><strong>{formatPrice(data.play.target_1)}</strong></span>
+        <span><em>T2</em><strong>{formatPrice(data.play.target_2)}</strong></span>
+      </div>
+      <p className="ticket-copy">
+        {data.play.reason} If ES reaches the {gateLabel}, estimated premium is {formatPrice(data.atEntry)} and likely fill is {formatPrice(data.expectedFill)}.
+      </p>
+      <div className="ticket-risk-grid">
+        <Risk label="Cost If Filled" value={fillCost} tone="warning" />
+        <Risk label="RR" value={data.rr == null ? "-" : data.rr.toFixed(2)} />
+        <Risk label="Budget" value={data.play.budget} tone={toneFor(data.play.budget)} />
+        <Risk label="Trigger" value={data.play.trigger ?? data.play.zone} />
+      </div>
+    </article>
   );
 }
 

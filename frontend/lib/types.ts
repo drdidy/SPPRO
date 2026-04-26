@@ -22,6 +22,13 @@ export type Play = {
   direction: string;
   status: string;
   contract: string;
+  planned_entry?: number | null;
+  stop?: number | null;
+  target_1?: number | null;
+  target_2?: number | null;
+  contracts?: number | null;
+  trigger?: string;
+  alert_state?: string;
   current_mark: number | null;
   at_entry: number | null;
   expected_fill: number | null;
