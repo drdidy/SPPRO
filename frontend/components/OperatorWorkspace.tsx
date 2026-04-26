@@ -683,12 +683,20 @@ function SignalTheater({
         {gateLevels.map((level) => {
           const y = yFor(level.value);
           const isUpperGate = aboveLine != null && level.value === aboveLine.value;
-          const gateLabel = isUpperGate ? "Put rejection line" : "Call hold line";
+          const gateLabel = isUpperGate ? "Put Rejection Zone" : "Call Support Zone";
+          const labelY = isUpperGate ? y - 46 : y + 20;
           return (
             <g key={`${gateLabel}-${level.value}`}>
               <rect className={`gate-zone-fill ${isUpperGate ? "put-gate-zone" : "call-gate-zone"}`} x={chartLeft} y={y - 13} width={chartRight - chartLeft} height="26" rx="13" />
               <line className={`polarity-gate-line ${isUpperGate ? "put-gate-line" : "call-gate-line"}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
               <circle className={`level-dot ${isUpperGate ? "put-gate-dot" : "call-gate-dot"}`} cx={chartLeft} cy={y} r="4" />
+              <g className={`gate-label-chip ${isUpperGate ? "put-gate-label-chip" : "call-gate-label-chip"}`} transform={`translate(${chartLeft + 14} ${labelY})`}>
+                <rect width="282" height="36" rx="12" />
+                <text className={`polarity-gate-label ${isUpperGate ? "put-gate-label" : "call-gate-label"}`} x="13" y="23">
+                  <tspan>{gateLabel}</tspan>
+                  <tspan className="gate-label-price" dx="12">{formatPrice(level.value)}</tspan>
+                </text>
+              </g>
             </g>
           );
         })}

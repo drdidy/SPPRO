@@ -1604,10 +1604,30 @@ button {
 .polarity-gate-label {
   fill: rgba(242,239,231,0.72);
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 820;
+  font-size: 13px;
+  font-weight: 880;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.gate-label-chip {
+  pointer-events: none;
+}
+
+.gate-label-chip rect {
+  fill: rgba(3, 6, 12, 0.76);
+  stroke: rgba(242,239,231,0.1);
+  stroke-width: 1.2;
+}
+
+.put-gate-label-chip rect {
+  fill: rgba(28, 19, 7, 0.78);
+  stroke: rgba(216,170,87,0.42);
+}
+
+.call-gate-label-chip rect {
+  fill: rgba(4, 24, 31, 0.76);
+  stroke: rgba(122,215,223,0.4);
 }
 
 .put-gate-label {
@@ -1616,6 +1636,12 @@ button {
 
 .call-gate-label {
   fill: var(--cyan);
+}
+
+.gate-label-price {
+  fill: var(--text);
+  font-weight: 920;
+  letter-spacing: 0;
 }
 
 .entry-zone-fill {
