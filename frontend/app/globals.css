@@ -201,26 +201,29 @@ button {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr) minmax(300px, 0.72fr);
+  grid-template-columns: minmax(340px, 1fr) minmax(420px, 0.9fr) minmax(280px, 0.74fr);
+  grid-template-areas: "pulse brand actions";
   align-items: stretch;
-  gap: 14px;
-  min-height: 116px;
+  gap: 16px;
+  min-height: 164px;
   margin-bottom: 20px;
   border: 1px solid rgba(242,239,231,0.11);
-  border-radius: 28px;
+  border-radius: 34px;
   background:
-    linear-gradient(120deg, rgba(255,255,255,0.095), rgba(255,255,255,0.024) 34%, rgba(122,215,223,0.055)),
-    radial-gradient(circle at 12% 20%, rgba(122,215,223,0.16), transparent 25rem),
+    radial-gradient(circle at 50% -5%, rgba(122,215,223,0.18), transparent 20rem),
+    radial-gradient(circle at 12% 18%, rgba(214,164,72,0.10), transparent 18rem),
+    linear-gradient(120deg, rgba(255,255,255,0.095), rgba(255,255,255,0.024) 42%, rgba(122,215,223,0.055)),
     var(--panel);
   box-shadow: 0 26px 90px rgba(0,0,0,0.34);
-  padding: 14px;
+  padding: 16px;
 }
 
 .theme-daylight .masthead {
   border-color: rgba(16,24,32,0.12);
   background:
-    linear-gradient(120deg, rgba(255,255,255,0.72), rgba(255,255,255,0.28) 36%, rgba(22,121,155,0.075)),
-    radial-gradient(circle at 12% 20%, rgba(22,121,155,0.13), transparent 25rem),
+    radial-gradient(circle at 50% -5%, rgba(22,121,155,0.15), transparent 20rem),
+    radial-gradient(circle at 12% 18%, rgba(166,108,22,0.13), transparent 18rem),
+    linear-gradient(120deg, rgba(255,255,255,0.76), rgba(255,255,255,0.31) 44%, rgba(22,121,155,0.075)),
     rgba(255,252,244,0.78);
   box-shadow: 0 24px 72px rgba(59,50,36,0.16);
 }
@@ -255,20 +258,31 @@ button {
 }
 
 .masthead-brand {
+  grid-area: brand;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 15px;
+  justify-content: center;
+  gap: 12px;
   min-width: 0;
+  text-align: center;
+  border-radius: 28px;
+  border: 1px solid rgba(242,239,231,0.075);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(122,215,223,0.12), transparent 14rem),
+    linear-gradient(180deg, rgba(255,255,255,0.048), rgba(255,255,255,0.018));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  padding: 14px 18px;
 }
 
 .prophet-mark {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: 96px;
+  height: 96px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 28px;
+  border-radius: 32px;
   border: 1px solid rgba(122,215,223,0.22);
   background:
     radial-gradient(circle at 38% 30%, rgba(255,255,255,0.16), transparent 34%),
@@ -309,8 +323,8 @@ button {
 .prophet-mark svg {
   position: relative;
   z-index: 1;
-  width: 72px;
-  height: 72px;
+  width: 82px;
+  height: 82px;
   overflow: visible;
 }
 
@@ -370,9 +384,9 @@ button {
   display: block;
   margin-bottom: 5px;
   color: var(--cyan);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 820;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
 
@@ -392,11 +406,12 @@ button {
 .wordmark {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.85rem, 2.8vw, 3.15rem);
+  font-size: clamp(2.4rem, 4.2vw, 4.25rem);
   line-height: 0.84;
-  font-weight: 880;
-  letter-spacing: -0.075em;
+  font-weight: 900;
+  letter-spacing: -0.085em;
   display: flex;
+  justify-content: center;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.18em;
@@ -419,28 +434,29 @@ button {
 .masthead-brand p {
   margin: 7px 0 0;
   color: var(--faint);
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   font-weight: 820;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
 
 .market-pulse {
+  grid-area: pulse;
   position: relative;
   overflow: hidden;
   display: grid;
-  align-content: center;
+  align-content: stretch;
   gap: 12px;
   min-width: 0;
   border: 1px solid rgba(122,215,223,0.18);
-  border-radius: 22px;
+  border-radius: 26px;
   background:
     radial-gradient(circle at 16% 18%, rgba(122,215,223,0.18), transparent 16rem),
     linear-gradient(135deg, rgba(122,215,223,0.085), rgba(255,255,255,0.028) 54%, rgba(216,170,87,0.04));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.12),
     inset 0 -20px 44px rgba(0,0,0,0.075);
-  padding: 14px;
+  padding: 15px;
 }
 
 .market-pulse::after {
@@ -460,7 +476,7 @@ button {
   gap: 16px;
 }
 
-.pulse-head strong {
+.pulse-risk {
   display: inline-flex;
   align-items: center;
   min-height: 30px;
@@ -469,11 +485,45 @@ button {
   background: rgba(216,170,87,0.1);
   color: var(--amber);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 900;
   padding: 6px 10px;
   line-height: 1;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pulse-decision {
+  display: grid;
+  gap: 5px;
+  border-radius: 18px;
+  border: 1px solid rgba(242,239,231,0.07);
+  background: rgba(255,255,255,0.04);
+  padding: 12px 13px;
+}
+
+.pulse-decision span {
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 820;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.pulse-decision strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 2.2vw, 2.55rem);
+  line-height: 0.9;
+  font-weight: 900;
+  letter-spacing: -0.055em;
+}
+
+.pulse-decision p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .live-dot-label {
@@ -499,7 +549,7 @@ button {
 
 .pulse-values {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
   overflow: visible;
   mask-image: none;
@@ -513,7 +563,7 @@ button {
   border-radius: 12px;
   background: rgba(255,255,255,0.04);
   color: var(--faint);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   font-weight: 820;
   letter-spacing: 0.1em;
   line-height: 1.05;
@@ -526,7 +576,7 @@ button {
   display: block;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 840;
   letter-spacing: -0.035em;
   overflow: hidden;
@@ -534,10 +584,24 @@ button {
 }
 
 .masthead-actions {
+  grid-area: actions;
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-content: center;
   gap: 10px;
+  border-radius: 26px;
+  border: 1px solid rgba(242,239,231,0.07);
+  background: rgba(255,255,255,0.028);
+  padding: 14px;
+}
+
+.action-eyebrow {
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 820;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .masthead-button,
@@ -1758,6 +1822,12 @@ button {
   .studio-workspace,
   .masthead {
     grid-template-columns: 1fr;
+  }
+  .masthead {
+    grid-template-areas:
+      "brand"
+      "pulse"
+      "actions";
   }
   .metric-grid {
     grid-template-columns: repeat(2, 1fr);

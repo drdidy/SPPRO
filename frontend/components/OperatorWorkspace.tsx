@@ -118,19 +118,24 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
 
           <div className="market-pulse" aria-live="polite">
             <div className="pulse-head">
-              <span className="live-dot-label">Preview Feed</span>
+              <span className="live-dot-label">Live Tape</span>
+              <span className={`pulse-risk tone-${toneFor(decision.event_risk)}`}>Event {decision.event_risk}</span>
+            </div>
+            <div className="pulse-decision">
+              <span>Order Bias</span>
               <strong>{decision.state}</strong>
+              <p>{decision.reason}</p>
             </div>
             <div className="pulse-values">
-              <span>SPX <strong>7,194.75</strong></span>
+              <span>SPX <strong>{formatPrice(structure.current_es)}</strong></span>
               <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
               <span>VIX <strong>17.42</strong></span>
-              <span>0DTE IV <strong>Elevated</strong></span>
-              <span>Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
+              <span>Feed Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
           </div>
 
           <div className="masthead-actions">
+            <div className="action-eyebrow">Operator Controls</div>
             <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">Command /</button>
             <button
               className="masthead-button"
