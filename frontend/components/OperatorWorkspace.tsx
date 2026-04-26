@@ -327,26 +327,36 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <div className="panel-header">
                 <div>
                   <p className="kicker">Strike Selection</p>
-                  <h3>Plan-locked nearby strikes</h3>
+                  <h3>Plan-locked strikes</h3>
                 </div>
-                <span className="pill">Primary + Alternate</span>
+                <span className="pill">Compact</span>
               </div>
-              <div className="ladder-split">
-                <div className="ladder-pane">
-                  <div className="ladder-pane-head">
-                    <span>Primary Ladder</span>
-                    <strong>{activeContract}</strong>
-                  </div>
-                  <StrikeRows rows={primaryRows} selectedStrike={selectedStrike} onSelect={setSelectedStrike} />
-                </div>
-                <div className="ladder-pane">
-                  <div className="ladder-pane-head">
-                    <span>Alternate Ladder</span>
-                    <strong>{alternateContract}</strong>
-                  </div>
-                  <StrikeRows rows={alternateRows} selectedStrike={selectedAlternateStrike} onSelect={setSelectedAlternateStrike} />
-                </div>
+              <div className="strike-summary-grid">
+                <StrikeSummaryCard label="Primary Selected" row={selectedRow} fallbackContract={activeContract} />
+                <StrikeSummaryCard label="Alternate Selected" row={selectedAlternateRow} fallbackContract={alternateContract} />
               </div>
+              <details className="full-ladder-disclosure">
+                <summary>
+                  <span>Show nearby strike ladders</span>
+                  <strong>Primary + Alternate</strong>
+                </summary>
+                <div className="ladder-split">
+                  <div className="ladder-pane">
+                    <div className="ladder-pane-head">
+                      <span>Primary Ladder</span>
+                      <strong>{activeContract}</strong>
+                    </div>
+                    <StrikeRows rows={primaryRows} selectedStrike={selectedStrike} onSelect={setSelectedStrike} />
+                  </div>
+                  <div className="ladder-pane">
+                    <div className="ladder-pane-head">
+                      <span>Alternate Ladder</span>
+                      <strong>{alternateContract}</strong>
+                    </div>
+                    <StrikeRows rows={alternateRows} selectedStrike={selectedAlternateStrike} onSelect={setSelectedAlternateStrike} />
+                  </div>
+                </div>
+              </details>
             </motion.section>
 
             <motion.section className="panel narrative-panel" variants={panelVariants}>
@@ -788,6 +798,35 @@ function Risk({ label, value, tone = "neutral" }: { label: string; value: string
       <span>{label}</span>
       <strong className={`text-${tone}`}>{value}</strong>
     </div>
+  );
+}
+
+function StrikeSummaryCard({
+  fallbackContract,
+  label,
+  row
+}: {
+  fallbackContract: string;
+  label: string;
+  row?: StrikeRow;
+}) {
+  return (
+    <article className="strike-summary-card">
+      <div className="strike-summary-top">
+        <span>{label}</span>
+        <strong>{row?.strike ?? fallbackContract}</strong>
+      </div>
+      <div className="strike-summary-values">
+        <span><em>Now</em><strong>{formatPrice(row?.mark ?? null)}</strong></span>
+        <span><em>At Trigger</em><strong>{formatPrice(row?.at_entry ?? null)}</strong></span>
+        <span><em>Fill</em><strong>{formatPrice(row?.fill ?? null)}</strong></span>
+        <span><em>RR</em><strong>{row?.rr == null ? "-" : row.rr.toFixed(2)}</strong></span>
+      </div>
+      <div className="strike-summary-footer">
+        <span className={`text-${toneFor(row?.budget ?? "")}`}>{row?.budget ?? "Budget unknown"}</span>
+        <strong>{row?.tag ?? "Selected"}</strong>
+      </div>
+    </article>
   );
 }
 
