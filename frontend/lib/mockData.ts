@@ -2,6 +2,23 @@ import type { OperatorSnapshot } from "./types";
 
 export const mockSnapshot: OperatorSnapshot = {
   generated_at: new Date().toISOString(),
+  data_health: {
+    source: "Preview snapshot",
+    quote_quality: "Illustrative",
+    snapshot_age: "Preview",
+    provider: "SPX Prophet",
+    mode: "Operator Preview"
+  },
+  confirmation: {
+    status: "Pending",
+    tested_line: "Asian polarity line",
+    reason: "No trade authority before a touch and close within 3 points.",
+    engine: "Polarity confirmation"
+  },
+  sit_out: {
+    active: false,
+    reason: ""
+  },
   decision: {
     state: "WAIT",
     modifier: "VALID",
@@ -48,7 +65,25 @@ export const mockSnapshot: OperatorSnapshot = {
     zone: "Near Zone",
     budget: "Over Budget",
     quality: "Moderate",
-    reason: "Best bearish fit if SPX retests the upper Asian polarity line and rejects."
+    reason: "Best bearish fit if SPX retests the upper Asian polarity line and rejects.",
+    authority: {
+      execution_action: "WAIT FOR RETEST",
+      trigger_state: "ARMED",
+      alert_state: "WATCH",
+      checklist_status: "WAIT",
+      plan_validity: "valid",
+      timing_bucket: "early",
+      budget_execution_status: "Over Budget",
+      structure_valid: true,
+      move_completion_pct: 37,
+      line_polarity_state: "pending_retest",
+      vwap_alignment: "UNAVAILABLE",
+      top_reasons: [
+        "Upper polarity line has not rejected yet",
+        "Trade requires a close within 3 points",
+        "Event risk is elevated"
+      ]
+    }
   },
   alternate_play: {
     title: "Alternate Idea",
@@ -69,7 +104,24 @@ export const mockSnapshot: OperatorSnapshot = {
     zone: "Outside Zone",
     budget: "Within Budget",
     quality: "Weak",
-    reason: "Informational only until bullish polarity confirms."
+    reason: "Informational only until bullish polarity confirms.",
+    authority: {
+      execution_action: "WAIT",
+      trigger_state: "NOT_READY",
+      alert_state: "WATCH",
+      checklist_status: "WAIT",
+      plan_validity: "caution",
+      timing_bucket: "early",
+      budget_execution_status: "Within Budget",
+      structure_valid: true,
+      move_completion_pct: 22,
+      line_polarity_state: "pending_retest",
+      vwap_alignment: "UNAVAILABLE",
+      top_reasons: [
+        "Lower hold line has not confirmed",
+        "Alternate remains informational until support holds"
+      ]
+    }
   },
   strike_ladders: {
     primary: [
@@ -99,10 +151,12 @@ export const mockSnapshot: OperatorSnapshot = {
       alignment: "UNAVAILABLE"
     },
     levels: [
-      { label: "Upper Polarity", value: 7228.5, tone: "neutral" },
-      { label: "Active Entry Line", value: 7211.25, tone: "accent" },
-      { label: "Mid Structure", value: 7186.8, tone: "neutral" },
-      { label: "Lower Polarity", value: 7167.16, tone: "neutral" }
+      { key: "hw", label: "HW", value: 7228.5, tone: "danger", distance: 33.75, side: "above" },
+      { key: "asc_ceiling", label: "ASC Ceiling", value: 7215.25, tone: "danger", distance: 20.5, side: "above" },
+      { key: "asc_floor", label: "ASC Floor", value: 7211.25, tone: "accent", distance: 16.5, side: "above" },
+      { key: "desc_ceiling", label: "DESC Ceiling", value: 7186.8, tone: "accent", distance: -7.95, side: "below" },
+      { key: "desc_floor", label: "DESC Floor", value: 7167.16, tone: "positive", distance: -27.59, side: "below" },
+      { key: "lw", label: "LW", value: 7146.8, tone: "positive", distance: -47.95, side: "below" }
     ]
   }
 };

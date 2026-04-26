@@ -9,6 +9,17 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
 function normalizeStrikeRows(value: unknown): StrikeRow[] {
   if (!Array.isArray(value)) {
     return [];
@@ -50,7 +61,30 @@ function normalizePlay(value: unknown, fallback: Play): Play {
     zone: asString(source.zone, fallback.zone),
     budget: asString(source.budget, fallback.budget),
     quality: asString(source.quality, fallback.quality),
-    reason: asString(source.reason, fallback.reason)
+    reason: asString(source.reason, fallback.reason),
+    authority: {
+      ...(fallback.authority ?? {}),
+      ...(source.authority ?? {}),
+      execution_action: asString(source.authority?.execution_action, fallback.authority?.execution_action ?? ""),
+      trigger_state: asString(source.authority?.trigger_state, fallback.authority?.trigger_state ?? ""),
+      alert_state: asString(source.authority?.alert_state, fallback.authority?.alert_state ?? ""),
+      checklist_status: asString(source.authority?.checklist_status, fallback.authority?.checklist_status ?? ""),
+      invalidation_code: asString(source.authority?.invalidation_code, fallback.authority?.invalidation_code ?? ""),
+      invalidation_message: asString(source.authority?.invalidation_message, fallback.authority?.invalidation_message ?? ""),
+      expiry_status: asString(source.authority?.expiry_status, fallback.authority?.expiry_status ?? ""),
+      expiry_reason: asString(source.authority?.expiry_reason, fallback.authority?.expiry_reason ?? ""),
+      plan_validity: asString(source.authority?.plan_validity, fallback.authority?.plan_validity ?? ""),
+      timing_bucket: asString(source.authority?.timing_bucket, fallback.authority?.timing_bucket ?? ""),
+      budget_execution_status: asString(source.authority?.budget_execution_status, fallback.authority?.budget_execution_status ?? ""),
+      structure_valid: typeof source.authority?.structure_valid === "boolean" ? source.authority.structure_valid : fallback.authority?.structure_valid ?? null,
+      move_completion_pct: asNumber(source.authority?.move_completion_pct ?? fallback.authority?.move_completion_pct),
+      line_polarity_state: asString(source.authority?.line_polarity_state, fallback.authority?.line_polarity_state ?? ""),
+      line_polarity_reason: asString(source.authority?.line_polarity_reason, fallback.authority?.line_polarity_reason ?? ""),
+      vwap_alignment: asString(source.authority?.vwap_alignment, fallback.authority?.vwap_alignment ?? ""),
+      top_reasons: asStringList(source.authority?.top_reasons).length
+        ? asStringList(source.authority?.top_reasons)
+        : fallback.authority?.top_reasons ?? []
+    }
   };
 }
 
@@ -73,6 +107,32 @@ export function normalizeOperatorSnapshot(value: unknown): OperatorSnapshot {
   const source = value && typeof value === "object" ? value as Partial<OperatorSnapshot> : {};
   return {
     generated_at: asString(source.generated_at, mockSnapshot.generated_at),
+    data_health: {
+      ...mockSnapshot.data_health,
+      ...(source.data_health ?? {}),
+      source: asString(source.data_health?.source, mockSnapshot.data_health?.source ?? "Preview"),
+      quote_quality: asString(source.data_health?.quote_quality, mockSnapshot.data_health?.quote_quality ?? "Unknown"),
+      snapshot_age: asString(source.data_health?.snapshot_age, mockSnapshot.data_health?.snapshot_age ?? "Live"),
+      provider: asString(source.data_health?.provider, mockSnapshot.data_health?.provider ?? "SPX Prophet"),
+      mode: asString(source.data_health?.mode, mockSnapshot.data_health?.mode ?? "Operator")
+    },
+    confirmation: {
+      ...mockSnapshot.confirmation,
+      ...(source.confirmation ?? {}),
+      status: asString(source.confirmation?.status, mockSnapshot.confirmation?.status ?? "Pending"),
+      tested_line: asString(source.confirmation?.tested_line, mockSnapshot.confirmation?.tested_line ?? "Polarity line"),
+      reason: asString(source.confirmation?.reason, mockSnapshot.confirmation?.reason ?? ""),
+      candle_time: asString(source.confirmation?.candle_time, mockSnapshot.confirmation?.candle_time ?? ""),
+      engine: asString(source.confirmation?.engine, mockSnapshot.confirmation?.engine ?? "")
+    },
+    sit_out: {
+      ...mockSnapshot.sit_out,
+      ...(source.sit_out ?? {}),
+      active: asBoolean(source.sit_out?.active, mockSnapshot.sit_out?.active ?? false),
+      reason: asString(source.sit_out?.reason, mockSnapshot.sit_out?.reason ?? ""),
+      gap_distance: asNumber(source.sit_out?.gap_distance ?? mockSnapshot.sit_out?.gap_distance),
+      narrowest_channel_width: asNumber(source.sit_out?.narrowest_channel_width ?? mockSnapshot.sit_out?.narrowest_channel_width)
+    },
     decision: {
       ...mockSnapshot.decision,
       ...(source.decision ?? {}),
@@ -114,9 +174,12 @@ export function normalizeOperatorSnapshot(value: unknown): OperatorSnapshot {
       anchor_source: asString(source.structure?.anchor_source, mockSnapshot.structure.anchor_source),
       anchor_confidence: asString(source.structure?.anchor_confidence, mockSnapshot.structure.anchor_confidence),
       levels: Array.isArray(source.structure?.levels) ? source.structure.levels.map((level) => ({
+        key: asString(level?.key, ""),
         label: asString(level?.label, "Structure Line"),
         value: asNumber(level?.value),
-        tone: asString(level?.tone, "neutral")
+        tone: asString(level?.tone, "neutral"),
+        distance: asNumber(level?.distance),
+        side: asString(level?.side, "")
       })) : []
     }
   };

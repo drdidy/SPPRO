@@ -13,6 +13,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const decision = snapshot.decision;
   const context = snapshot.market_context;
   const structure = snapshot.structure;
+  const dataHealth = snapshot.data_health;
+  const confirmation = snapshot.confirmation;
+  const sitOut = snapshot.sit_out;
+  const primaryAuthority = primary.authority ?? {};
   const primaryRows = snapshot.strike_ladders.primary;
   const alternateRows = snapshot.strike_ladders.alternate;
   const [selectedStrike, setSelectedStrike] = useState(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primaryRows[0]?.strike ?? "");
@@ -59,7 +63,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       : decision.reason;
   const scenarioLabel = `${decision.bias} / ${decision.scenario}`;
   const controlModeLabel = "Retest Plan";
-  const orderStatus = armed ? "Retest Watch On" : "Retest Watch Off";
+  const orderStatus = armed ? "Retest Alert On" : "Retest Alert Off";
   const orderStatusDetail = armed
     ? `${activeContract} tracks confirmation at the planned line.`
     : "No trade authority before polarity confirmation.";
@@ -70,11 +74,23 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     mapEntry == null
       ? "Trigger line unavailable until planned entry loads."
       : `Retest ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} and confirm the ${structure.anchor_source} polarity line.`;
+  const executionAction = displayText(primaryAuthority.execution_action || decision.state);
+  const triggerState = displayText(primaryAuthority.trigger_state || primary.status);
+  const checklistStatus = displayText(primaryAuthority.checklist_status || "Pending");
+  const blockingLabel = primaryAuthority.invalidation_message
+    ? "Invalidated"
+    : primaryAuthority.expiry_reason
+      ? "Expired"
+      : sitOut?.active
+        ? "Sit Out"
+        : executionAction.toLowerCase().includes("wait")
+          ? "Retest Required"
+          : "None";
   const constraintLabels = [
     `Event ${decision.event_risk}`,
     `${decision.risk} Risk`,
     "Retest Required"
-  ];
+  ].filter(Boolean);
   const constraintSummary = constraintLabels.join(" | ");
   const authoritySubtitle = armed
     ? "Retest watch on. Confirmation still required."
@@ -168,7 +184,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <span className={`pulse-risk tone-${toneFor(decision.event_risk)}`}>{decision.event_risk} Event Risk</span>
             </div>
             <div className="pulse-decision">
-              <span>Trigger Focus</span>
+              <span>Required Retest</span>
               <strong>{mapEntry == null ? "Entry Pending" : `${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"}`}</strong>
               <p>
                 <b>{mastheadReason}</b>
@@ -176,18 +192,18 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               </p>
             </div>
             <div className="pulse-values">
-              <span>Setup <strong>{`${primary.zone} | ${structure.anchor_source}`}</strong></span>
+              <span>Setup <strong>{`${displayText(primary.zone)} | ${structure.anchor_source}`}</strong></span>
               <span>Strike <strong>{activeContract}</strong></span>
-              <span>Distance <strong>{shortDistanceLabel}</strong></span>
-              <span>Likely Fill <strong>{formatPrice(ticketFill)}</strong></span>
-              <span>Confidence <strong>{decision.confidence}% | {decision.risk}</strong></span>
+              <span>ES Distance <strong>{shortDistanceLabel}</strong></span>
+              <span>Expected Fill <strong>{formatPrice(ticketFill)}</strong></span>
+              <span>Authority <strong>{executionAction}</strong></span>
               <span>Snapshot Age <strong>{snapshotAgeLabel}</strong></span>
             </div>
           </div>
 
           <div className={`masthead-actions ${armed ? "is-armed" : ""}`}>
             <div className="action-eyebrow">
-              <span>Execution Controls</span>
+              <span>Alert Controls</span>
               <em>{controlModeLabel}</em>
             </div>
             <div className="order-state">
@@ -196,7 +212,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <small>{orderStatusDetail}</small>
             </div>
             <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">
-              <span>Plan Controls</span>
+              <span>Operator Controls</span>
               <strong>/</strong>
             </button>
             <button
@@ -205,7 +221,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               onClick={() => setArmed((value) => !value)}
               type="button"
             >
-              {armed ? "Disable Watch" : "Enable Watch"}
+              {armed ? "Cancel Alert" : "Create Retest Alert"}
             </button>
           </div>
         </motion.header>
@@ -221,6 +237,24 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <span className="authority-subtitle">{authoritySubtitle}</span>
             </div>
             <p className="decision-reason">{authorityReason}</p>
+            <div className="readiness-grid" aria-label="Execution readiness">
+              <div>
+                <span>Action</span>
+                <strong>{executionAction}</strong>
+              </div>
+              <div>
+                <span>Trigger</span>
+                <strong>{triggerState}</strong>
+              </div>
+              <div>
+                <span>Checklist</span>
+                <strong>{checklistStatus}</strong>
+              </div>
+              <div>
+                <span>Blocker</span>
+                <strong>{blockingLabel}</strong>
+              </div>
+            </div>
             <div className="authority-trigger">
               <span>Trigger</span>
               <strong>{triggerCondition}</strong>
@@ -313,10 +347,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         </motion.div>
 
         <motion.section className="operator-strip" variants={panelVariants} aria-label="Operator summary">
-          <Metric label={plannedEntryEs != null ? "Trigger ES" : "Planned Entry"} value={`${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"}`} />
-          <Metric label="Primary Strike" value={activeContract} tone="warning" />
-          <Metric label="Alternate Strike" value={alternateContract} />
-          <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
+          <Metric label="Snapshot Source" value={dataHealth?.source ?? "SPX Prophet"} />
+          <Metric label="Quote Quality" value={dataHealth?.quote_quality ?? "Unknown"} />
+          <Metric label="Confirmation" value={confirmation?.status ?? "Pending"} tone="warning" />
+          <Metric label="5m VWAP" value={structure.vwap?.label ?? "Pending"} />
           <Metric label="Current ES" value={formatPrice(structure.current_es)} />
           <Metric label="Anchor Source" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
         </motion.section>
@@ -368,11 +402,11 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 <span className="pill">Polarity Gate</span>
               </div>
               <div className="sequence-grid">
-                <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity line selected`} active />
-                <SequenceStep index="02" title="Return" value={`Price must revisit ${formatPrice(mapEntry)}`} active />
-                <SequenceStep index="03" title="Confirm" value="Touch and close within 3 pts" active />
-                <SequenceStep index="04" title="VWAP" value={structure.vwap?.label ?? "VWAP pending"} active={Boolean(structure.vwap?.value)} />
-                <SequenceStep index="05" title="Alert" value={armed ? "Watch armed for retest" : "Arm only when ready"} active={armed} />
+                <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity selected`} state="pass" />
+                <SequenceStep index="02" title="Return" value={`Price must revisit ${formatPrice(mapEntry)}`} state={primary.zone.toLowerCase().includes("zone") ? "pending" : "blocked"} />
+                <SequenceStep index="03" title="Confirm" value={confirmation?.reason || "Touch and close within 3 pts"} state={confirmation?.status?.toLowerCase().includes("confirm") ? "pass" : "pending"} />
+                <SequenceStep index="04" title="VWAP" value={structure.vwap?.label ?? "VWAP pending"} state={structure.vwap?.value ? "pass" : "pending"} />
+                <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "Create alert when ready"} state={armed ? "pass" : "pending"} />
               </div>
             </motion.section>
           </div>
@@ -394,8 +428,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             <h3>Operator actions</h3>
             <button onClick={() => { setSelectedStrike(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primary.contract); setCommandOpen(false); }} type="button">Focus primary play</button>
             <button onClick={() => { setSelectedAlternateStrike(alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternate.contract); setCommandOpen(false); }} type="button">Focus alternate play</button>
-            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Enable retest watch</button>
-            <button onClick={() => { setCommandOpen(false); }} type="button">Review risk and context</button>
+            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Create retest alert</button>
+            <button onClick={() => { setCommandOpen(false); }} type="button">View blocking conditions</button>
             <span>Press Esc to close | Ctrl+K / Cmd+K opens this panel</span>
           </motion.section>
         </motion.div>
@@ -413,6 +447,27 @@ type PlayTicketData = {
   play: OperatorSnapshot["primary_play"];
   rr: number | null;
 };
+
+function displayText(value?: string | null, fallback = "Pending") {
+  const raw = (value ?? "").toString().trim();
+  if (!raw || raw === "-" || raw.toLowerCase() === "unknown") {
+    return fallback;
+  }
+  return raw
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function budgetFitLabel(value?: string | null) {
+  const normalized = (value ?? "").toLowerCase();
+  if (!normalized || normalized.includes("unknown")) return "Budget pending";
+  if (normalized.includes("within")) return "Fits Plan";
+  if (normalized.includes("over") || normalized.includes("above")) return "Outside Target";
+  if (normalized.includes("near") || normalized.includes("tight")) return "Tight Fit";
+  return displayText(value, "Budget pending");
+}
 
 function operatorStatusLabel(status: string) {
   const normalized = status.trim().toLowerCase();
@@ -450,17 +505,17 @@ function PlayStack({
           <p className="kicker">Execution Tickets</p>
           <h3>Primary + Alternate</h3>
         </div>
-        <span className={`pill ${armed ? "tone-warning" : ""}`}>{armed ? "Alert Armed" : "Guarded"}</span>
+        <span className={`pill ${armed ? "tone-warning" : ""}`}>{armed ? "Alert Armed" : "No Trade Authority"}</span>
       </div>
       <div className="play-ticket-list">
         <PlayTicketCard data={primary} label="Primary Play" active armed={armed} />
-        <PlayTicketCard data={alternate} label="Alternate Play" armed={false} compact />
+        <PlayTicketCard data={alternate} label="Alternate Play" armed={false} />
       </div>
       <div className="button-row">
         <button className="button primary" onClick={onArm} type="button">
-          {armed ? "Disable Retest Watch" : "Enable Retest Watch"}
+          {armed ? "Cancel Retest Alert" : "Create Retest Alert"}
         </button>
-        <button className="button" onClick={onCommands} type="button">Plan Controls</button>
+        <button className="button" onClick={onCommands} type="button">Operator Controls</button>
       </div>
     </motion.section>
   );
@@ -484,9 +539,10 @@ function PlayTicketCard({
   const contractSide = isPut ? "Put" : isCall ? "Call" : data.play.direction;
   const ticketState = armed ? "Alert Watching" : operatorStatusLabel(data.play.status);
   const gateLabel = isPut ? "upper rejection line" : isCall ? "lower hold line" : "planned trigger";
-  const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
   const planSize = data.play.contracts == null ? "Plan size pending" : `${data.play.contracts} contract${data.play.contracts === 1 ? "" : "s"}`;
   const confirmationText = triggerSummary(data.play.trigger);
+  const actionText = displayText(data.play.authority?.execution_action || ticketState);
+  const qualityText = displayText(data.play.quality, "Estimate pending");
 
   return (
     <article className={`play-ticket-card ${active ? "active" : ""} ${compact ? "compact" : ""}`}>
@@ -501,12 +557,12 @@ function PlayTicketCard({
         <div className="ticket-state">
           <span>Status</span>
           <strong>{ticketState}</strong>
-          <small>{data.play.quality} estimate</small>
+          <small>{qualityText} estimate</small>
         </div>
       </div>
       <div className="kv-grid ticket-premium-grid">
         <KV label="Current" value={formatPrice(data.currentMark)} />
-        <KV label="At Trigger" value={formatPrice(data.atEntry)} />
+        <KV label="Premium at Trigger" value={formatPrice(data.atEntry)} />
         <KV label="Expected Fill" value={formatPrice(data.expectedFill)} />
       </div>
       {compact ? (
@@ -527,7 +583,7 @@ function PlayTicketCard({
             {data.play.reason} If ES reaches the {gateLabel}, estimated premium is {formatPrice(data.atEntry)} and likely fill is {formatPrice(data.expectedFill)}.
           </p>
           <div className="ticket-risk-grid">
-            <Risk label="Cost If Filled" value={fillCost} tone="warning" />
+            <Risk label="Action" value={actionText} tone="warning" />
             <Risk label="RR" value={data.rr == null ? "-" : data.rr.toFixed(2)} />
             <Risk label="Plan Size" value={planSize} />
             <Risk label="Confirmation" value={confirmationText} />
@@ -570,7 +626,7 @@ function SignalTheater({
     : pricedLevels
         .filter((level) => level.value < currentEs)
         .sort((a, b) => b.value - a.value)[0] ?? null;
-  const priceValues = [currentEs, plannedEntry, aboveLine?.value, belowLine?.value].filter((value): value is number => value != null);
+  const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
   const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
   const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
   const pad = Math.max((rawMax - rawMin) * 0.12, 4);
@@ -680,10 +736,23 @@ function SignalTheater({
             <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
           </>
         ) : null}
+        {pricedLevels.map((level, index) => {
+          const y = yFor(level.value);
+          return (
+            <g key={`${level.label}-${level.value}-structure`}>
+              <line className={`structure-level-line tone-${level.tone}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
+              <text className={`structure-level-label tone-${level.tone}`} x={chartLeft + 10} y={y - 8}>
+                {level.label} {formatPrice(level.value)}
+              </text>
+              <text className="map-axis-label" x={chartRight + 12} y={y + 4}>{formatPrice(level.value)}</text>
+              <circle className={`level-dot tone-${level.tone}`} cx={chartLeft} cy={y} r={index === 0 || index === pricedLevels.length - 1 ? "3.5" : "3"} />
+            </g>
+          );
+        })}
         {gateLevels.map((level) => {
           const y = yFor(level.value);
           const isUpperGate = aboveLine != null && level.value === aboveLine.value;
-          const gateLabel = isUpperGate ? "Put Rejection Zone" : "Call Support Zone";
+          const gateLabel = isUpperGate ? "Put Rejection Zone" : "Call Hold Zone";
           const labelY = isUpperGate ? y - 46 : y + 20;
           return (
             <g key={`${gateLabel}-${level.value}`}>
@@ -751,15 +820,25 @@ function SignalTheater({
               <small>{vwapDetail}</small>
             </div>
           </div>
+          <div className="structure-ladder-list" aria-label="Full structure levels">
+            <span>Six-line ladder</span>
+            {pricedLevels.map((level) => (
+              <div key={`${level.label}-${level.value}`} className={`ladder-level tone-${level.tone}`}>
+                <strong>{level.label}</strong>
+                <em>{formatPrice(level.value)}</em>
+                <small>{level.value > (currentEs ?? level.value) ? "Above ES" : level.value < (currentEs ?? level.value) ? "Below ES" : "At ES"}</small>
+              </div>
+            ))}
+          </div>
         </aside>
         </div>
     </section>
   );
 }
 
-function SequenceStep({ active, index, title, value }: { active?: boolean; index: string; title: string; value: string }) {
+function SequenceStep({ index, state = "pending", title, value }: { index: string; state?: "pass" | "pending" | "blocked"; title: string; value: string }) {
   return (
-    <div className={`sequence-step ${active ? "active" : ""}`}>
+    <div className={`sequence-step state-${state}`}>
       <span>{index}</span>
       <strong>{title}</strong>
       <p>{value}</p>
@@ -816,8 +895,8 @@ function StrikeSummaryCard({
         <span><em>RR</em><strong>{row?.rr == null ? "-" : row.rr.toFixed(2)}</strong></span>
       </div>
       <div className="strike-summary-footer">
-        <span>Plan locked</span>
-        <strong>{row?.tag === "Selected" ? "Selected" : row?.tag ?? "Selected"}</strong>
+        <span>{budgetFitLabel(row?.budget)}</span>
+        <strong>{row?.tag === "Selected" ? "Plan Locked" : row?.tag ?? "Plan Locked"}</strong>
       </div>
     </article>
   );
@@ -855,7 +934,7 @@ function StrikeRows({
           <span>{formatPrice(row.at_entry)}</span>
           <span>{formatPrice(row.fill)}</span>
           <span>{row.rr == null ? "-" : row.rr.toFixed(2)}</span>
-          <span className={`text-${toneFor(row.budget)}`}>{row.budget}</span>
+          <span className={`text-${toneFor(row.budget)}`}>{budgetFitLabel(row.budget)}</span>
           <span>{row.strike === selectedStrike ? "Selected" : row.tag}</span>
         </button>
       ))}

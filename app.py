@@ -5450,6 +5450,9 @@ def _build_frontend_play(
     selected_quote = selected_quote or {}
     ticket = ticket or {}
     direction = str(play.get("direction") or ticket.get("option_type") or selected_quote.get("option_type") or "")
+    authority_reasons = authority.get("top_reasons")
+    if not isinstance(authority_reasons, list):
+        authority_reasons = []
     return {
         "title": title,
         "direction": direction.title() if direction else "-",
@@ -5470,6 +5473,25 @@ def _build_frontend_play(
         "budget": str(authority.get("budget_execution_status") or selected_quote.get("budget_status") or ticket.get("budget_status") or "Unknown"),
         "quality": str(selected_quote.get("estimate_quality") or selected_quote.get("premium_projection_confidence") or authority.get("evidence_level") or "Unknown"),
         "reason": str(authority.get("reason_line") or authority.get("execution_action_reason") or ticket.get("invalidation") or ""),
+        "authority": {
+            "execution_action": str(authority.get("execution_action") or ""),
+            "trigger_state": str(authority.get("trigger_state") or ""),
+            "alert_state": str(authority.get("alert_state") or ""),
+            "checklist_status": str(authority.get("checklist_status") or ""),
+            "invalidation_code": str(authority.get("invalidation_code") or ""),
+            "invalidation_message": str(authority.get("invalidation_message") or ""),
+            "expiry_status": str(authority.get("expiry_status") or ""),
+            "expiry_reason": str(authority.get("expiry_reason") or ""),
+            "plan_validity": str(authority.get("plan_validity") or ""),
+            "timing_bucket": str(authority.get("timing_bucket") or ""),
+            "budget_execution_status": str(authority.get("budget_execution_status") or selected_quote.get("budget_status") or ticket.get("budget_status") or ""),
+            "structure_valid": authority.get("structure_valid"),
+            "move_completion_pct": _to_float_or_none(authority.get("move_completion_pct")),
+            "line_polarity_state": str(authority.get("line_polarity_state") or ""),
+            "line_polarity_reason": str(authority.get("line_polarity_reason") or ""),
+            "vwap_alignment": str(authority.get("line_polarity_vwap_alignment") or ""),
+            "top_reasons": [str(reason) for reason in authority_reasons[:4] if str(reason).strip()],
+        },
     }
 
 
@@ -5518,7 +5540,17 @@ def _build_frontend_structure(
         value = _to_float_or_none(details.get("price"))
         if value is None:
             continue
-        levels.append({"label": label_map.get(name, str(name)), "value": round_price(value), "tone": tone_map.get(name, "neutral")})
+        distance = _to_float_or_none(value - current_es_price) if current_es_price is not None else None
+        levels.append(
+            {
+                "key": name,
+                "label": label_map.get(name, str(name)),
+                "value": round_price(value),
+                "tone": tone_map.get(name, "neutral"),
+                "distance": round_price(distance) if distance is not None else None,
+                "side": "above" if distance is not None and distance > 0 else "below" if distance is not None and distance < 0 else "current",
+            }
+        )
     sources = summarize_selected_anchor_sources(anchor_bundle) if anchor_bundle else []
     confidence = str((anchor_bundle or {}).get("anchor_confidence") or (anchor_bundle or {}).get("confidence") or "Unknown")
     return {
@@ -5561,6 +5593,18 @@ def build_frontend_operator_snapshot(
     planned_entry_spx = _to_float_or_none(((active_play or {}).get("entry") or {}).get("price") or authority.get("trigger_entry_price_spx"))
     planned_entry_es = _to_float_or_none(authority.get("trigger_entry_price_es"))
     event_context = event_risk_context or {}
+    sit_out_context = package.get("sit_out") if isinstance(package.get("sit_out"), dict) else {}
+    confirmation_context = (
+        package.get("confirmation")
+        if isinstance(package.get("confirmation"), dict)
+        else package.get("confirmation_context")
+        if isinstance(package.get("confirmation_context"), dict)
+        else {}
+    )
+    sit_out_reasons = sit_out_context.get("reasons")
+    sit_out_reason = str(sit_out_context.get("reason") or "")
+    if not sit_out_reason and isinstance(sit_out_reasons, list):
+        sit_out_reason = "; ".join([str(reason) for reason in sit_out_reasons if str(reason).strip()])
     structure_payload = _build_frontend_structure(final_projected_lines_es, current_es_price, live_current_spx, anchor_bundle)
     vwap_context = authority.get("vwap_context") if isinstance(authority.get("vwap_context"), dict) else {}
     vwap_display = resolve_vwap_display(vwap_context, authority.get("line_polarity_vwap_alignment"))
@@ -5583,6 +5627,26 @@ def build_frontend_operator_snapshot(
     return _operator_json_safe(
         {
             "generated_at": current_central_time().isoformat(),
+            "data_health": {
+                "source": "Streamlit operator model",
+                "quote_quality": "Live" if active_quote else "Preview",
+                "snapshot_age": "Live export",
+                "provider": str((active_quote or {}).get("provider") or "Tastytrade / SPX Prophet"),
+                "mode": "Production Operator",
+            },
+            "confirmation": {
+                "status": str(confirmation_context.get("status") or confirmation_context.get("confirmation_status") or authority.get("trigger_state") or "Pending"),
+                "tested_line": str(confirmation_context.get("tested_line") or confirmation_context.get("line") or authority.get("line_polarity_state") or "Polarity line"),
+                "reason": str(confirmation_context.get("reason") or confirmation_context.get("message") or authority.get("trigger_reason") or ""),
+                "candle_time": str(confirmation_context.get("candle_time") or confirmation_context.get("time") or ""),
+                "engine": str(confirmation_context.get("engine") or "Polarity confirmation"),
+            },
+            "sit_out": {
+                "active": bool(sit_out_context.get("sit_out") or sit_out_context.get("active") or False),
+                "reason": sit_out_reason,
+                "gap_distance": _to_float_or_none(sit_out_context.get("gap_distance")),
+                "narrowest_channel_width": _to_float_or_none(sit_out_context.get("narrowest_channel_width")),
+            },
             "decision": {
                 "state": _frontend_decision_state(authority, active_play),
                 "modifier": str(authority.get("setup_state") or authority.get("plan_validity") or ""),
