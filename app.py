@@ -18218,6 +18218,7 @@ def render_operator_play_card(
     projected_fill_at_entry = selected_contract.get("projected_fill_at_entry") or expected_fill
     max_affordable_fill = selected_contract.get("max_affordable_fill_under_budget")
     event_risk_label = str(authority.get("event_risk_level", "unknown")).replace("_", " ").title()
+    vwap_display = resolve_vwap_display(authority.get("vwap_context"), authority.get("line_polarity_vwap_alignment"))
     crowding_label = resolve_crowding_display(authority.get("crowding_context"))["label"]
     absorption_level = str(authority.get("absorption_proxy_level", "quiet")).lower()
     absorption_label = str(authority.get("absorption_proxy_label") or absorption_level.title() or "Quiet")
@@ -18287,6 +18288,8 @@ def render_operator_play_card(
         f'<div class="spx-metric-block layer2"><div class="spx-metric-label">RR</div><div class="spx-metric-value">{rr_value if rr_value is not None else "-"}</div></div>',
         f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Zone</div><div class="spx-metric-value">{escape(str(intelligence.get("entry_zone_status", "-")))}</div></div>',
         f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Move</div><div class="spx-metric-value">{f"{float(move_completion):.0f}%" if move_completion is not None else "-"}</div></div>',
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>',
+        f'<div class="spx-metric-block layer2"><div class="spx-metric-label">5m VWAP</div><div class="spx-metric-value">{escape(vwap_display["label"])}</div></div>',
     ]
     if strike_profile and strike_profile != "-":
         structure_metric_blocks.append(
@@ -18302,7 +18305,6 @@ def render_operator_play_card(
         execution_diagnostic_blocks = (
             '<div class="spx-metric-grid secondary">'
             f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Plan</div><div class="spx-metric-value">{escape(plan_validity)}</div></div>'
-            f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Timing</div><div class="spx-metric-value">{escape(timing_bucket)}</div></div>'
             f'<div class="spx-metric-block layer2"><div class="spx-metric-label">Action</div><div class="spx-metric-value">{escape(execution_action)}</div></div>'
             '</div>'
         )
