@@ -586,6 +586,10 @@ function SignalTheater({
   const entryTop = Math.max(16, Math.min(80, (entryY / 420) * 100));
   const putGateTop = aboveLine ? Math.max(16, Math.min(80, (yFor(aboveLine.value) / 420) * 100)) : null;
   const callGateTop = belowLine ? Math.max(16, Math.min(80, (yFor(belowLine.value) / 420) * 100)) : null;
+  const entryMatchesGate =
+    plannedEntry != null &&
+    ((aboveLine != null && Math.abs(plannedEntry - aboveLine.value) < 0.01) ||
+      (belowLine != null && Math.abs(plannedEntry - belowLine.value) < 0.01));
   const contractSide = isPutSetup
     ? "Selected Put"
     : isCallSetup
@@ -664,9 +668,13 @@ function SignalTheater({
             </g>
           );
         })}
-        <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
-        <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
-        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
+        {!entryMatchesGate ? (
+          <>
+            <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
+            <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
+            <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
+          </>
+        ) : null}
         {gateLevels.map((level) => {
           const y = yFor(level.value);
           const isUpperGate = aboveLine != null && level.value === aboveLine.value;
