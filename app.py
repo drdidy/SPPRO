@@ -18425,10 +18425,7 @@ def render_operator_play_card(
                 </div>
             </div>
             <div class="spx-metric-grid secondary">
-                {''.join(pricing_metric_blocks)}
-            </div>
-            <div class="spx-metric-grid secondary">
-                {''.join(structure_metric_blocks)}
+                {''.join(pricing_metric_blocks + structure_metric_blocks)}
             </div>
             {execution_diagnostic_blocks}
             {reason_note_html}
