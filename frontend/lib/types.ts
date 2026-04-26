@@ -50,6 +50,8 @@ export type OperatorSnapshot = {
     risk: string;
     event_risk: string;
     planned_entry: number | null;
+    planned_entry_spx?: number | null;
+    planned_entry_es?: number | null;
     selected_strike: string;
     expected_fill: number | null;
     budget: string;
@@ -70,6 +72,7 @@ export type OperatorSnapshot = {
   };
   structure: {
     current_es: number | null;
+    current_spx?: number | null;
     anchor_source: string;
     anchor_confidence: string;
     levels: Array<{ label: string; value: number | null; tone: string }>;

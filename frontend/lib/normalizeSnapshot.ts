@@ -84,6 +84,8 @@ export function normalizeOperatorSnapshot(value: unknown): OperatorSnapshot {
       risk: asString(source.decision?.risk, mockSnapshot.decision.risk),
       event_risk: asString(source.decision?.event_risk, mockSnapshot.decision.event_risk),
       planned_entry: asNumber(source.decision?.planned_entry),
+      planned_entry_spx: asNumber(source.decision?.planned_entry_spx ?? source.decision?.planned_entry),
+      planned_entry_es: asNumber(source.decision?.planned_entry_es),
       selected_strike: asString(source.decision?.selected_strike, mockSnapshot.decision.selected_strike),
       expected_fill: asNumber(source.decision?.expected_fill),
       budget: asString(source.decision?.budget, mockSnapshot.decision.budget),
@@ -108,6 +110,7 @@ export function normalizeOperatorSnapshot(value: unknown): OperatorSnapshot {
       ...mockSnapshot.structure,
       ...(source.structure ?? {}),
       current_es: asNumber(source.structure?.current_es),
+      current_spx: asNumber(source.structure?.current_spx),
       anchor_source: asString(source.structure?.anchor_source, mockSnapshot.structure.anchor_source),
       anchor_confidence: asString(source.structure?.anchor_confidence, mockSnapshot.structure.anchor_confidence),
       levels: Array.isArray(source.structure?.levels) ? source.structure.levels.map((level) => ({

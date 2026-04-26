@@ -7,8 +7,6 @@ import type { OperatorSnapshot, StrikeRow } from "@/lib/types";
 import { formatPrice, toneFor } from "@/lib/format";
 import { commandBackdropVariants, commandPanelVariants, panelVariants, shellVariants } from "@/lib/motion";
 
-type ProjectionMode = "current" | "retest";
-
 export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) {
   const primary = snapshot.primary_play;
   const alternate = snapshot.alternate_play;
@@ -17,13 +15,11 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const structure = snapshot.structure;
   const primaryRows = snapshot.strike_ladders.primary;
   const alternateRows = snapshot.strike_ladders.alternate;
-  const [activeRail, setActiveRail] = useState("OP");
   const [selectedStrike, setSelectedStrike] = useState(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primaryRows[0]?.strike ?? "");
   const [selectedAlternateStrike, setSelectedAlternateStrike] = useState(
     alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternateRows[0]?.strike ?? ""
   );
-  const [projectionMode, setProjectionMode] = useState<ProjectionMode>("retest");
-  const [quoteAge, setQuoteAge] = useState(4);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [commandOpen, setCommandOpen] = useState(false);
   const [armed, setArmed] = useState(false);
   const visualTheme = "obsidian";
@@ -42,33 +38,35 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const alternateFill = selectedAlternateRow?.fill ?? alternate.expected_fill;
   const alternateRR = selectedAlternateRow?.rr ?? alternate.rr;
   const alternateContract = selectedAlternateRow?.strike ?? alternate.contract;
+  const plannedEntrySpX = decision.planned_entry_spx ?? decision.planned_entry;
+  const plannedEntryEs = decision.planned_entry_es ?? null;
+  const mapEntry = plannedEntryEs ?? plannedEntrySpX;
   const distanceToEntry =
-    structure.current_es != null && decision.planned_entry != null
-      ? structure.current_es - decision.planned_entry
+    structure.current_es != null && plannedEntryEs != null
+      ? structure.current_es - plannedEntryEs
       : null;
   const distanceLabel =
     distanceToEntry == null
-      ? "Entry distance unavailable"
-      : `${Math.abs(distanceToEntry).toFixed(2)} pts ${distanceToEntry >= 0 ? "above" : "below"} entry`;
-  const triggerLabel =
-    decision.state.toUpperCase().includes("WAIT") && decision.planned_entry != null
-      ? `Wait for ${formatPrice(decision.planned_entry)} retest`
+      ? "ES trigger distance unavailable"
+      : `${Math.abs(distanceToEntry).toFixed(2)} pts ${distanceToEntry >= 0 ? "above" : "below"} ES trigger`;
+  const mastheadReason =
+    mapEntry != null
+      ? `${decision.bias} plan needs ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} retest confirmation.`
       : decision.reason;
   const scenarioLabel = `${decision.bias} / ${decision.scenario}`;
-  const executionLine = `${primary.status} | ${primary.zone} | ${structure.anchor_source} anchor`;
-  const controlModeLabel = projectionMode === "retest" ? "Retest Mode" : "Current Mode";
-  const orderStatus = armed ? "Retest Armed" : "Order Not Sent";
+  const executionLine = `${primary.zone} | ${structure.anchor_source} anchor`;
+  const controlModeLabel = "Retest Plan";
+  const orderStatus = armed ? "Retest Watch On" : "Retest Watch Off";
   const orderStatusDetail = armed
-    ? `${activeContract} waits for confirmation at the planned line.`
-    : `${decision.state} | ${triggerLabel}`;
+    ? `${activeContract} tracks confirmation at the planned line.`
+    : "No trade authority before polarity confirmation.";
   const authorityTone = toneFor(decision.state);
-  const currentAuthorityText = "No fill authority at current price. Await structure return.";
   const retestAuthorityText = decision.reason;
-  const authorityReason = projectionMode === "retest" ? retestAuthorityText : currentAuthorityText;
+  const authorityReason = retestAuthorityText || "Structure must confirm at the planned line before execution.";
   const triggerCondition =
-    decision.planned_entry == null
+    mapEntry == null
       ? "Trigger line unavailable until planned entry loads."
-      : `Retest ${formatPrice(decision.planned_entry)} and confirm the Asian polarity line.`;
+      : `Retest ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} and confirm the ${structure.anchor_source} polarity line.`;
   const constraintLabels = [
     `Event ${decision.event_risk}`,
     decision.budget,
@@ -76,18 +74,29 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   ];
   const constraintSummary = constraintLabels.join(" | ");
   const authoritySubtitle = armed
-    ? "Retest armed. Still wait for confirmation."
+    ? "Retest watch on. Confirmation still required."
     : decision.state.toUpperCase().includes("WAIT")
       ? "Stand down until the retest confirms."
       : "Execution authority follows confirmed structure.";
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
+  const snapshotAgeSeconds = useMemo(() => {
+    const parsed = Date.parse(snapshot.generated_at);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.round((clockNow - parsed) / 1000));
+  }, [clockNow, snapshot.generated_at]);
+  const snapshotAgeLabel =
+    snapshotAgeSeconds == null
+      ? "Unavailable"
+      : snapshotAgeSeconds < 60
+        ? `${snapshotAgeSeconds}s`
+        : `${Math.floor(snapshotAgeSeconds / 60)}m ${snapshotAgeSeconds % 60}s`;
 
   const stageLevels = useMemo(() => structure.levels, [structure.levels]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setQuoteAge((value) => (value >= 9 ? 3 : value + 1));
-    }, 1400);
+      setClockNow(Date.now());
+    }, 10000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -121,21 +130,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       animate="show"
     >
       <div className="aurora-field" aria-hidden="true" />
-      <motion.aside className="rail" aria-label="Operator navigation" variants={panelVariants}>
-        <div className="rail-logo">SP</div>
-        {["OP", "ST", "RK", "LG"].map((item) => (
-          <button
-            aria-pressed={activeRail === item}
-            className={`rail-item ${activeRail === item ? "active" : ""}`}
-            key={item}
-            onClick={() => setActiveRail(item)}
-            type="button"
-          >
-            {item}
-          </button>
-        ))}
-      </motion.aside>
-
       <section className="main">
         <motion.header className="topbar cinematic-topbar masthead" variants={panelVariants}>
           <div className="masthead-sheen" aria-hidden="true" />
@@ -167,26 +161,25 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
 
           <div className="market-pulse" aria-live="polite">
             <div className="pulse-head">
-              <span className="live-dot-label">Execution Tape</span>
+              <span className="live-dot-label">Live Plan Snapshot</span>
               <span className={`pulse-risk tone-${toneFor(decision.event_risk)}`}>{decision.event_risk} Event Risk</span>
             </div>
             <div className="pulse-decision">
-              <span>Trade State</span>
-              <strong>{decision.state}</strong>
+              <span>Trigger Focus</span>
+              <strong>{mapEntry == null ? "Entry Pending" : `${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"}`}</strong>
               <p>
-                <b>{triggerLabel}</b>
+                <b>{mastheadReason}</b>
                 <small>{scenarioLabel}</small>
               </p>
             </div>
             <div className="pulse-values">
               <span>Setup <strong>{executionLine}</strong></span>
               <span>Strike <strong>{activeContract}</strong></span>
-              <span>Entry <strong>{formatPrice(decision.planned_entry)}</strong></span>
               <span>ES Distance <strong>{distanceLabel}</strong></span>
               <span>Fill / Budget <strong>{formatPrice(ticketFill)} | {decision.budget}</strong></span>
               <span>Confidence <strong>{decision.confidence}% | {decision.risk} Risk</strong></span>
               <span>Context <strong>{context.risk_mode}</strong></span>
-              <span>Quote Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
+              <span>Snapshot Age <strong>{snapshotAgeLabel}</strong></span>
             </div>
           </div>
 
@@ -196,12 +189,12 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <em>{controlModeLabel}</em>
             </div>
             <div className="order-state">
-              <span>{armed ? "Armed State" : "Safe State"}</span>
+              <span>Alert Preview</span>
               <strong>{orderStatus}</strong>
               <small>{orderStatusDetail}</small>
             </div>
             <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">
-              <span>Command Center</span>
+              <span>Plan Controls</span>
               <strong>/</strong>
             </button>
             <button
@@ -210,7 +203,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               onClick={() => setArmed((value) => !value)}
               type="button"
             >
-              {armed ? "Disarm Retest" : "Arm Retest"}
+              {armed ? "Disable Watch" : "Enable Watch"}
             </button>
           </div>
         </motion.header>
@@ -218,7 +211,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         <motion.section className="cinematic-hero" variants={panelVariants}>
           <div className={`hero-copy authority-card tone-${authorityTone}`}>
             <div className="authority-topline">
-              <p className="kicker">Order Authority</p>
+              <p className="kicker">Trade Authority</p>
               <span className="decision-index">Gate 01</span>
             </div>
             <div className="decision-lockup">
@@ -232,8 +225,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             </div>
             <div className="authority-ticket-row" aria-label="Execution ticket facts">
               <div>
-                <span>Entry</span>
-                <strong>{formatPrice(decision.planned_entry)}</strong>
+                <span>{plannedEntryEs != null ? "Trigger ES" : "Trigger"}</span>
+                <strong>{formatPrice(mapEntry)}</strong>
               </div>
               <div>
                 <span>Contract</span>
@@ -248,7 +241,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 <strong>{ticketRR == null ? "-" : ticketRR.toFixed(2)}</strong>
               </div>
             </div>
-            <div className="authority-condition-grid" aria-label="Order authority conditions">
+            <div className="authority-condition-grid" aria-label="Trade authority conditions">
               <div>
                 <span>Bias</span>
                 <strong>{decision.bias}</strong>
@@ -258,18 +251,9 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 <strong>{decision.scenario}</strong>
               </div>
               <div>
-                <span>Constraints</span>
+                <span>Guardrails</span>
                 <strong>{constraintSummary}</strong>
               </div>
-            </div>
-            <div className="mode-switch authority-mode-switch" aria-label="Projection mode">
-              <button className={projectionMode === "current" ? "active" : ""} onClick={() => setProjectionMode("current")} type="button">Current Price</button>
-              <button className={projectionMode === "retest" ? "active" : ""} onClick={() => setProjectionMode("retest")} type="button">If Retest</button>
-            </div>
-            <div className="state-row authority-state-row">
-              <span className={`pill tone-${toneFor(decision.bias)}`}>{decision.bias}</span>
-              <span className={`pill tone-${toneFor(decision.event_risk)}`}>Event {decision.event_risk}</span>
-              <span className={`pill tone-${toneFor(decision.budget)}`}>{decision.budget}</span>
             </div>
           </div>
 
@@ -278,7 +262,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             currentEs={structure.current_es}
             expectedFill={ticketFill}
             levels={stageLevels}
-            plannedEntry={decision.planned_entry}
+            plannedEntry={mapEntry}
           />
 
           <PlayStack
@@ -305,7 +289,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
         </motion.section>
 
         <motion.section className="operator-strip" variants={panelVariants} aria-label="Operator summary">
-          <Metric label="Planned Entry" value={`${formatPrice(decision.planned_entry)} SPX`} />
+          <Metric label={plannedEntryEs != null ? "Trigger ES" : "Planned Entry"} value={`${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"}`} />
           <Metric label="Primary Strike" value={activeContract} tone="warning" />
           <Metric label="Alternate Strike" value={alternateContract} />
           <Metric label="Expected Fill" value={formatPrice(ticketFill)} tone="warning" />
@@ -361,10 +345,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               </div>
               <div className="sequence-grid">
                 <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity`} active />
-                <SequenceStep index="02" title="Retest" value="Wait for clean line return" active={projectionMode === "retest"} />
+                <SequenceStep index="02" title="Retest" value="Clean line return required" active />
                 <SequenceStep index="03" title="Primary" value={`${activeContract} | ${primary.status}`} active />
                 <SequenceStep index="04" title="Alternate" value={`${alternateContract} | ${alternate.status}`} active={alternate.status !== "Blocked"} />
-                <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "No alert armed"} active={armed} />
+                <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "Alert not armed"} active={armed} />
               </div>
             </motion.section>
           </div>
@@ -407,13 +391,12 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
           variants={commandBackdropVariants}
         >
           <motion.section className="command-panel" onClick={(event) => event.stopPropagation()} variants={commandPanelVariants}>
-            <p className="kicker">Command Center</p>
+            <p className="kicker">Plan Controls</p>
             <h3>Operator actions</h3>
-            <button onClick={() => { setProjectionMode("retest"); setCommandOpen(false); }} type="button">Focus retest plan</button>
-            <button onClick={() => { setSelectedStrike(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primary.contract); setActiveRail("OP"); setCommandOpen(false); }} type="button">Focus primary play</button>
-            <button onClick={() => { setSelectedAlternateStrike(alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternate.contract); setActiveRail("OP"); setCommandOpen(false); }} type="button">Focus alternate play</button>
-            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Arm retest alert</button>
-            <button onClick={() => { setActiveRail("RK"); setCommandOpen(false); }} type="button">Review risk and context</button>
+            <button onClick={() => { setSelectedStrike(primaryRows.find((row) => row.tag === "Selected")?.strike ?? primary.contract); setCommandOpen(false); }} type="button">Focus primary play</button>
+            <button onClick={() => { setSelectedAlternateStrike(alternateRows.find((row) => row.tag === "Selected")?.strike ?? alternate.contract); setCommandOpen(false); }} type="button">Focus alternate play</button>
+            <button onClick={() => { setArmed(true); setCommandOpen(false); }} type="button">Enable retest watch</button>
+            <button onClick={() => { setCommandOpen(false); }} type="button">Review risk and context</button>
             <span>Press Esc to close | Ctrl+K / Cmd+K opens this panel</span>
           </motion.section>
         </motion.div>
@@ -452,7 +435,7 @@ function PlayStack({
           <p className="kicker">Execution Tickets</p>
           <h3>Primary + Alternate</h3>
         </div>
-        <span className={`pill ${armed ? "tone-warning" : ""}`}>{armed ? "Retest Alert Armed" : "No Order Submitted"}</span>
+        <span className={`pill ${armed ? "tone-warning" : ""}`}>{armed ? "Alert Armed" : "Guarded"}</span>
       </div>
       <div className="play-ticket-list">
         <PlayTicketCard data={primary} label="Primary Play" active armed={armed} />
@@ -460,9 +443,9 @@ function PlayStack({
       </div>
       <div className="button-row">
         <button className="button primary" onClick={onArm} type="button">
-          {armed ? "Disarm Retest Alert" : "Arm Retest Alert"}
+          {armed ? "Disable Retest Watch" : "Enable Retest Watch"}
         </button>
-        <button className="button" onClick={onCommands} type="button">Open Commands</button>
+        <button className="button" onClick={onCommands} type="button">Plan Controls</button>
       </div>
     </motion.section>
   );
@@ -482,7 +465,7 @@ function PlayTicketCard({
   const isPut = data.contract.toUpperCase().endsWith("P");
   const isCall = data.contract.toUpperCase().endsWith("C");
   const contractSide = isPut ? "Put" : isCall ? "Call" : data.play.direction;
-  const ticketState = armed ? "Retest Alert Armed" : data.play.status;
+  const ticketState = armed ? "Retest Watch On" : data.play.status;
   const gateLabel = isPut ? "upper rejection line" : isCall ? "lower hold line" : "planned trigger";
   const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
 
@@ -605,7 +588,7 @@ function SignalTheater({
     : isCallSetup
       ? "Touch line, close above within 3 pts"
       : "Touch line, close near it";
-  const universalNoEntryLabel = "No puts until upper rejection. No calls until lower hold.";
+  const universalNoEntryLabel = "Trade gates: upper rejection for puts, lower hold for calls.";
   const mapStatus = currentEs != null && plannedEntry != null
     ? isPutSetup
       ? currentEs < plannedEntry
@@ -624,7 +607,7 @@ function SignalTheater({
           : currentEs < plannedEntry
             ? "Current ES is below retest zone"
             : "Current ES is at retest entry"
-    : "Waiting for structure data";
+    : "Structure data unavailable";
 
   return (
     <section className="signal-theater execution-map" aria-label="Animated execution structure map">
@@ -641,7 +624,7 @@ function SignalTheater({
         <span>All lines start neutral</span>
         <span>Put gate: upper rejection</span>
         <span>Call gate: lower hold</span>
-        <span>Extended reaction = wait</span>
+        <span>Extended reaction = retest required</span>
       </div>
       <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
@@ -710,21 +693,21 @@ function SignalTheater({
         <text className="current-price-label" x={currentNodeX + 12} y={currentY - 12}>Current ES {formatPrice(currentEs)}</text>
       </svg>
       <div className="distance-badge" style={{ top: `${distanceTop}%` }}>
-        <span>Distance to wait</span>
+        <span>Retest distance</span>
         <strong>{distanceLabel}</strong>
       </div>
       {putGateTop != null && aboveLine ? (
         <div className="gate-ticket-badge put-ticket-badge" style={{ top: `${putGateTop}%` }}>
           <span>Put Rejection Zone</span>
           <strong>{formatPrice(aboveLine.value)}</strong>
-          {isPutSetup ? <small>{activeContract} selected</small> : <small>wait for close below</small>}
+          {isPutSetup ? <small>{activeContract} selected</small> : <small>close below required</small>}
         </div>
       ) : null}
       {callGateTop != null && belowLine ? (
         <div className="gate-ticket-badge call-ticket-badge" style={{ top: `${callGateTop}%` }}>
           <span>Call Hold Zone</span>
           <strong>{formatPrice(belowLine.value)}</strong>
-          {isCallSetup ? <small>{activeContract} selected</small> : <small>wait for close above</small>}
+          {isCallSetup ? <small>{activeContract} selected</small> : <small>close above required</small>}
         </div>
       ) : null}
       <div className="entry-ticket-badge selected-ticket-badge" style={{ top: `${entryTop}%` }}>

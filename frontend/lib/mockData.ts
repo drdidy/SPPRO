@@ -11,6 +11,8 @@ export const mockSnapshot: OperatorSnapshot = {
     risk: "Low",
     event_risk: "Major",
     planned_entry: 7211.25,
+    planned_entry_spx: 7211.25,
+    planned_entry_es: 7211.25,
     selected_strike: "7210P",
     expected_fill: 6.88,
     budget: "Over Budget",
@@ -19,12 +21,12 @@ export const mockSnapshot: OperatorSnapshot = {
   market_context: {
     risk_mode: "High Watch",
     event_risk: "Major",
-    next_event: "No scheduled release loaded",
-    interpretation: "Headline risk may widen fills and reduce estimate reliability.",
+    next_event: "Calendar unavailable",
+    interpretation: "Market context is unavailable in preview mode. Treat execution estimates as illustrative.",
     headlines: [
-      { title: "Macro calendar feed ready for high-impact events", source: "SPX Prophet", time: "Now" },
-      { title: "Policy and headline shock watch is active", source: "SPX Prophet", time: "Now" },
-      { title: "Live news feed can be connected after API credentials are added", source: "SPX Prophet", time: "Setup" }
+      { title: "Live market headlines unavailable", source: "SPX Prophet", time: "Preview" },
+      { title: "Economic calendar unavailable", source: "SPX Prophet", time: "Preview" },
+      { title: "Use Streamlit snapshot export for live context", source: "SPX Prophet", time: "Preview" }
     ]
   },
   primary_play: {
@@ -87,6 +89,7 @@ export const mockSnapshot: OperatorSnapshot = {
   },
   structure: {
     current_es: 7194.75,
+    current_spx: 7194.75,
     anchor_source: "Asian",
     anchor_confidence: "Medium",
     levels: [

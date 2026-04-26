@@ -5491,6 +5491,7 @@ def _frontend_decision_state(authority: dict[str, Any] | None, play: dict[str, A
 def _build_frontend_structure(
     final_projected_lines_es: dict[str, dict[str, Any]] | None,
     current_es_price: float | None,
+    live_current_spx: float | None,
     anchor_bundle: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Normalize projected ES lines and anchor metadata for the animated structure map."""
@@ -5522,6 +5523,7 @@ def _build_frontend_structure(
     confidence = str((anchor_bundle or {}).get("anchor_confidence") or (anchor_bundle or {}).get("confidence") or "Unknown")
     return {
         "current_es": _to_float_or_none(current_es_price),
+        "current_spx": _to_float_or_none(live_current_spx),
         "anchor_source": " | ".join(sources) if sources else "Unknown",
         "anchor_confidence": confidence,
         "levels": levels,
@@ -5556,6 +5558,8 @@ def build_frontend_operator_snapshot(
     active_play = primary_play if hero_active_play == "Primary" else alternate_play if hero_active_play == "Alternate" else primary_play
     active_quote = primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote if hero_active_play == "Alternate" else primary_selected_contract_quote or alternate_selected_contract_quote
     authority = hero_authority or primary_authority or alternate_authority or {}
+    planned_entry_spx = _to_float_or_none(((active_play or {}).get("entry") or {}).get("price") or authority.get("trigger_entry_price_spx"))
+    planned_entry_es = _to_float_or_none(authority.get("trigger_entry_price_es"))
     event_context = event_risk_context or {}
     headlines = []
     for item in list(event_context.get("headlines", []) or [])[:5]:
@@ -5578,7 +5582,9 @@ def build_frontend_operator_snapshot(
                 "confidence": int(authority.get("confidence_score", 0) or 0),
                 "risk": str(authority.get("risk_class") or ""),
                 "event_risk": str(event_context.get("event_risk_level") or authority.get("event_risk_level") or "Unknown").title(),
-                "planned_entry": _to_float_or_none(((active_play or {}).get("entry") or {}).get("price") or authority.get("trigger_entry_price_spx")),
+                "planned_entry": planned_entry_spx,
+                "planned_entry_spx": planned_entry_spx,
+                "planned_entry_es": planned_entry_es,
                 "selected_strike": _compact_contract_label(active_quote, active_play),
                 "expected_fill": _first_option_value(active_quote, ["expected_fill_at_target_time", "projected_fill_at_entry", "expected_fill_mark"]),
                 "budget": str(authority.get("budget_execution_status") or (active_quote or {}).get("budget_status") or "Unknown"),
@@ -5609,7 +5615,7 @@ def build_frontend_operator_snapshot(
                 "primary": _build_frontend_strike_rows(primary_option_display, primary_selected_contract_quote),
                 "alternate": _build_frontend_strike_rows(alternate_option_display, alternate_selected_contract_quote),
             },
-            "structure": _build_frontend_structure(final_projected_lines_es, current_es_price, anchor_bundle),
+            "structure": _build_frontend_structure(final_projected_lines_es, current_es_price, live_current_spx, anchor_bundle),
         }
     )
 
