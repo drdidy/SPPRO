@@ -1469,8 +1469,8 @@ button {
 
 .structure-level-line.tone-danger,
 .level-dot.tone-danger {
-  stroke: var(--red);
-  fill: var(--red);
+  stroke: rgba(242,239,231,0.36);
+  fill: rgba(242,239,231,0.62);
 }
 
 .structure-level-line.tone-accent,
@@ -1481,8 +1481,8 @@ button {
 
 .structure-level-line.tone-positive,
 .level-dot.tone-positive {
-  stroke: var(--green);
-  fill: var(--green);
+  stroke: rgba(242,239,231,0.36);
+  fill: rgba(242,239,231,0.62);
 }
 
 .structure-level-line.tone-neutral,
@@ -1717,7 +1717,7 @@ button {
 }
 
 .stage-levels span.tone-danger {
-  border-color: rgba(224,90,90,0.22);
+  border-color: rgba(242,239,231,0.12);
 }
 
 .stage-levels span.tone-accent {
@@ -1726,7 +1726,7 @@ button {
 }
 
 .stage-levels span.tone-positive {
-  border-color: rgba(80,214,157,0.2);
+  border-color: rgba(242,239,231,0.12);
 }
 
 .sequence-grid {

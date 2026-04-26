@@ -76,10 +76,10 @@ export const mockSnapshot: OperatorSnapshot = {
     anchor_source: "Asian",
     anchor_confidence: "Medium",
     levels: [
-      { label: "Upper Polarity", value: 7211.25, tone: "danger" },
+      { label: "Upper Polarity", value: 7211.25, tone: "neutral" },
       { label: "Active Entry Line", value: 7167.16, tone: "accent" },
       { label: "Mid Structure", value: 7146.8, tone: "neutral" },
-      { label: "Lower Polarity", value: 7108.4, tone: "positive" }
+      { label: "Lower Polarity", value: 7108.4, tone: "neutral" }
     ]
   }
 };
