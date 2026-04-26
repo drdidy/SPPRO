@@ -1309,7 +1309,7 @@ button {
 }
 
 .signal-theater {
-  min-height: 440px;
+  min-height: 500px;
   isolation: isolate;
   display: grid;
   place-items: center;
@@ -1317,6 +1317,49 @@ button {
     radial-gradient(circle at 52% 52%, rgba(122,215,223,0.12), transparent 15rem),
     linear-gradient(180deg, rgba(242,239,231,0.04), rgba(242,239,231,0.01)),
     rgba(8,10,12,0.86);
+}
+
+.map-titlebar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  left: 24px;
+  position: absolute;
+  right: 24px;
+  top: 20px;
+  z-index: 5;
+}
+
+.map-titlebar div {
+  display: grid;
+  gap: 3px;
+}
+
+.map-titlebar span,
+.map-titlebar em {
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 840;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.map-titlebar strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: clamp(1.08rem, 1.5vw, 1.45rem);
+  font-weight: 740;
+  letter-spacing: -0.035em;
+}
+
+.map-titlebar em {
+  border: 1px solid rgba(216,170,87,0.24);
+  border-radius: 999px;
+  background: rgba(216,170,87,0.08);
+  color: var(--amber);
+  padding: 7px 10px;
 }
 
 .theme-daylight .signal-theater {
@@ -1352,6 +1395,7 @@ button {
   height: 330px;
   border: 1px solid rgba(122,215,223,0.12);
   border-radius: 999px;
+  opacity: 0.24;
   transform: rotateX(66deg) rotateZ(-18deg);
 }
 
@@ -1393,7 +1437,7 @@ button {
 .current-price-label {
   fill: rgba(242,239,231,0.54);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 760;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1411,15 +1455,16 @@ button {
 
 .entry-zone-line {
   stroke: var(--amber);
-  stroke-width: 2.2;
+  stroke-width: 3;
   stroke-linecap: round;
-  stroke-dasharray: 10 9;
-  animation: band-flow 1.8s linear infinite;
+  stroke-dasharray: 13 10;
+  filter: drop-shadow(0 0 12px rgba(216,170,87,0.42));
+  animation: band-flow 2.4s linear infinite;
 }
 
 .structure-level-line {
   stroke: rgba(242,239,231,0.22);
-  stroke-width: 1.35;
+  stroke-width: 1.45;
 }
 
 .structure-level-line.tone-danger,
@@ -1452,23 +1497,23 @@ button {
 
 .retest-route {
   fill: none;
-  stroke: rgba(216,170,87,0.82);
+  stroke: rgba(216,170,87,0.62);
   stroke-width: 2;
   stroke-linecap: round;
-  stroke-dasharray: 7 10;
-  animation: route-flow 2.4s linear infinite;
+  stroke-dasharray: 5 13;
+  animation: route-flow 3.8s linear infinite;
 }
 
 .current-price-line {
   stroke: var(--cyan);
-  stroke-width: 1.8;
+  stroke-width: 1.55;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 12px rgba(122,215,223,0.42));
-  animation: current-line-pulse 2.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 9px rgba(122,215,223,0.34));
+  animation: current-line-pulse 3.8s ease-in-out infinite;
 }
 
 .current-price-glow {
-  opacity: 0.42;
+  opacity: 0.28;
   animation: current-glow-pulse 3.4s ease-in-out infinite;
 }
 
@@ -1485,6 +1530,12 @@ button {
   fill: var(--cyan);
   filter: drop-shadow(0 0 14px rgba(122,215,223,0.7));
   animation: current-dot-pulse 2.2s ease-in-out infinite;
+}
+
+.distance-ruler line {
+  stroke: rgba(216,170,87,0.48);
+  stroke-linecap: round;
+  stroke-width: 1.35;
 }
 
 .cone-fill {
@@ -1539,6 +1590,16 @@ button {
   padding: 10px 12px;
 }
 
+.stage-readout small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  max-width: 190px;
+}
+
 .stage-readout span,
 .stage-levels span {
   color: var(--faint);
@@ -1551,12 +1612,77 @@ button {
 .stage-readout strong {
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 1.04rem;
 }
 
-.top-left { left: 24px; top: 24px; }
-.bottom-left { left: 24px; bottom: 92px; }
-.right { right: 24px; top: 24px; }
+.top-left { left: 24px; top: 86px; }
+.bottom-left { left: 24px; bottom: 112px; }
+.right { right: 24px; top: 86px; }
+
+.distance-badge,
+.entry-ticket-badge {
+  position: absolute;
+  z-index: 4;
+  border: 1px solid rgba(242,239,231,0.08);
+  border-radius: 16px;
+  background: rgba(3,4,6,0.64);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 42px rgba(0,0,0,0.28);
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.distance-badge {
+  right: 102px;
+  transform: translateY(-50%);
+}
+
+.entry-ticket-badge {
+  right: 24px;
+  transform: translateY(-50%);
+  min-width: 150px;
+  border-color: rgba(216,170,87,0.26);
+  background: linear-gradient(145deg, rgba(216,170,87,0.14), rgba(3,4,6,0.6));
+}
+
+.distance-badge span,
+.entry-ticket-badge span {
+  color: var(--faint);
+  font-size: 0.62rem;
+  font-weight: 840;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.distance-badge strong,
+.entry-ticket-badge strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+
+.entry-ticket-badge small {
+  color: var(--amber);
+  font-size: 0.74rem;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.theme-daylight .stage-readout,
+.theme-daylight .distance-badge,
+.theme-daylight .entry-ticket-badge {
+  background: rgba(255,252,244,0.72);
+  border-color: rgba(16,24,32,0.08);
+  box-shadow: 0 16px 38px rgba(70, 64, 47, 0.12);
+}
+
+.theme-daylight .entry-ticket-badge {
+  background: linear-gradient(145deg, rgba(216,170,87,0.17), rgba(255,252,244,0.72));
+}
 
 .stage-levels {
   position: absolute;
@@ -1571,9 +1697,36 @@ button {
 
 .stage-levels span {
   border: 1px solid rgba(242,239,231,0.075);
-  border-radius: 999px;
+  border-radius: 14px;
   background: rgba(255,255,255,0.025);
-  padding: 6px 8px;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.stage-levels em {
+  color: var(--faint);
+  font-style: normal;
+}
+
+.stage-levels strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: -0.035em;
+}
+
+.stage-levels span.tone-danger {
+  border-color: rgba(224,90,90,0.22);
+}
+
+.stage-levels span.tone-accent {
+  border-color: rgba(216,170,87,0.28);
+  background: rgba(216,170,87,0.07);
+}
+
+.stage-levels span.tone-positive {
+  border-color: rgba(80,214,157,0.2);
 }
 
 .sequence-grid {
@@ -2229,6 +2382,39 @@ button {
   }
   .authority-ticket-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .signal-theater {
+    min-height: 620px;
+    place-items: center;
+  }
+  .map-titlebar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .execution-map-svg {
+    width: 100%;
+    margin-top: 70px;
+  }
+  .distance-badge,
+  .entry-ticket-badge,
+  .stage-readout {
+    position: static;
+    transform: none;
+  }
+  .distance-badge,
+  .entry-ticket-badge {
+    margin-inline: 18px;
+    width: calc(100% - 36px);
+  }
+  .stage-readout.top-left,
+  .stage-readout.right,
+  .stage-readout.bottom-left {
+    display: none;
+  }
+  .stage-levels {
+    position: static;
+    margin: 0 18px 18px;
+    width: calc(100% - 36px);
   }
   .ladder-row {
     grid-template-columns: 1fr 1fr;

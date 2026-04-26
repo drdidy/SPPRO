@@ -467,18 +467,36 @@ function SignalTheater({
   const currentY = yFor(currentEs);
   const entryY = yFor(plannedEntry);
   const routeD = `M ${chartRight - 42} ${currentY} C ${chartRight - 104} ${(currentY + entryY) / 2 - 36}, ${chartLeft + 116} ${(currentY + entryY) / 2 + 34}, ${chartLeft + 26} ${entryY}`;
+  const distanceToRetest = currentEs != null && plannedEntry != null ? currentEs - plannedEntry : null;
+  const distanceLabel = distanceToRetest == null
+    ? "Distance unavailable"
+    : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
+  const distanceTop = Math.max(15, Math.min(78, (((currentY + entryY) / 2) / 420) * 100));
+  const entryTop = Math.max(16, Math.min(80, (entryY / 420) * 100));
+  const contractSide = activeContract.toUpperCase().endsWith("P")
+    ? "Selected Put"
+    : activeContract.toUpperCase().endsWith("C")
+      ? "Selected Call"
+      : "Selected Contract";
   const mapStatus = currentEs != null && plannedEntry != null
     ? currentEs > plannedEntry
-      ? "Price above planned retest"
+      ? "Current ES is above retest zone"
       : currentEs < plannedEntry
-        ? "Price below planned retest"
-        : "Price at planned entry"
+        ? "Current ES is below retest zone"
+        : "Current ES is at retest entry"
     : "Waiting for structure data";
 
   return (
     <section className="signal-theater execution-map" aria-label="Animated execution structure map">
       <div className="stage-orbit orbit-one" />
       <div className="stage-orbit orbit-two" />
+      <div className="map-titlebar">
+        <div>
+          <span>Structure Map</span>
+          <strong>{mapStatus}</strong>
+        </div>
+        <em>No entry until retest confirms</em>
+      </div>
       <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
           <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
@@ -506,39 +524,55 @@ function SignalTheater({
         })}
         <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
         <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
-        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>Planned retest / entry</text>
+        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>Retest entry zone {formatPrice(plannedEntry)}</text>
         {drawableLevels.map((level) => {
           const y = yFor(level.value);
           return (
             <g key={level.label}>
               <line className={`structure-level-line tone-${level.tone}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
               <circle className={`level-dot tone-${level.tone}`} cx={chartLeft} cy={y} r="4" />
-              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{level.label}</text>
+              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{level.label} {formatPrice(level.value)}</text>
             </g>
           );
         })}
+        {distanceToRetest != null && Math.abs(currentY - entryY) > 8 ? (
+          <g className="distance-ruler">
+            <line x1={chartRight - 84} x2={chartRight - 84} y1={Math.min(currentY, entryY)} y2={Math.max(currentY, entryY)} />
+            <line x1={chartRight - 92} x2={chartRight - 76} y1={currentY} y2={currentY} />
+            <line x1={chartRight - 92} x2={chartRight - 76} y1={entryY} y2={entryY} />
+          </g>
+        ) : null}
         <path className="retest-route" d={routeD} markerEnd="url(#routeArrow)" />
         <line className="current-price-line" x1={chartLeft} x2={chartRight} y1={currentY} y2={currentY} />
         <circle className="current-price-glow" cx={chartRight - 42} cy={currentY} r="42" fill="url(#currentGlow)" />
         <circle className="current-price-ring" cx={chartRight - 42} cy={currentY} r="13" />
         <circle className="current-price-node" cx={chartRight - 42} cy={currentY} r="6" />
-        <text className="current-price-label" x={chartRight - 36} y={currentY - 12}>Current ES</text>
+        <text className="current-price-label" x={chartRight - 36} y={currentY - 12}>Current ES {formatPrice(currentEs)}</text>
       </svg>
+      <div className="distance-badge" style={{ top: `${distanceTop}%` }}>
+        <span>Distance to wait</span>
+        <strong>{distanceLabel}</strong>
+      </div>
+      <div className="entry-ticket-badge" style={{ top: `${entryTop}%` }}>
+        <span>{contractSide}</span>
+        <strong>{activeContract}</strong>
+        <small>Est. fill {formatPrice(expectedFill)}</small>
+      </div>
       <div className="stage-readout top-left">
-        <span>{mapStatus}</span>
+        <span>Current ES Price</span>
         <strong>{formatPrice(currentEs)}</strong>
+        <small>{mapStatus}</small>
       </div>
       <div className="stage-readout bottom-left">
-        <span>Planned Entry</span>
+        <span>Retest Entry Zone</span>
         <strong>{formatPrice(plannedEntry)}</strong>
       </div>
-      <div className="stage-readout right">
-        <span>{activeContract}</span>
-        <strong>{formatPrice(expectedFill)} fill</strong>
-      </div>
-      <div className="stage-levels">
-        {pricedLevels.slice(0, 3).map((level) => (
-          <span key={level.label}>{level.label}: {formatPrice(level.value)}</span>
+      <div className="stage-levels structure-legend">
+        {pricedLevels.map((level) => (
+          <span className={`tone-${level.tone}`} key={level.label}>
+            <em>{level.label}</em>
+            <strong>{formatPrice(level.value)}</strong>
+          </span>
         ))}
       </div>
     </section>
