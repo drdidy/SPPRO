@@ -456,7 +456,7 @@ function SignalTheater({
   const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
   const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
   const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
-  const pad = Math.max((rawMax - rawMin) * 0.16, 10);
+  const pad = Math.max((rawMax - rawMin) * 0.08, 5);
   const minPrice = rawMin - pad;
   const maxPrice = rawMax + pad;
   const yFor = (price: number | null) => {
