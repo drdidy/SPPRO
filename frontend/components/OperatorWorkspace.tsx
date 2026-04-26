@@ -451,7 +451,7 @@ function PlayStack({
       </div>
       <div className="play-ticket-list">
         <PlayTicketCard data={primary} label="Primary Play" active armed={armed} />
-        <PlayTicketCard data={alternate} label="Alternate Play" armed={false} />
+        <PlayTicketCard data={alternate} label="Alternate Play" armed={false} compact />
       </div>
       <div className="button-row">
         <button className="button primary" onClick={onArm} type="button">
@@ -466,11 +466,13 @@ function PlayStack({
 function PlayTicketCard({
   active = false,
   armed,
+  compact = false,
   data,
   label
 }: {
   active?: boolean;
   armed: boolean;
+  compact?: boolean;
   data: PlayTicketData;
   label: string;
 }) {
@@ -482,7 +484,7 @@ function PlayTicketCard({
   const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
 
   return (
-    <article className={`play-ticket-card ${active ? "active" : ""}`}>
+    <article className={`play-ticket-card ${active ? "active" : ""} ${compact ? "compact" : ""}`}>
       <div className="play-ticket-top">
         <div>
           <span className="play-label">{label}</span>
@@ -502,21 +504,31 @@ function PlayTicketCard({
         <KV label="At Trigger" value={formatPrice(data.atEntry)} />
         <KV label="Expected Fill" value={formatPrice(data.expectedFill)} />
       </div>
-      <div className="play-level-strip" aria-label={`${label} execution levels`}>
-        <span><em>Entry</em><strong>{formatPrice(data.play.planned_entry)}</strong></span>
-        <span><em>Stop</em><strong>{formatPrice(data.play.stop)}</strong></span>
-        <span><em>T1</em><strong>{formatPrice(data.play.target_1)}</strong></span>
-        <span><em>T2</em><strong>{formatPrice(data.play.target_2)}</strong></span>
-      </div>
-      <p className="ticket-copy">
-        {data.play.reason} If ES reaches the {gateLabel}, estimated premium is {formatPrice(data.atEntry)} and likely fill is {formatPrice(data.expectedFill)}.
-      </p>
-      <div className="ticket-risk-grid">
-        <Risk label="Cost If Filled" value={fillCost} tone="warning" />
-        <Risk label="RR" value={data.rr == null ? "-" : data.rr.toFixed(2)} />
-        <Risk label="Budget" value={data.play.budget} tone={toneFor(data.play.budget)} />
-        <Risk label="Trigger" value={data.play.trigger ?? data.play.zone} />
-      </div>
+      {compact ? (
+        <div className="compact-ticket-strip">
+          <span><em>Trigger</em><strong>{data.play.trigger ?? data.play.zone}</strong></span>
+          <span><em>Budget</em><strong>{data.play.budget}</strong></span>
+          <span><em>RR</em><strong>{data.rr == null ? "-" : data.rr.toFixed(2)}</strong></span>
+        </div>
+      ) : (
+        <>
+          <div className="play-level-strip" aria-label={`${label} execution levels`}>
+            <span><em>Entry</em><strong>{formatPrice(data.play.planned_entry)}</strong></span>
+            <span><em>Stop</em><strong>{formatPrice(data.play.stop)}</strong></span>
+            <span><em>T1</em><strong>{formatPrice(data.play.target_1)}</strong></span>
+            <span><em>T2</em><strong>{formatPrice(data.play.target_2)}</strong></span>
+          </div>
+          <p className="ticket-copy">
+            {data.play.reason} If ES reaches the {gateLabel}, estimated premium is {formatPrice(data.atEntry)} and likely fill is {formatPrice(data.expectedFill)}.
+          </p>
+          <div className="ticket-risk-grid">
+            <Risk label="Cost If Filled" value={fillCost} tone="warning" />
+            <Risk label="RR" value={data.rr == null ? "-" : data.rr.toFixed(2)} />
+            <Risk label="Budget" value={data.play.budget} tone={toneFor(data.play.budget)} />
+            <Risk label="Trigger" value={data.play.trigger ?? data.play.zone} />
+          </div>
+        </>
+      )}
     </article>
   );
 }

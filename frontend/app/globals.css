@@ -169,14 +169,14 @@ button {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(420px, 0.9fr) minmax(280px, 0.74fr);
-  grid-template-areas: "pulse brand actions";
+  grid-template-columns: minmax(230px, 0.55fr) minmax(560px, 1.25fr) minmax(280px, 0.62fr);
+  grid-template-areas: "brand pulse actions";
   align-items: stretch;
-  gap: 16px;
-  min-height: 164px;
-  margin-bottom: 20px;
+  gap: 12px;
+  min-height: 126px;
+  margin-bottom: 14px;
   border: 1px solid rgba(242,239,231,0.11);
-  border-radius: 34px;
+  border-radius: 28px;
   background:
     radial-gradient(circle at 50% -5%, rgba(102,230,255,0.22), transparent 20rem),
     radial-gradient(circle at 12% 18%, rgba(240,184,90,0.11), transparent 18rem),
@@ -186,7 +186,7 @@ button {
   box-shadow:
     0 28px 96px rgba(0,0,0,0.46),
     inset 0 1px 0 rgba(255,255,255,0.08);
-  padding: 16px;
+  padding: 12px;
 }
 
 .masthead-sheen {
@@ -221,29 +221,29 @@ button {
 .masthead-brand {
   grid-area: brand;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-  text-align: center;
-  border-radius: 28px;
+  text-align: left;
+  border-radius: 20px;
   border: 1px solid rgba(242,239,231,0.075);
   background:
     radial-gradient(circle at 50% 18%, rgba(102,230,255,0.14), transparent 14rem),
     linear-gradient(180deg, rgba(255,255,255,0.052), rgba(255,255,255,0.018));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-  padding: 14px 18px;
+  padding: 10px 12px;
 }
 
 .prophet-mark {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 58px;
+  height: 58px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 32px;
+  border-radius: 20px;
   border: 1px solid rgba(122,215,223,0.22);
   background:
     radial-gradient(circle at 38% 30%, rgba(255,255,255,0.16), transparent 34%),
@@ -274,7 +274,7 @@ button {
 }
 
 .prophet-mark::after {
-  inset: 10px;
+  inset: 8px;
   background: radial-gradient(circle, rgba(122,215,223,0.2), transparent 60%);
   filter: blur(12px);
   opacity: 0.78;
@@ -284,8 +284,8 @@ button {
 .prophet-mark svg {
   position: relative;
   z-index: 1;
-  width: 82px;
-  height: 82px;
+  width: 48px;
+  height: 48px;
   overflow: visible;
 }
 
@@ -338,9 +338,9 @@ button {
 
 .brand-kicker {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: var(--cyan);
-  font-size: 0.7rem;
+  font-size: 0.58rem;
   font-weight: 820;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -362,12 +362,12 @@ button {
 .wordmark {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(2.4rem, 4.2vw, 4.25rem);
-  line-height: 0.84;
+  font-size: clamp(1.22rem, 1.8vw, 1.85rem);
+  line-height: 0.92;
   font-weight: 900;
   letter-spacing: -0.085em;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.18em;
@@ -388,9 +388,9 @@ button {
 }
 
 .masthead-brand p {
-  margin: 7px 0 0;
+  margin: 3px 0 0;
   color: var(--faint);
-  font-size: 0.78rem;
+  font-size: 0.58rem;
   font-weight: 820;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -402,17 +402,17 @@ button {
   overflow: hidden;
   display: grid;
   align-content: stretch;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   border: 1px solid rgba(242,239,231,0.105);
-  border-radius: 22px;
+  border-radius: 18px;
   background:
     radial-gradient(circle at 12% 0%, rgba(102,230,255,0.14), transparent 14rem),
     linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.016) 52%, rgba(0,0,0,0.13));
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.10),
     inset 0 -18px 36px rgba(0,0,0,0.10);
-  padding: 13px;
+  padding: 10px;
 }
 
 .market-pulse::after {
@@ -461,7 +461,7 @@ button {
   background:
     linear-gradient(90deg, rgba(216,170,87,0.075), transparent 44%),
     rgba(255,255,255,0.026);
-  padding: 11px 12px;
+  padding: 9px 10px;
 }
 
 .pulse-decision span {
@@ -489,7 +489,7 @@ button {
   grid-row: 1 / span 2;
   margin: 0;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   line-height: 1.25;
   align-self: center;
 }
@@ -537,7 +537,7 @@ button {
 
 .pulse-values {
   display: grid;
-  grid-template-columns: 1.35fr 0.72fr 0.76fr 1fr 1.16fr 0.9fr 0.92fr 0.7fr;
+  grid-template-columns: 1.1fr 0.7fr 0.9fr 0.98fr 1fr 0.72fr 0.78fr;
   gap: 0;
   overflow: visible;
   mask-image: none;
@@ -559,7 +559,7 @@ button {
   font-weight: 820;
   letter-spacing: 0.1em;
   line-height: 1.05;
-  padding: 9px 10px;
+  padding: 7px 8px;
   text-transform: uppercase;
   animation: none;
 }
@@ -585,8 +585,8 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-content: stretch;
-  gap: 10px;
-  border-radius: 26px;
+  gap: 8px;
+  border-radius: 20px;
   border: 1px solid rgba(102, 230, 255, 0.13);
   background:
     radial-gradient(circle at 20% 0%, rgba(102, 230, 255, 0.14), transparent 42%),
@@ -595,7 +595,7 @@ button {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.08),
     0 20px 54px rgba(0, 0, 0, 0.26);
-  padding: 14px;
+  padding: 10px;
 }
 
 .action-eyebrow {
@@ -688,8 +688,8 @@ button {
   justify-content: stretch;
   align-content: center;
   gap: 3px;
-  min-height: 84px;
-  padding: 12px;
+  min-height: 64px;
+  padding: 10px;
   text-align: left;
   color: var(--text);
   background:
@@ -705,7 +705,7 @@ button {
 
 .order-state strong {
   color: var(--text);
-  font-size: 1.06rem;
+  font-size: 0.94rem;
   font-weight: 920;
   letter-spacing: -0.035em;
 }
@@ -889,7 +889,7 @@ button {
   grid-template-columns: minmax(390px, 0.78fr) minmax(520px, 1fr);
   gap: 18px;
   align-items: stretch;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .structure-focus-row {
@@ -918,7 +918,7 @@ button {
 
 .authority-card {
   isolation: isolate;
-  padding: 24px;
+  padding: 20px 22px;
 }
 
 .authority-card::before {
@@ -1032,9 +1032,9 @@ button {
 }
 
 .decision-word {
-  margin: 4px 0 6px;
+  margin: 2px 0 4px;
   font-family: var(--font-display);
-  font-size: clamp(3.8rem, 6.4vw, 6.7rem);
+  font-size: clamp(3rem, 5vw, 4.9rem);
   line-height: 0.86;
   letter-spacing: -0.085em;
 }
@@ -1042,7 +1042,7 @@ button {
 .authority-subtitle {
   color: var(--text);
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.86rem;
   font-weight: 840;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1050,9 +1050,9 @@ button {
 
 .decision-reason {
   max-width: 720px;
-  margin: 14px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
-  font-size: 1.02rem;
+  font-size: 0.96rem;
   line-height: 1.48;
 }
 
@@ -1062,8 +1062,8 @@ button {
   background: linear-gradient(135deg, rgba(216, 170, 87, 0.11), rgba(255,255,255,0.025));
   display: grid;
   gap: 5px;
-  margin-top: 18px;
-  padding: 13px 14px;
+  margin-top: 12px;
+  padding: 11px 12px;
 }
 
 .authority-trigger span,
@@ -1093,8 +1093,8 @@ button {
   border: 1px solid rgba(122, 215, 223, 0.12);
   border-radius: 15px;
   background: linear-gradient(145deg, rgba(122, 215, 223, 0.06), rgba(255,255,255,0.02));
-  min-height: 66px;
-  padding: 10px;
+  min-height: 56px;
+  padding: 9px;
 }
 
 .authority-ticket-row span {
@@ -1131,8 +1131,8 @@ button {
   border: 1px solid rgba(255,255,255,0.075);
   border-radius: 15px;
   background: rgba(255,255,255,0.028);
-  min-height: 72px;
-  padding: 11px;
+  min-height: 58px;
+  padding: 9px;
 }
 
 .authority-condition-grid strong {
@@ -1293,12 +1293,12 @@ button {
 }
 
 .signal-theater {
-  min-height: 440px;
+  min-height: 360px;
   isolation: isolate;
   display: grid;
   align-items: stretch;
-  grid-template-rows: auto auto minmax(235px, 1fr) auto;
-  gap: 12px;
+  grid-template-rows: auto auto minmax(210px, 1fr) auto;
+  gap: 8px;
   background:
     radial-gradient(circle at 52% 52%, rgba(102,230,255,0.14), transparent 15rem),
     radial-gradient(circle at 75% 24%, rgba(126,96,255,0.09), transparent 16rem),
@@ -1313,7 +1313,7 @@ button {
   gap: 18px;
   position: relative;
   z-index: 5;
-  margin: 18px 22px 0;
+  margin: 15px 22px 0;
 }
 
 .map-titlebar div {
@@ -1437,7 +1437,7 @@ button {
   align-self: stretch;
   justify-self: center;
   width: min(100%, 1060px);
-  height: 260px;
+  height: 220px;
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
 }
 
@@ -1827,7 +1827,7 @@ button {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin: 0 22px 20px;
+  margin: 0 22px 16px;
   position: relative;
   z-index: 4;
 }
@@ -2001,7 +2001,7 @@ button {
 }
 
 .play-stack {
-  gap: 12px;
+  gap: 10px;
 }
 
 .hero-ticket .risk-block,
@@ -2015,7 +2015,7 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 14px;
-  padding-bottom: 12px;
+  padding-bottom: 10px;
 }
 
 .play-stack-head h3 {
@@ -2028,7 +2028,7 @@ button {
 
 .play-ticket-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .play-ticket-card {
@@ -2038,7 +2038,7 @@ button {
     var(--surface-aura),
     rgba(5,10,18,0.44);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
-  padding: 12px;
+  padding: 10px;
   transition: border-color 180ms var(--ease-enter), background 180ms var(--ease-enter), transform 180ms var(--ease-enter);
 }
 
@@ -2060,7 +2060,7 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .play-label {
@@ -2092,7 +2092,7 @@ button {
 .ticket-contract-line h2 {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: clamp(1.8rem, 2.3vw, 2.65rem);
+  font-size: clamp(1.52rem, 2vw, 2.22rem);
   letter-spacing: -0.04em;
 }
 
@@ -2115,7 +2115,7 @@ button {
 }
 
 .ticket-state {
-  min-width: 116px;
+  min-width: 104px;
   border: 1px solid rgba(216,170,87,0.24);
   border-radius: 16px;
   background:
@@ -2123,7 +2123,7 @@ button {
     linear-gradient(145deg, rgba(216,170,87,0.105), rgba(255,255,255,0.024));
   display: grid;
   gap: 3px;
-  padding: 10px 11px;
+  padding: 8px 9px;
   text-align: right;
 }
 
@@ -2138,7 +2138,7 @@ button {
 
 .ticket-state strong {
   color: var(--amber);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 900;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -2150,11 +2150,11 @@ button {
   background:
     radial-gradient(circle at 0% 0%, rgba(102,230,255,0.05), transparent 13rem),
     linear-gradient(135deg, rgba(255,255,255,0.038), rgba(102,230,255,0.018));
-  margin: -1px 0 10px;
-  padding: 10px;
+  margin: -1px 0 8px;
+  padding: 9px;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.4;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .armed-ticket {
@@ -2178,8 +2178,8 @@ button {
 .kv-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-  margin-bottom: 11px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .kv {
@@ -2188,7 +2188,7 @@ button {
   background:
     radial-gradient(circle at 0% 0%, rgba(102,230,255,0.028), transparent 8rem),
     rgba(255,255,255,0.026);
-  padding: 9px;
+  padding: 8px;
 }
 
 .ticket-premium-grid .kv:nth-child(3) {
@@ -2200,7 +2200,7 @@ button {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  margin: -2px 0 10px;
+  margin: -2px 0 8px;
 }
 
 .play-level-strip span {
@@ -2212,7 +2212,7 @@ button {
   display: grid;
   gap: 5px;
   min-width: 0;
-  padding: 8px;
+  padding: 7px;
 }
 
 .play-level-strip em {
@@ -2237,7 +2237,7 @@ button {
 .risk-block,
 .ticket-risk-grid {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ticket-risk-grid {
@@ -2253,7 +2253,61 @@ button {
   border-radius: 13px;
   background:
     linear-gradient(145deg, rgba(255,255,255,0.032), rgba(102,230,255,0.012));
-  padding: 8px 9px;
+  padding: 7px 8px;
+}
+
+.play-ticket-card.compact {
+  border-color: rgba(122,215,223,0.17);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(122,215,223,0.07), transparent 10rem),
+    rgba(5,10,18,0.4);
+}
+
+.play-ticket-card.compact .play-ticket-top {
+  align-items: center;
+}
+
+.play-ticket-card.compact .ticket-contract-line h2 {
+  font-size: clamp(1.36rem, 1.8vw, 1.95rem);
+}
+
+.play-ticket-card.compact .ticket-state {
+  min-height: auto;
+  padding: 7px 8px;
+}
+
+.compact-ticket-strip {
+  display: grid;
+  grid-template-columns: 1.45fr 0.85fr 0.5fr;
+  gap: 6px;
+}
+
+.compact-ticket-strip span {
+  border: 1px solid rgba(202,224,255,0.072);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.compact-ticket-strip em {
+  color: var(--faint);
+  font-size: 0.56rem;
+  font-style: normal;
+  font-weight: 860;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.compact-ticket-strip strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .risk-row:last-child {
