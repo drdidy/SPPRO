@@ -31,6 +31,18 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const ticketFill = selectedRow?.fill ?? primary.expected_fill;
   const ticketRR = selectedRow?.rr ?? primary.rr;
   const activeContract = selectedRow?.strike ?? primary.contract;
+  const distanceToEntry =
+    structure.current_es != null && decision.planned_entry != null
+      ? structure.current_es - decision.planned_entry
+      : null;
+  const distanceLabel =
+    distanceToEntry == null
+      ? "Entry distance unavailable"
+      : `${Math.abs(distanceToEntry).toFixed(2)} pts ${distanceToEntry >= 0 ? "above" : "below"} entry`;
+  const triggerLabel =
+    decision.state.toUpperCase().includes("WAIT") && decision.planned_entry != null
+      ? `Wait for ${formatPrice(decision.planned_entry)} retest`
+      : decision.reason;
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
 
   const stageLevels = useMemo(() => structure.levels.slice(0, 4), [structure.levels]);
@@ -118,19 +130,20 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
 
           <div className="market-pulse" aria-live="polite">
             <div className="pulse-head">
-              <span className="live-dot-label">Live Tape</span>
-              <span className={`pulse-risk tone-${toneFor(decision.event_risk)}`}>Event {decision.event_risk}</span>
+              <span className="live-dot-label">Execution Tape</span>
+              <span className={`pulse-risk tone-${toneFor(decision.event_risk)}`}>{decision.event_risk} Event Risk</span>
             </div>
             <div className="pulse-decision">
-              <span>Order Bias</span>
+              <span>Trade State</span>
               <strong>{decision.state}</strong>
-              <p>{decision.reason}</p>
+              <p>{triggerLabel}</p>
             </div>
             <div className="pulse-values">
-              <span>SPX <strong>{formatPrice(structure.current_es)}</strong></span>
               <span>ES <strong>{formatPrice(structure.current_es)}</strong></span>
-              <span>VIX <strong>17.42</strong></span>
-              <span>Feed Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
+              <span>Entry <strong>{formatPrice(decision.planned_entry)}</strong></span>
+              <span>Distance <strong>{distanceLabel}</strong></span>
+              <span>Fill <strong>{formatPrice(ticketFill)}</strong></span>
+              <span>Quote Age <strong>{quoteAge.toString().padStart(2, "0")}s</strong></span>
             </div>
           </div>
 
