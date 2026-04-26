@@ -453,7 +453,6 @@ function SignalTheater({
   const currentNodeX = chartLeft + 42;
   const futureNodeX = chartRight - 42;
   const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
-  const drawableLevels = pricedLevels.filter((level) => plannedEntry == null || Math.abs(level.value - plannedEntry) > 0.25);
   const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
   const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
   const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
@@ -482,6 +481,8 @@ function SignalTheater({
     : pricedLevels
         .filter((level) => level.value < currentEs)
         .sort((a, b) => b.value - a.value)[0] ?? null;
+  const gateLevels = [aboveLine, belowLine].filter((level): level is { label: string; value: number; tone: string } => level != null);
+  const drawableLevels = gateLevels.filter((level) => plannedEntry == null || Math.abs(level.value - plannedEntry) > 0.25);
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
@@ -570,11 +571,13 @@ function SignalTheater({
         <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
         {drawableLevels.map((level) => {
           const y = yFor(level.value);
+          const isUpperGate = aboveLine != null && level.value === aboveLine.value;
+          const gateLabel = isUpperGate ? "Put rejection line" : "Call hold line";
           return (
-            <g key={level.label}>
-              <line className={`structure-level-line tone-${level.tone}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
-              <circle className={`level-dot tone-${level.tone}`} cx={chartLeft} cy={y} r="4" />
-              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{level.label} {formatPrice(level.value)}</text>
+            <g key={`${gateLabel}-${level.value}`}>
+              <line className="structure-level-line tone-neutral" x1={chartLeft} x2={chartRight} y1={y} y2={y} />
+              <circle className="level-dot tone-neutral" cx={chartLeft} cy={y} r="4" />
+              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{gateLabel} {formatPrice(level.value)}</text>
             </g>
           );
         })}
@@ -618,12 +621,22 @@ function SignalTheater({
         <small>{confirmationLabel}</small>
       </div>
       <div className="stage-levels structure-legend">
-        {pricedLevels.map((level) => (
-          <span className={`tone-${level.tone}`} key={level.label}>
-            <em>{level.label}</em>
-            <strong>{formatPrice(level.value)}</strong>
+        {aboveLine ? (
+          <span className="tone-neutral">
+            <em>Put rejection line</em>
+            <strong>{formatPrice(aboveLine.value)}</strong>
           </span>
-        ))}
+        ) : null}
+        <span className="tone-accent">
+          <em>Current ES</em>
+          <strong>{formatPrice(currentEs)}</strong>
+        </span>
+        {belowLine ? (
+          <span className="tone-neutral">
+            <em>Call hold line</em>
+            <strong>{formatPrice(belowLine.value)}</strong>
+          </span>
+        ) : null}
       </div>
     </section>
   );
