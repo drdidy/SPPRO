@@ -420,24 +420,27 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(result["projected_lines"]["asc_ceiling"]["projected_price"], 108.0)
         self.assertEqual(result["projected_lines"]["asc_floor"]["projected_price"], 104.0)
 
-    def test_scenario_1_between_channels_output(self) -> None:
-        scenario = evaluate_trading_scenario(102.0, self.base_lines)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 1: BETWEEN CHANNELS")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_floor")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "asc_ceiling")
-        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "desc_ceiling")
+    def test_scenario_1_between_cones_output(self) -> None:
+        lines = dict(self.base_lines, asc_floor=99.0, desc_ceiling=104.0)
+        scenario = evaluate_trading_scenario(102.0, lines)
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 1: BETWEEN CONES")
+        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_ceiling")
+        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "asc_floor")
         self.assertEqual(scenario["confidence_level"], "MEDIUM")
 
-    def test_scenario_2_inside_ascending_channel_output(self) -> None:
+    def test_scenario_2_inside_high_cone_output(self) -> None:
         scenario = evaluate_trading_scenario(106.0, self.base_lines, confirmation_confirmed=True)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 2: INSIDE ASCENDING CHANNEL")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 2: INSIDE HIGH CONE")
         self.assertEqual(scenario["primary_play"]["direction"], "CALL")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_floor")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_ceiling")
         self.assertEqual(scenario["primary_play"]["tp1"]["label"], "asc_ceiling")
         self.assertEqual(scenario["alternate_play"]["direction"], "PUT")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "asc_ceiling")
         self.assertEqual(scenario["confidence_level"], "HIGH")
 
-    def test_scenario_3_inside_descending_channel_output(self) -> None:
+    def test_scenario_3_inside_low_cone_output(self) -> None:
         scenario = evaluate_trading_scenario(
             98.0,
             {
@@ -450,67 +453,67 @@ class EngineRuleTests(unittest.TestCase):
             },
             confirmation_confirmed=True,
         )
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
-        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_ceiling")
-        self.assertEqual(scenario["primary_play"]["tp1"]["label"], "desc_floor")
-        self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 3: INSIDE LOW CONE")
+        self.assertEqual(scenario["primary_play"]["direction"], "CALL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_floor")
+        self.assertEqual(scenario["primary_play"]["tp1"]["label"], "asc_floor")
+        self.assertEqual(scenario["alternate_play"]["direction"], "PUT")
+        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "asc_floor")
         self.assertEqual(scenario["confidence_level"], "HIGH")
 
-    def test_scenario_4_above_ascending_channel_output(self) -> None:
+    def test_scenario_4_above_high_cone_output(self) -> None:
         scenario = evaluate_trading_scenario(109.0, self.base_lines)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 4: ABOVE ASCENDING CHANNEL")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "hw")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "hw + 3")
-        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 4: ABOVE HIGH CONE")
+        self.assertEqual(scenario["primary_play"]["direction"], "CALL")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_ceiling")
+        self.assertIsNone(scenario["alternate_play"])
         self.assertEqual(scenario["confidence_level"], "MEDIUM")
 
-    def test_scenario_5_below_descending_channel_output(self) -> None:
+    def test_scenario_5_below_low_cone_output(self) -> None:
         scenario = evaluate_trading_scenario(94.0, self.base_lines)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 5: BELOW DESCENDING CHANNEL")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "lw")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "lw - 3")
-        self.assertEqual(scenario["alternate_play"]["entry"]["label"], "desc_floor")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 5: BELOW LOW CONE")
+        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_floor")
+        self.assertIsNone(scenario["alternate_play"])
         self.assertEqual(scenario["confidence_level"], "MEDIUM")
 
-    def test_scenario_6a_extreme_gap_up_output(self) -> None:
+    def test_above_hw_still_uses_high_cone_ceiling_buy(self) -> None:
         scenario = evaluate_trading_scenario(111.0, self.base_lines, open_price=111.0)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 6a: EXTREME GAP UP")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "hw")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 4: ABOVE HIGH CONE")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "asc_ceiling")
+        self.assertEqual(scenario["primary_play"]["direction"], "CALL")
         self.assertIsNone(scenario["alternate_play"])
-        self.assertEqual(scenario["confidence_level"], "LOW")
 
-    def test_scenario_6b_extreme_gap_down_output(self) -> None:
+    def test_below_lw_still_uses_low_cone_floor_sell(self) -> None:
         scenario = evaluate_trading_scenario(91.0, self.base_lines, open_price=91.0)
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 6b: EXTREME GAP DOWN")
-        self.assertEqual(scenario["primary_play"]["entry"]["label"], "lw")
-        self.assertEqual(scenario["primary_play"]["stop"]["label"], "desc_floor")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 5: BELOW LOW CONE")
+        self.assertEqual(scenario["primary_play"]["entry"]["label"], "desc_floor")
+        self.assertEqual(scenario["primary_play"]["direction"], "PUT")
         self.assertIsNone(scenario["alternate_play"])
-        self.assertEqual(scenario["confidence_level"], "LOW")
 
-    def test_scenario_7_overlap_output(self) -> None:
+    def test_cone_overlap_maps_to_between_cones_neutral_output(self) -> None:
         scenario = evaluate_trading_scenario(
-            101.0,
+            102.0,
             {
                 "hw": 112.0,
                 "asc_ceiling": 104.0,
-                "asc_floor": 99.0,
-                "desc_ceiling": 103.0,
+                "asc_floor": 103.0,
+                "desc_ceiling": 101.0,
                 "desc_floor": 98.0,
                 "lw": 92.0,
             },
         )
-        self.assertEqual(scenario["scenario_name"], "SCENARIO 7: CHANNEL OVERLAP (COMPRESSION)")
+        self.assertEqual(scenario["scenario_name"], "SCENARIO 1: BETWEEN CONES")
+        self.assertTrue(scenario["cone_overlap"])
         self.assertEqual(scenario["primary_play"]["direction"], "PUT")
         self.assertEqual(scenario["alternate_play"]["direction"], "CALL")
         self.assertEqual(scenario["confidence_level"], "MEDIUM")
 
     def test_scenario_reference_outputs_cover_all_states(self) -> None:
         reference = get_scenario_reference_outputs()
-        self.assertEqual(len(reference), 8)
-        self.assertIn("SCENARIO 6a: EXTREME GAP UP", reference)
-        self.assertIn("SCENARIO 6b: EXTREME GAP DOWN", reference)
+        self.assertEqual(len(reference), 5)
+        self.assertIn("SCENARIO 4: ABOVE HIGH CONE", reference)
+        self.assertIn("SCENARIO 5: BELOW LOW CONE", reference)
 
     def test_valid_put_confirmation(self) -> None:
         result = evaluate_830_confirmation(
@@ -587,10 +590,11 @@ class EngineRuleTests(unittest.TestCase):
         self.assertIn("Price is more than 15 points from the nearest primary entry line.", result["reasons"])
 
     def test_sit_out_failed_confirmation_between_channels(self) -> None:
-        scenario = evaluate_trading_scenario(102.0, self.base_lines)
+        lines = dict(self.base_lines, asc_floor=99.0, desc_ceiling=104.0)
+        scenario = evaluate_trading_scenario(102.0, lines)
         result = evaluate_sit_out_conditions(scenario, {"failed": True}, 102.0, False, datetime(2026, 4, 13, 9, 0, tzinfo=CENTRAL_TZ))
         self.assertTrue(result["sit_out"])
-        self.assertIn("8:30 confirmation failed while price is between channels.", result["reasons"])
+        self.assertIn("8:30 confirmation failed while price is between cones.", result["reasons"])
 
     def test_sit_out_major_news_toggle_enabled(self) -> None:
         scenario = evaluate_trading_scenario(102.0, self.base_lines)
@@ -618,9 +622,9 @@ class EngineRuleTests(unittest.TestCase):
         scenario = evaluate_trading_scenario(102.0, self.base_lines)
         self.assertEqual(scenario["primary_play"]["contracts"], 2)
 
-    def test_position_sizing_low_confidence(self) -> None:
+    def test_position_sizing_above_high_cone_stays_medium(self) -> None:
         scenario = evaluate_trading_scenario(111.0, self.base_lines, open_price=111.0)
-        self.assertEqual(scenario["primary_play"]["contracts"], 1)
+        self.assertEqual(scenario["primary_play"]["contracts"], 2)
 
     def test_position_sizing_alternate_plays_are_always_one_contract(self) -> None:
         scenario = evaluate_trading_scenario(102.0, self.base_lines)

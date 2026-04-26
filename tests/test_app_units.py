@@ -277,36 +277,36 @@ class AppUnitTests(unittest.TestCase):
         self.assertTrue(aligned["conversion_invalid"])
         self.assertAlmostEqual(aligned["conversion_debug"]["entry"]["additional_adjustment_applied"], -25.11, places=2)
 
-    def test_live_structure_state_reports_between_channels(self) -> None:
+    def test_live_structure_state_reports_cone_overlap(self) -> None:
         line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
 
         snapshot = compute_live_structure_state(7168.00, line_values)
 
-        self.assertEqual(snapshot["live_structure_state"], "BETWEEN_CHANNELS")
+        self.assertEqual(snapshot["live_structure_state"], "CONE_OVERLAP")
 
     def test_live_current_spx_prefers_es_minus_effective_offset(self) -> None:
         resolved = resolve_live_current_spx(7178.18, 39.5, 7120.07)
 
         self.assertEqual(resolved, 7138.68)
 
-    def test_live_scenario_snapshot_remaps_inside_descending(self) -> None:
+    def test_live_scenario_snapshot_remaps_inside_low_cone(self) -> None:
         line_values = {name: details["projected_price"] for name, details in self.original_lines_es.items()}
 
         snapshot = compute_live_scenario_snapshot(
             current_price=7140.00,
             line_values=line_values,
             open_price=7145.00,
-            scenario_origin="SCENARIO 1: BETWEEN CHANNELS",
-            previous_live_scenario="SCENARIO 1: BETWEEN CHANNELS",
-            previous_structure_state="BETWEEN_CHANNELS",
+            scenario_origin="SCENARIO 1: BETWEEN CONES",
+            previous_live_scenario="SCENARIO 1: BETWEEN CONES",
+            previous_structure_state="CONE_OVERLAP",
             confirmation_confirmed=False,
             timestamp="2026-04-22T09:05:00-05:00",
         )
 
-        self.assertEqual(snapshot["live_structure_state"], "INSIDE_DESC_CHANNEL")
-        self.assertEqual(snapshot["live_scenario"], "SCENARIO 3: INSIDE DESCENDING CHANNEL")
-        self.assertEqual(snapshot["scenario_transition"], "SCENARIO 1: BETWEEN CHANNELS -> SCENARIO 3: INSIDE DESCENDING CHANNEL")
-        self.assertEqual(snapshot["structure_transition"], "BETWEEN_CHANNELS -> INSIDE_DESC_CHANNEL")
+        self.assertEqual(snapshot["live_structure_state"], "INSIDE_LOW_CONE")
+        self.assertEqual(snapshot["live_scenario"], "SCENARIO 3: INSIDE LOW CONE")
+        self.assertEqual(snapshot["scenario_transition"], "SCENARIO 1: BETWEEN CONES -> SCENARIO 3: INSIDE LOW CONE")
+        self.assertEqual(snapshot["structure_transition"], "CONE_OVERLAP -> INSIDE_LOW_CONE")
 
     def test_selected_contract_binding_uses_selected_symbol_metrics_for_same_strike(self) -> None:
         play = {"strike": 7100, "direction": "PUT"}

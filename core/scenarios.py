@@ -10,14 +10,11 @@ from core.time_utils import current_central_time, to_central_time
 NEARBY_BOUNDARY_THRESHOLD = 5.0
 
 SCENARIO_COLORS = {
-    "SCENARIO 1: BETWEEN CHANNELS": "#00d4ff",
-    "SCENARIO 2: INSIDE ASCENDING CHANNEL": "#00e676",
-    "SCENARIO 3: INSIDE DESCENDING CHANNEL": "#ff1744",
-    "SCENARIO 4: ABOVE ASCENDING CHANNEL": "#ffd740",
-    "SCENARIO 5: BELOW DESCENDING CHANNEL": "#ffd740",
-    "SCENARIO 6a: EXTREME GAP UP": "#ffd740",
-    "SCENARIO 6b: EXTREME GAP DOWN": "#ffd740",
-    "SCENARIO 7: CHANNEL OVERLAP (COMPRESSION)": "#b388ff",
+    "SCENARIO 1: BETWEEN CONES": "#00d4ff",
+    "SCENARIO 2: INSIDE HIGH CONE": "#00e676",
+    "SCENARIO 3: INSIDE LOW CONE": "#ff1744",
+    "SCENARIO 4: ABOVE HIGH CONE": "#ffd740",
+    "SCENARIO 5: BELOW LOW CONE": "#ffd740",
 }
 
 
@@ -25,44 +22,29 @@ def get_scenario_reference_outputs() -> dict[str, dict[str, Any]]:
     """Return the final structured scenario definitions used by the engine."""
 
     return {
-        "SCENARIO 1: BETWEEN CHANNELS": {
-            "primary": {"direction": "PUT", "entry": "asc_floor", "stop": "asc_ceiling"},
-            "alternate": {"direction": "CALL", "entry": "desc_ceiling", "stop": "desc_floor"},
+        "SCENARIO 1: BETWEEN CONES": {
+            "primary": {"direction": "PUT", "entry": "high_cone_floor", "stop": "high_cone_ceiling"},
+            "alternate": {"direction": "CALL", "entry": "low_cone_ceiling", "stop": "low_cone_floor"},
             "confidence": "MEDIUM",
         },
-        "SCENARIO 2: INSIDE ASCENDING CHANNEL": {
-            "primary": {"direction": "CALL", "entry": "asc_floor", "stop": "desc_floor"},
+        "SCENARIO 2: INSIDE HIGH CONE": {
+            "primary": {"direction": "CALL", "entry": "desc_ceiling", "stop": "desc_floor"},
             "alternate": {"direction": "PUT", "entry": "asc_ceiling", "stop": "hw"},
             "confidence": "HIGH with confirmation, otherwise MEDIUM",
         },
-        "SCENARIO 3: INSIDE DESCENDING CHANNEL": {
-            "primary": {"direction": "PUT", "entry": "desc_ceiling", "stop": "asc_ceiling"},
-            "alternate": {"direction": "CALL", "entry": "desc_floor", "stop": "lw"},
+        "SCENARIO 3: INSIDE LOW CONE": {
+            "primary": {"direction": "CALL", "entry": "desc_floor", "stop": "lw"},
+            "alternate": {"direction": "PUT", "entry": "asc_floor", "stop": "asc_ceiling"},
             "confidence": "HIGH with confirmation, otherwise MEDIUM",
         },
-        "SCENARIO 4: ABOVE ASCENDING CHANNEL": {
-            "primary": {"direction": "PUT", "entry": "hw", "stop": "hw_plus_3"},
-            "alternate": {"direction": "CALL", "entry": "asc_ceiling", "stop": "asc_floor"},
+        "SCENARIO 4: ABOVE HIGH CONE": {
+            "primary": {"direction": "CALL", "entry": "asc_ceiling", "stop": "desc_ceiling"},
+            "alternate": None,
             "confidence": "MEDIUM",
         },
-        "SCENARIO 5: BELOW DESCENDING CHANNEL": {
-            "primary": {"direction": "CALL", "entry": "lw", "stop": "lw_minus_3"},
-            "alternate": {"direction": "PUT", "entry": "desc_floor", "stop": "desc_ceiling"},
-            "confidence": "MEDIUM",
-        },
-        "SCENARIO 6a: EXTREME GAP UP": {
-            "primary": {"direction": "CALL", "entry": "hw", "stop": "asc_ceiling"},
+        "SCENARIO 5: BELOW LOW CONE": {
+            "primary": {"direction": "PUT", "entry": "desc_floor", "stop": "asc_floor"},
             "alternate": None,
-            "confidence": "LOW",
-        },
-        "SCENARIO 6b: EXTREME GAP DOWN": {
-            "primary": {"direction": "PUT", "entry": "lw", "stop": "desc_floor"},
-            "alternate": None,
-            "confidence": "LOW",
-        },
-        "SCENARIO 7: CHANNEL OVERLAP (COMPRESSION)": {
-            "primary": {"direction": "PUT", "entry": "nearest_boundary_above", "stop": "next_boundary_out_above"},
-            "alternate": {"direction": "CALL", "entry": "nearest_boundary_below", "stop": "next_boundary_out_below"},
             "confidence": "MEDIUM",
         },
     }
@@ -186,23 +168,21 @@ def _next_higher_boundary(boundaries: list[tuple[str, float]], label: str, fallb
 def _scenario_confidence(scenario_name: str, confirmed: bool) -> tuple[str, int]:
     """Map a scenario to its confidence label and contract count."""
 
-    if scenario_name in {"SCENARIO 2: INSIDE ASCENDING CHANNEL", "SCENARIO 3: INSIDE DESCENDING CHANNEL"} and confirmed:
+    if scenario_name in {"SCENARIO 2: INSIDE HIGH CONE", "SCENARIO 3: INSIDE LOW CONE"} and confirmed:
         return "HIGH", 3
-    if scenario_name in {"SCENARIO 6a: EXTREME GAP UP", "SCENARIO 6b: EXTREME GAP DOWN"}:
-        return "LOW", 1
     return "MEDIUM", 2
 
 
-def _is_descending_boundary_near_ascending_channel(desc_ceiling: float, asc_floor: float, asc_ceiling: float) -> bool:
-    """Return True when the descending ceiling is inside or near the ascending channel."""
+def _is_high_cone_floor_near_low_cone(high_floor: float, low_floor: float, low_ceiling: float) -> bool:
+    """Return True when the high-cone floor overlaps or is near the low cone."""
 
-    return asc_floor <= desc_ceiling <= asc_ceiling or abs(desc_ceiling - asc_floor) <= NEARBY_BOUNDARY_THRESHOLD
+    return low_floor <= high_floor <= low_ceiling or abs(high_floor - low_ceiling) <= NEARBY_BOUNDARY_THRESHOLD
 
 
-def _is_ascending_boundary_near_descending_channel(asc_floor: float, desc_floor: float, desc_ceiling: float) -> bool:
-    """Return True when the ascending floor is inside or near the descending channel."""
+def _is_low_cone_ceiling_near_high_cone(low_ceiling: float, high_floor: float, high_ceiling: float) -> bool:
+    """Return True when the low-cone ceiling overlaps or is near the high cone."""
 
-    return desc_floor <= asc_floor <= desc_ceiling or abs(asc_floor - desc_ceiling) <= NEARBY_BOUNDARY_THRESHOLD
+    return high_floor <= low_ceiling <= high_ceiling or abs(low_ceiling - high_floor) <= NEARBY_BOUNDARY_THRESHOLD
 
 
 def evaluate_trading_scenario(
@@ -211,7 +191,13 @@ def evaluate_trading_scenario(
     open_price: float | None = None,
     confirmation_confirmed: bool = False,
 ) -> dict[str, Any]:
-    """Implement the seven trading scenarios exactly from the spec."""
+    """Classify the active Asian high/low cone and build its trade plan.
+
+    A high pivot emits an ascending ceiling and descending floor. A low pivot
+    emits an ascending ceiling and descending floor. Support/resistance is not
+    assumed here; execution still requires the downstream polarity confirmation
+    layer to prove hold/rejection.
+    """
 
     required = {"hw", "asc_ceiling", "asc_floor", "desc_ceiling", "desc_floor", "lw"}
     missing = required.difference(line_values)
@@ -228,14 +214,20 @@ def evaluate_trading_scenario(
     desc_floor = float(line_values["desc_floor"])
     lw = float(line_values["lw"])
 
-    in_ascending = asc_floor <= price <= asc_ceiling
-    in_descending = desc_floor <= price <= desc_ceiling
-    between_channels = desc_ceiling < price < asc_floor
-    above_ascending = asc_ceiling < price < hw
-    below_descending = lw < price < desc_floor
+    high_cone_ceiling = asc_ceiling
+    high_cone_floor = desc_ceiling
+    low_cone_ceiling = asc_floor
+    low_cone_floor = desc_floor
 
-    descending_near_asc = _is_descending_boundary_near_ascending_channel(desc_ceiling, asc_floor, asc_ceiling)
-    ascending_near_desc = _is_ascending_boundary_near_descending_channel(asc_floor, desc_floor, desc_ceiling)
+    in_high_cone = high_cone_floor <= price <= high_cone_ceiling
+    in_low_cone = low_cone_floor <= price <= low_cone_ceiling
+    cones_overlap = in_high_cone and in_low_cone
+    between_cones = low_cone_ceiling < price < high_cone_floor
+    above_high_cone = price > high_cone_ceiling
+    below_low_cone = price < low_cone_floor
+
+    high_floor_near_low = _is_high_cone_floor_near_low_cone(high_cone_floor, low_cone_floor, low_cone_ceiling)
+    low_ceiling_near_high = _is_low_cone_ceiling_near_high_cone(low_cone_ceiling, high_cone_floor, high_cone_ceiling)
     boundaries = _sorted_boundaries(line_values)
 
     scenario_name = ""
@@ -243,9 +235,14 @@ def evaluate_trading_scenario(
     primary_play: dict[str, Any] | None = None
     alternate_play: dict[str, Any] | None = None
 
-    if in_ascending and in_descending:
-        scenario_name = "SCENARIO 7: CHANNEL OVERLAP (COMPRESSION)"
-        description = "Price is inside both channels, so the closest boundary above is the put line and the closest boundary below is the call line."
+    if cones_overlap or between_cones:
+        scenario_name = "SCENARIO 1: BETWEEN CONES"
+        description = (
+            "Price is in the neutral cone band; use the closest confirmed polarity line above for sells "
+            "and the closest confirmed polarity line below for buys."
+            if cones_overlap
+            else "Price is between the low-cone ceiling and high-cone floor; wait for one polarity line to confirm."
+        )
         channel_lines = {
             "asc_ceiling": asc_ceiling,
             "asc_floor": asc_floor,
@@ -253,10 +250,14 @@ def evaluate_trading_scenario(
             "desc_floor": desc_floor,
         }
         ordered = _sorted_boundaries(channel_lines)
-        above_lines = [(name, value) for name, value in ordered if value >= price]
-        below_lines = [(name, value) for name, value in ordered if value <= price]
-        put_entry = above_lines[-1] if above_lines else ordered[-1]
-        call_entry = below_lines[0] if below_lines else ordered[0]
+        if cones_overlap:
+            above_lines = [(name, value) for name, value in ordered if value >= price]
+            below_lines = [(name, value) for name, value in ordered if value <= price]
+            put_entry = above_lines[-1] if above_lines else ordered[-1]
+            call_entry = below_lines[0] if below_lines else ordered[0]
+        else:
+            put_entry = ("desc_ceiling", high_cone_floor)
+            call_entry = ("asc_floor", low_cone_ceiling)
         put_stop = _next_higher_boundary(ordered, put_entry[0], ("hw", hw))
         call_stop = _next_lower_boundary(ordered, call_entry[0], ("lw", lw))
         put_tp1 = call_entry
@@ -274,7 +275,7 @@ def evaluate_trading_scenario(
             put_tp2[0],
             put_tp2[1],
             2,
-            "Compression setup: fade the nearest resistance above price.",
+            "Neutral cone setup: sell only after the upper polarity line rejects.",
         )
         alternate_play = _build_play(
             "CALL",
@@ -287,185 +288,100 @@ def evaluate_trading_scenario(
             call_tp2[0],
             call_tp2[1],
             1,
-            "Compression setup: buy the nearest support below price.",
+            "Neutral cone setup: buy only after the lower polarity line holds.",
         )
-    elif between_channels:
-        scenario_name = "SCENARIO 1: BETWEEN CHANNELS"
-        description = "Price is below the ascending floor and above the descending ceiling."
-        primary_play = _build_play(
-            "PUT",
-            "asc_floor",
-            asc_floor,
-            "asc_ceiling",
-            asc_ceiling,
-            "desc_ceiling",
-            desc_ceiling,
-            "desc_floor",
-            desc_floor,
-            2,
-            "Primary fade back into the descending channel from ascending resistance.",
-        )
-        alternate_play = _build_play(
-            "CALL",
-            "desc_ceiling",
-            desc_ceiling,
-            "desc_floor",
-            desc_floor,
-            "asc_floor",
-            asc_floor,
-            "asc_ceiling",
-            asc_ceiling,
-            1,
-            "Alternate bounce from descending support if price flushes first.",
-        )
-    elif in_ascending:
-        scenario_name = "SCENARIO 2: INSIDE ASCENDING CHANNEL"
-        description = "Price is inside the ascending channel but not inside the descending channel."
+    elif in_high_cone:
+        scenario_name = "SCENARIO 2: INSIDE HIGH CONE"
+        description = "Price is inside the Asian high cone; buy the floor if it holds, sell the ceiling if it rejects."
         primary_play = _build_play(
             "CALL",
-            "asc_floor",
-            asc_floor,
-            "desc_floor" if descending_near_asc else "lw",
-            desc_floor if descending_near_asc else lw,
+            "desc_ceiling",
+            high_cone_floor,
+            "desc_floor" if high_floor_near_low else "lw",
+            low_cone_floor if high_floor_near_low else lw,
             "asc_ceiling",
-            asc_ceiling,
+            high_cone_ceiling,
             "hw",
             hw,
             3 if confirmation_confirmed else 2,
-            "Bullish continuation from ascending support.",
+            "High-cone floor buy if polarity confirms support.",
         )
         alternate_play = _build_play(
             "PUT",
             "asc_ceiling",
-            asc_ceiling,
+            high_cone_ceiling,
             "hw",
             hw,
+            "desc_ceiling",
+            high_cone_floor,
             "asc_floor",
-            asc_floor,
-            "desc_ceiling",
-            desc_ceiling,
+            low_cone_ceiling,
             1,
-            "Countertrend fade only if ascending ceiling rejects as resistance.",
+            "High-cone ceiling sell if polarity confirms rejection.",
         )
-    elif in_descending:
-        scenario_name = "SCENARIO 3: INSIDE DESCENDING CHANNEL"
-        description = "Price is inside the descending channel but not inside the ascending channel."
+    elif in_low_cone:
+        scenario_name = "SCENARIO 3: INSIDE LOW CONE"
+        description = "Price is inside the Asian low cone; buy the floor if it holds, sell the ceiling if it rejects."
         primary_play = _build_play(
-            "PUT",
-            "desc_ceiling",
-            desc_ceiling,
-            "asc_ceiling" if ascending_near_desc else "hw",
-            asc_ceiling if ascending_near_desc else hw,
+            "CALL",
             "desc_floor",
-            desc_floor,
+            low_cone_floor,
             "lw",
             lw,
+            "asc_floor",
+            low_cone_ceiling,
+            "desc_ceiling",
+            high_cone_floor,
             3 if confirmation_confirmed else 2,
-            "Bearish continuation from descending resistance.",
+            "Low-cone floor buy if polarity confirms support.",
         )
         alternate_play = _build_play(
-            "CALL",
+            "PUT",
+            "asc_floor",
+            low_cone_ceiling,
+            "asc_ceiling" if low_ceiling_near_high else "hw",
+            high_cone_ceiling if low_ceiling_near_high else hw,
             "desc_floor",
-            desc_floor,
+            low_cone_floor,
             "lw",
             lw,
-            "desc_ceiling",
-            desc_ceiling,
-            "asc_floor",
-            asc_floor,
             1,
-            "Countertrend bounce only if descending floor holds as support.",
+            "Low-cone ceiling sell if polarity confirms rejection.",
         )
-    elif above_ascending:
-        scenario_name = "SCENARIO 4: ABOVE ASCENDING CHANNEL"
-        description = "Price is above the ascending channel but below the HW line."
+    elif above_high_cone:
+        scenario_name = "SCENARIO 4: ABOVE HIGH CONE"
+        description = "Price is completely above the high cone; only buy a retest of the high-cone ceiling."
         primary_play = _build_play(
-            "PUT",
-            "hw",
-            hw,
-            "hw + 3",
-            hw + 3.0,
-            "asc_ceiling",
-            asc_ceiling,
-            "asc_floor",
-            asc_floor,
-            2,
-            "Use the highest wick line as the final resistance zone.",
-        )
-        alternate_play = _build_play(
             "CALL",
             "asc_ceiling",
-            asc_ceiling,
-            "asc_floor",
-            asc_floor,
+            high_cone_ceiling,
+            "desc_ceiling",
+            high_cone_floor,
             "hw",
             hw,
             "hw + 10",
             hw + 10.0,
-            1,
-            "If the ascending ceiling flips to support, trade the pullback bounce.",
-        )
-    elif below_descending:
-        scenario_name = "SCENARIO 5: BELOW DESCENDING CHANNEL"
-        description = "Price is below the descending channel but above the LW line."
-        primary_play = _build_play(
-            "CALL",
-            "lw",
-            lw,
-            "lw - 3",
-            lw - 3.0,
-            "desc_floor",
-            desc_floor,
-            "desc_ceiling",
-            desc_ceiling,
             2,
-            "Use the lowest wick line as the last support zone.",
+            "Buy only if the high-cone ceiling retests and holds as support.",
         )
-        alternate_play = _build_play(
+    elif below_low_cone:
+        scenario_name = "SCENARIO 5: BELOW LOW CONE"
+        description = "Price is completely below the low cone; only sell a retest of the low-cone floor."
+        primary_play = _build_play(
             "PUT",
             "desc_floor",
-            desc_floor,
-            "desc_ceiling",
-            desc_ceiling,
+            low_cone_floor,
+            "asc_floor",
+            low_cone_ceiling,
             "lw",
             lw,
             "lw - 10",
             lw - 10.0,
-            1,
-            "If descending floor flips to resistance, fade the bounce.",
-        )
-    elif price >= hw:
-        scenario_name = "SCENARIO 6a: EXTREME GAP UP"
-        description = "Price is above HW. Treat it as a trend day up with HW now acting as support."
-        primary_play = _build_play(
-            "CALL",
-            "hw",
-            hw,
-            "asc_ceiling",
-            asc_ceiling,
-            "open + 10",
-            open_reference + 10.0,
-            "open + 20",
-            open_reference + 20.0,
-            1,
-            "All structure is broken to the upside. Buy the HW pullback if it holds.",
+            2,
+            "Sell only if the low-cone floor retests and rejects as resistance.",
         )
     else:
-        scenario_name = "SCENARIO 6b: EXTREME GAP DOWN"
-        description = "Price is below LW. Treat it as a trend day down with LW now acting as resistance."
-        primary_play = _build_play(
-            "PUT",
-            "lw",
-            lw,
-            "desc_floor",
-            desc_floor,
-            "open - 10",
-            open_reference - 10.0,
-            "open - 20",
-            open_reference - 20.0,
-            1,
-            "All structure is broken to the downside. Fade the LW bounce if it fails.",
-        )
+        raise ValueError("Price could not be classified into the cone framework.")
 
     confidence_level, contract_count = _scenario_confidence(scenario_name, confirmation_confirmed)
     if primary_play is not None:
@@ -487,9 +403,19 @@ def evaluate_trading_scenario(
         "ordered_lines": boundaries,
         "primary_play": primary_play,
         "alternate_play": alternate_play,
-        "inside_ascending": in_ascending,
-        "inside_descending": in_descending,
-        "between_channels": between_channels,
+        "inside_ascending": in_high_cone,
+        "inside_descending": in_low_cone,
+        "between_channels": between_cones,
+        "inside_high_cone": in_high_cone,
+        "inside_low_cone": in_low_cone,
+        "between_cones": between_cones,
+        "cone_overlap": cones_overlap,
+        "above_high_cone": above_high_cone,
+        "below_low_cone": below_low_cone,
+        "cone_model": {
+            "high_cone": {"floor": "desc_ceiling", "ceiling": "asc_ceiling"},
+            "low_cone": {"floor": "desc_floor", "ceiling": "asc_floor"},
+        },
     }
 
 
@@ -585,8 +511,8 @@ def evaluate_sit_out_conditions(
     else:
         gap_distance = 0.0
 
-    if confirmation.get("failed") and scenario.get("between_channels"):
-        reasons.append("8:30 confirmation failed while price is between channels.")
+    if confirmation.get("failed") and scenario.get("between_cones"):
+        reasons.append("8:30 confirmation failed while price is between cones.")
 
     if news_day:
         reasons.append("Fed/CPI/NFP day toggle is enabled.")

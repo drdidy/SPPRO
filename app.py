@@ -333,6 +333,36 @@ MARKET_HEADLINE_FEEDS = [
 ]
 
 SCENARIO_TRANSITIONS = {
+    "SCENARIO 1: BETWEEN CONES": {
+        "SCENARIO 2: INSIDE HIGH CONE": "bullish_strengthening",
+        "SCENARIO 3: INSIDE LOW CONE": "bearish_strengthening",
+        "SCENARIO 4: ABOVE HIGH CONE": "bullish_extension",
+        "SCENARIO 5: BELOW LOW CONE": "bearish_extension",
+    },
+    "SCENARIO 2: INSIDE HIGH CONE": {
+        "SCENARIO 1: BETWEEN CONES": "bullish_weakening",
+        "SCENARIO 4: ABOVE HIGH CONE": "bullish_extension",
+        "SCENARIO 3: INSIDE LOW CONE": "reversal_to_bearish",
+        "SCENARIO 5: BELOW LOW CONE": "bearish_breakdown",
+    },
+    "SCENARIO 3: INSIDE LOW CONE": {
+        "SCENARIO 1: BETWEEN CONES": "bearish_weakening",
+        "SCENARIO 5: BELOW LOW CONE": "bearish_extension",
+        "SCENARIO 2: INSIDE HIGH CONE": "reversal_to_bullish",
+        "SCENARIO 4: ABOVE HIGH CONE": "bullish_breakout",
+    },
+    "SCENARIO 4: ABOVE HIGH CONE": {
+        "SCENARIO 2: INSIDE HIGH CONE": "bullish_weakening",
+        "SCENARIO 1: BETWEEN CONES": "bullish_weakening",
+        "SCENARIO 3: INSIDE LOW CONE": "reversal_to_bearish",
+        "SCENARIO 5: BELOW LOW CONE": "full_reversal",
+    },
+    "SCENARIO 5: BELOW LOW CONE": {
+        "SCENARIO 3: INSIDE LOW CONE": "bearish_weakening",
+        "SCENARIO 1: BETWEEN CONES": "bearish_weakening",
+        "SCENARIO 2: INSIDE HIGH CONE": "reversal_to_bullish",
+        "SCENARIO 4: ABOVE HIGH CONE": "full_reversal",
+    },
     "SCENARIO 1: BETWEEN CHANNELS": {
         "SCENARIO 2: INSIDE ASCENDING CHANNEL": "bullish_strengthening",
         "SCENARIO 3: INSIDE DESCENDING CHANNEL": "bearish_strengthening",
@@ -3563,6 +3593,12 @@ LIVE_STRUCTURE_STATE_LABELS = {
     "INSIDE_DESC_CHANNEL": "Inside Descending Channel",
     "ABOVE_ASC_CHANNEL": "Above Ascending Channel",
     "BELOW_DESC_CHANNEL": "Below Descending Channel",
+    "CONE_OVERLAP": "Cone Overlap",
+    "BETWEEN_CONES": "Between Cones",
+    "INSIDE_HIGH_CONE": "Inside High Cone",
+    "INSIDE_LOW_CONE": "Inside Low Cone",
+    "ABOVE_HIGH_CONE": "Above High Cone",
+    "BELOW_LOW_CONE": "Below Low Cone",
     "OUTSIDE_ALL_STRUCTURES": "Outside All Structures",
 }
 
@@ -3574,7 +3610,7 @@ def format_live_state_label(value: str | None) -> str:
 
 
 def compute_live_structure_state(current_price: float | None, line_values: dict[str, float]) -> dict[str, Any]:
-    """Compute the raw current structure state from projected boundaries only."""
+    """Compute the raw current high/low cone state from projected boundaries only."""
 
     required = {"hw", "asc_ceiling", "asc_floor", "desc_ceiling", "desc_floor", "lw"}
     if current_price is None or required.difference(line_values):
@@ -3591,38 +3627,43 @@ def compute_live_structure_state(current_price: float | None, line_values: dict[
     desc_floor = float(line_values["desc_floor"])
     lw = float(line_values["lw"])
 
-    in_ascending = asc_floor <= price <= asc_ceiling
-    in_descending = desc_floor <= price <= desc_ceiling
+    high_cone_ceiling = asc_ceiling
+    high_cone_floor = desc_ceiling
+    low_cone_ceiling = asc_floor
+    low_cone_floor = desc_floor
 
-    if in_ascending and in_descending:
+    in_high_cone = high_cone_floor <= price <= high_cone_ceiling
+    in_low_cone = low_cone_floor <= price <= low_cone_ceiling
+
+    if in_high_cone and in_low_cone:
         return {
-            "live_structure_state": "CHANNEL_OVERLAP",
-            "structure_reason": "Price is inside both projected channels.",
+            "live_structure_state": "CONE_OVERLAP",
+            "structure_reason": "Price is inside both Asian high and low cones.",
         }
-    if desc_ceiling < price < asc_floor:
+    if low_cone_ceiling < price < high_cone_floor:
         return {
-            "live_structure_state": "BETWEEN_CHANNELS",
-            "structure_reason": "Price is between the descending ceiling and ascending floor.",
+            "live_structure_state": "BETWEEN_CONES",
+            "structure_reason": "Price is between the low-cone ceiling and high-cone floor.",
         }
-    if in_ascending:
+    if in_high_cone:
         return {
-            "live_structure_state": "INSIDE_ASC_CHANNEL",
-            "structure_reason": "Price is inside the ascending channel.",
+            "live_structure_state": "INSIDE_HIGH_CONE",
+            "structure_reason": "Price is inside the Asian high cone.",
         }
-    if in_descending:
+    if in_low_cone:
         return {
-            "live_structure_state": "INSIDE_DESC_CHANNEL",
-            "structure_reason": "Price is inside the descending channel.",
+            "live_structure_state": "INSIDE_LOW_CONE",
+            "structure_reason": "Price is inside the Asian low cone.",
         }
-    if asc_ceiling < price < hw:
+    if price > high_cone_ceiling:
         return {
-            "live_structure_state": "ABOVE_ASC_CHANNEL",
-            "structure_reason": "Price is above the ascending channel but below HW.",
+            "live_structure_state": "ABOVE_HIGH_CONE",
+            "structure_reason": "Price is above the Asian high cone.",
         }
-    if lw < price < desc_floor:
+    if price < low_cone_floor:
         return {
-            "live_structure_state": "BELOW_DESC_CHANNEL",
-            "structure_reason": "Price is below the descending channel but above LW.",
+            "live_structure_state": "BELOW_LOW_CONE",
+            "structure_reason": "Price is below the Asian low cone.",
         }
     return {
         "live_structure_state": "OUTSIDE_ALL_STRUCTURES",
@@ -3705,6 +3746,12 @@ def _scenario_bias_family(scenario_name: str | None) -> str:
     """Map a scenario name to a simple directional family."""
 
     text = str(scenario_name or "").upper()
+    if "ABOVE HIGH CONE" in text or "INSIDE HIGH CONE" in text:
+        return "bullish"
+    if "BELOW LOW CONE" in text or "INSIDE LOW CONE" in text:
+        return "bearish"
+    if "BETWEEN CONES" in text or "CONE OVERLAP" in text:
+        return "neutral"
     if "ASCENDING" in text or "ABOVE ASCENDING" in text:
         return "bullish"
     if "DESCENDING" in text or "BELOW DESCENDING" in text:
