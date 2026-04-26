@@ -565,10 +565,6 @@ function SignalTheater({
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
-  const distanceTop = Math.max(15, Math.min(78, (((currentY + entryY) / 2) / 420) * 100));
-  const entryTop = Math.max(16, Math.min(80, (entryY / 420) * 100));
-  const putGateTop = aboveLine ? Math.max(16, Math.min(80, (yFor(aboveLine.value) / 420) * 100)) : null;
-  const callGateTop = belowLine ? Math.max(16, Math.min(80, (yFor(belowLine.value) / 420) * 100)) : null;
   const entryMatchesGate =
     plannedEntry != null &&
     ((aboveLine != null && Math.abs(plannedEntry - aboveLine.value) < 0.01) ||
@@ -583,11 +579,6 @@ function SignalTheater({
     : isCallSetup
       ? "Call Hold Zone"
       : "Retest Entry Zone";
-  const confirmationLabel = isPutSetup
-    ? "Touch line, close below within 3 pts"
-    : isCallSetup
-      ? "Touch line, close above within 3 pts"
-      : "Touch line, close near it";
   const universalNoEntryLabel = "Trade gates: upper rejection for puts, lower hold for calls.";
   const mapStatus = currentEs != null && plannedEntry != null
     ? isPutSetup
@@ -611,8 +602,6 @@ function SignalTheater({
 
   return (
     <section className="signal-theater execution-map" aria-label="Animated execution structure map">
-      <div className="stage-orbit orbit-one" />
-      <div className="stage-orbit orbit-two" />
       <div className="map-titlebar">
         <div>
           <span>Structure Map</span>
@@ -655,7 +644,6 @@ function SignalTheater({
           <>
             <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
             <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
-            <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
           </>
         ) : null}
         {gateLevels.map((level) => {
@@ -667,16 +655,9 @@ function SignalTheater({
               <rect className={`gate-zone-fill ${isUpperGate ? "put-gate-zone" : "call-gate-zone"}`} x={chartLeft} y={y - 13} width={chartRight - chartLeft} height="26" rx="13" />
               <line className={`polarity-gate-line ${isUpperGate ? "put-gate-line" : "call-gate-line"}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
               <circle className={`level-dot ${isUpperGate ? "put-gate-dot" : "call-gate-dot"}`} cx={chartLeft} cy={y} r="4" />
-              <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{gateLabel} {formatPrice(level.value)}</text>
             </g>
           );
         })}
-        {aboveLine ? (
-          <text className="polarity-gate-label put-gate-label" x={chartRight - 156} y={yFor(aboveLine.value) - 10}>Put rejection candidate</text>
-        ) : null}
-        {belowLine ? (
-          <text className="polarity-gate-label call-gate-label" x={chartRight - 138} y={yFor(belowLine.value) + 18}>Call hold candidate</text>
-        ) : null}
         {distanceToRetest != null && Math.abs(currentY - entryY) > 8 ? (
           <g className="distance-ruler">
             <line x1={chartRight - 84} x2={chartRight - 84} y1={Math.min(currentY, entryY)} y2={Math.max(currentY, entryY)} />
@@ -690,58 +671,32 @@ function SignalTheater({
         <circle className="current-price-glow" cx={currentNodeX} cy={currentY} r="42" fill="url(#currentGlow)" />
         <circle className="current-price-ring" cx={currentNodeX} cy={currentY} r="13" />
         <circle className="current-price-node" cx={currentNodeX} cy={currentY} r="6" />
-        <text className="current-price-label" x={currentNodeX + 12} y={currentY - 12}>Current ES {formatPrice(currentEs)}</text>
       </svg>
-      <div className="distance-badge" style={{ top: `${distanceTop}%` }}>
-        <span>Retest distance</span>
-        <strong>{distanceLabel}</strong>
-      </div>
-      {putGateTop != null && aboveLine ? (
-        <div className="gate-ticket-badge put-ticket-badge" style={{ top: `${putGateTop}%` }}>
-          <span>Put Rejection Zone</span>
-          <strong>{formatPrice(aboveLine.value)}</strong>
-          {isPutSetup ? <small>{activeContract} selected</small> : <small>close below required</small>}
-        </div>
-      ) : null}
-      {callGateTop != null && belowLine ? (
-        <div className="gate-ticket-badge call-ticket-badge" style={{ top: `${callGateTop}%` }}>
-          <span>Call Hold Zone</span>
-          <strong>{formatPrice(belowLine.value)}</strong>
-          {isCallSetup ? <small>{activeContract} selected</small> : <small>close above required</small>}
-        </div>
-      ) : null}
-      <div className="entry-ticket-badge selected-ticket-badge" style={{ top: `${entryTop}%` }}>
-        <span>{contractSide}</span>
-        <strong>{activeContract}</strong>
-        <small>Est. fill {formatPrice(expectedFill)}</small>
-      </div>
-      <div className="stage-readout top-left">
-        <span>Current ES Price</span>
-        <strong>{formatPrice(currentEs)}</strong>
-        <small>{mapStatus}</small>
-      </div>
-      <div className="stage-readout bottom-left">
-        <span>{entrySideLabel}</span>
-        <strong>{formatPrice(plannedEntry)}</strong>
-        <small>{confirmationLabel}</small>
-      </div>
-      <div className="stage-levels structure-legend">
-        {aboveLine ? (
-          <span className="tone-neutral">
-            <em>Put rejection line</em>
-            <strong>{formatPrice(aboveLine.value)}</strong>
-          </span>
-        ) : null}
-        <span className="tone-accent">
-          <em>Current ES</em>
+      <div className="map-callout-grid" aria-label="Structure map readout">
+        <div className="map-callout current">
+          <span>Current ES</span>
           <strong>{formatPrice(currentEs)}</strong>
-        </span>
-        {belowLine ? (
-          <span className="tone-neutral">
-            <em>Call hold line</em>
-            <strong>{formatPrice(belowLine.value)}</strong>
-          </span>
+          <small>{distanceLabel}</small>
+        </div>
+        {aboveLine ? (
+          <div className="map-callout put">
+            <span>Put Gate</span>
+            <strong>{formatPrice(aboveLine.value)}</strong>
+            <small>{isPutSetup ? `${activeContract} selected` : "Close below required"}</small>
+          </div>
         ) : null}
+        {belowLine ? (
+          <div className="map-callout call">
+            <span>Call Gate</span>
+            <strong>{formatPrice(belowLine.value)}</strong>
+            <small>{isCallSetup ? `${activeContract} selected` : "Close above required"}</small>
+          </div>
+        ) : null}
+        <div className="map-callout selected">
+          <span>{contractSide}</span>
+          <strong>{activeContract}</strong>
+          <small>{entrySideLabel} {formatPrice(plannedEntry)} | fill {formatPrice(expectedFill)}</small>
+        </div>
       </div>
     </section>
   );

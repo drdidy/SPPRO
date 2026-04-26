@@ -1287,10 +1287,12 @@ button {
 }
 
 .signal-theater {
-  min-height: 430px;
+  min-height: 500px;
   isolation: isolate;
   display: grid;
-  place-items: center;
+  align-items: stretch;
+  grid-template-rows: auto auto minmax(250px, 1fr) auto;
+  gap: 12px;
   background:
     radial-gradient(circle at 52% 52%, rgba(102,230,255,0.14), transparent 15rem),
     radial-gradient(circle at 75% 24%, rgba(126,96,255,0.09), transparent 16rem),
@@ -1303,11 +1305,9 @@ button {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  left: 24px;
-  position: absolute;
-  right: 24px;
-  top: 16px;
+  position: relative;
   z-index: 5;
+  margin: 18px 22px 0;
 }
 
 .map-titlebar div {
@@ -1338,7 +1338,7 @@ button {
   border-radius: 999px;
   background: rgba(216,170,87,0.08);
   color: var(--amber);
-  flex: 0 1 330px;
+  flex: 0 1 300px;
   line-height: 1.35;
   padding: 7px 12px;
   text-align: right;
@@ -1349,10 +1349,13 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  left: 24px;
+  align-content: flex-start;
+  align-items: center;
+  justify-content: center;
+  justify-self: stretch;
+  margin: 0 22px;
   max-width: calc(100% - 48px);
-  position: absolute;
-  top: 98px;
+  position: relative;
   z-index: 5;
 }
 
@@ -1361,10 +1364,10 @@ button {
   border-radius: 999px;
   background: rgba(255,255,255,0.026);
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   font-weight: 820;
   letter-spacing: 0.08em;
-  padding: 6px 8px;
+  padding: 5px 7px;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -1425,8 +1428,10 @@ button {
 .execution-map-svg {
   position: relative;
   z-index: 2;
-  width: min(96%, 660px);
-  height: 100%;
+  align-self: stretch;
+  justify-self: center;
+  width: min(100%, 660px);
+  height: 280px;
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
 }
 
@@ -1584,7 +1589,7 @@ button {
 }
 
 .current-price-glow {
-  opacity: 0.28;
+  opacity: 0.18;
   animation: current-glow-pulse 3.4s ease-in-out infinite;
 }
 
@@ -1810,6 +1815,71 @@ button {
 
 .stage-levels span.tone-positive {
   border-color: rgba(242,239,231,0.12);
+}
+
+.map-callout-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 22px 18px;
+  position: relative;
+  z-index: 4;
+}
+
+.map-callout {
+  min-width: 0;
+  border: 1px solid rgba(202,224,255,0.082);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(102,230,255,0.035), transparent 9rem),
+    rgba(3,4,6,0.58);
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.map-callout.put {
+  border-color: rgba(216,170,87,0.24);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(216,170,87,0.11), transparent 9rem),
+    rgba(3,4,6,0.58);
+}
+
+.map-callout.call {
+  border-color: rgba(122,215,223,0.24);
+}
+
+.map-callout.selected {
+  border-color: rgba(216,170,87,0.28);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(216,170,87,0.12), transparent 9rem),
+    linear-gradient(145deg, rgba(255,255,255,0.038), rgba(3,4,6,0.58));
+}
+
+.map-callout span {
+  color: var(--faint);
+  font-size: 0.6rem;
+  font-weight: 860;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.map-callout strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.94rem;
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-callout small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .sequence-grid {
