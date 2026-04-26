@@ -1776,6 +1776,46 @@ class AppUnitTests(unittest.TestCase):
         self.assertEqual(selected_floor["session_source"], "ASIAN")
         self.assertIn("Asian session", selected_floor["selection_reason"])
 
+    def test_anchor_source_labels_use_true_extreme_time_not_confirmation_time(self) -> None:
+        bundle = {
+            "source": "session_aware_anchor_bundle",
+            "anchor_selection": {
+                "anchor_confidence": "MEDIUM",
+                "by_line": {
+                    "asc_floor": {
+                        "session_source": "ASIAN",
+                        "pivot_time": app_module.at_central(date(2026, 4, 26), 18, 0),
+                        "true_extreme_time": app_module.at_central(date(2026, 4, 26), 17, 0),
+                    },
+                    "desc_ceiling": {
+                        "session_source": "ASIAN",
+                        "pivot_time": app_module.at_central(date(2026, 4, 26), 17, 0),
+                        "true_extreme_time": app_module.at_central(date(2026, 4, 26), 17, 0),
+                    },
+                },
+            },
+        }
+
+        labels = app_module.summarize_selected_anchor_sources(bundle)
+
+        self.assertIn("Asc Floor: Asian 2026-04-26 05:00 PM CT", labels)
+        self.assertIn("Desc Ceiling: Asian 2026-04-26 05:00 PM CT", labels)
+
+    def test_operator_text_cleaner_removes_escaped_html_notes(self) -> None:
+        dirty_note = (
+            '&lt;div class="spx-play-note"&gt;Live scenario shifted to SCENARIO 1: BETWEEN CONES. '
+            "Line confirmation unavailable without candle data.&lt;/div&gt;"
+        )
+
+        cleaned = app_module.clean_operator_text(dirty_note)
+
+        self.assertEqual(
+            cleaned,
+            "Live scenario shifted to SCENARIO 1: BETWEEN CONES. Line confirmation unavailable without candle data.",
+        )
+        self.assertNotIn("<div", cleaned)
+        self.assertNotIn("&lt;", cleaned)
+
     def test_premarket_checkpoint_views_use_selected_anchor_bundle(self) -> None:
         frame = self._build_anchor_candidate_frame()
         bundle = app_module._build_session_aware_anchor_bundle(

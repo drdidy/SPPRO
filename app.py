@@ -8,7 +8,7 @@ import re
 import subprocess
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta
-from html import escape
+from html import escape, unescape as html_unescape
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
@@ -6281,28 +6281,28 @@ def build_live_decision_sentence(
 
     authority = authority or {}
     decision = str(authority.get("decision", "NO TRADE"))
-    live_scenario = str((live_context or {}).get("live_scenario", ""))
+    live_scenario = clean_operator_text((live_context or {}).get("live_scenario", ""))
     scenario_transition = str((live_context or {}).get("scenario_transition", ""))
     execution_action = str(authority.get("execution_action", ""))
-    plan_validity_reason = str(authority.get("plan_validity_reason", ""))
+    plan_validity_reason = clean_operator_text(authority.get("plan_validity_reason", ""))
 
     if decision == "NO TRADE":
         if scenario_transition:
             return "Market structure has shifted. Entry no longer valid."
         if not authority.get("stop_valid", False):
             return "Structure invalid. No structural stop. Trade suppressed."
-        return plan_validity_reason or str(authority.get("reason_line", "No valid live trade."))
+        return plan_validity_reason or clean_operator_text(authority.get("reason_line", "No valid live trade."))
     if decision == "CONDITIONAL BUY":
         if execution_action == "DOWNGRADE STRIKE":
             return "Original thesis still works, but premium expanded too far. Use a cheaper strike."
         if execution_action == "WAIT FOR RETEST":
             return "Plan still valid. Wait for price to return toward the planned zone."
         if scenario_transition:
-            return f"Live scenario shifted to {live_scenario}. {authority.get('condition_required', 'Wait for better location.')}"
-        return str(authority.get("condition_required") or "Plan still valid, but the market must improve into the entry zone.")
+            return f"Live scenario shifted to {live_scenario}. {clean_operator_text(authority.get('condition_required', 'Wait for better location.'))}"
+        return clean_operator_text(authority.get("condition_required") or "Plan still valid, but the market must improve into the entry zone.")
     if intelligence.get("plan_status") == "HOLDING" and intelligence.get("regime") == "PULLBACK":
         return "Plan holding. Pullback regime. Entry still valid."
-    return str(authority.get("reason_line", "Setup remains actionable."))
+    return clean_operator_text(authority.get("reason_line", "Setup remains actionable."))
 
 
 def build_low_data_state(records: list[dict[str, Any]] | pd.DataFrame | None, *, minimum: int = 5, label: str = "reviewed trades") -> dict[str, Any]:
@@ -7319,6 +7319,18 @@ def format_money(value: Any) -> str:
     return f"${rounded:,.2f}"
 
 
+def clean_operator_text(value: Any) -> str:
+    """Return display-safe operator copy with any leaked HTML removed."""
+
+    text = str(value or "")
+    # Some notes have already been escaped before being passed back into a card.
+    # Decode first so both "<div>..." and "&lt;div&gt;..." are sanitized the same way.
+    for _ in range(2):
+        text = html_unescape(text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip()
+
+
 def format_contract_short_label(
     contract_symbol: str | None,
     strike: Any = None,
@@ -8134,7 +8146,20 @@ def summarize_selected_anchor_sources(anchor_bundle: dict[str, Any] | None) -> l
         if not candidate:
             continue
         source_label = ANCHOR_SOURCE_SHORT_LABELS.get(str(candidate.get("session_source", "")), str(candidate.get("session_source", "")))
-        time_label = format_timestamp(candidate.get("pivot_time"))
+        # Production labels should show where the actual high/low extreme printed.
+        # The candidate pivot_time can be the confirmation/projection-start candle,
+        # which is useful internally but misleading when traders ask "where was the pivot?"
+        pivot_extreme = candidate.get("pivot_extreme")
+        if not isinstance(pivot_extreme, dict):
+            pivot_extreme = (candidate.get("pivot_payload") or {}).get("pivot_extreme")
+        if not isinstance(pivot_extreme, dict):
+            pivot_extreme = (candidate.get("candle_context") or {}).get("pivot_extreme")
+        display_time = candidate.get("true_extreme_time")
+        if display_time is None and isinstance(pivot_extreme, dict):
+            display_time = pivot_extreme.get("timestamp")
+        if display_time is None:
+            display_time = candidate.get("pivot_time")
+        time_label = format_timestamp(display_time)
         if time_label:
             time_label = time_label.split(",")[-1].strip()
         summaries.append(f"{short_label}: {source_label} {time_label}".strip())
@@ -18556,12 +18581,11 @@ def render_operator_play_card(
     risk_class = str(authority.get("risk_class", "HIGH"))
     expected_value = authority.get("expected_value")
     def _clean_operator_note(value: Any) -> str:
-        text = re.sub(r"<[^>]+>", "", str(value or "")).strip()
-        return re.sub(r"\s+", " ", text)
+        return clean_operator_text(value)
 
     reason_line = _clean_operator_note(authority.get("reason_line", "No active setup"))
     top_reasons = list(authority.get("top_reasons", []))
-    condition_required = str(authority.get("condition_required", ""))
+    condition_required = _clean_operator_note(authority.get("condition_required", ""))
     evidence_level = str(authority.get("evidence_level", "None"))
     calibration_evidence = str(calibration_preview.get("evidence_label", "No Evidence")) if calibration_preview else "No Evidence"
     use_allowed = bool(authority.get("use_allowed", False))
@@ -18713,8 +18737,13 @@ def render_operator_play_card(
             '</div>'
         )
     visible_reason_note = _clean_operator_note(reason_line if decision == "NO TRADE" else decision_sentence)
-    if not developer_mode and visible_reason_note == "Line confirmation unavailable without candle data.":
-        visible_reason_note = ""
+    if not developer_mode:
+        for generic_note in (
+            "Line confirmation unavailable without candle data.",
+            "Line confirmation unavailable without candle data",
+        ):
+            visible_reason_note = visible_reason_note.replace(generic_note, "")
+        visible_reason_note = _clean_operator_note(visible_reason_note)
     reason_note_html = f'<div class="spx-play-note">{escape(visible_reason_note)}</div>' if visible_reason_note else ""
     footer_rows: list[tuple[str, str]] = []
     if projected_entry_value is not None and projected_fill_at_entry is not None:
