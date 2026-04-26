@@ -45,6 +45,12 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       : decision.reason;
   const scenarioLabel = `${decision.bias} / ${decision.scenario}`;
   const executionLine = `${primary.status} | ${primary.zone} | ${structure.anchor_source} anchor`;
+  const controlModeLabel = projectionMode === "retest" ? "Retest Mode" : "Current Mode";
+  const orderStatus = armed ? "Retest Armed" : "Order Not Sent";
+  const orderStatusDetail = armed
+    ? `${activeContract} waits for confirmation at the planned line.`
+    : `${decision.state} | ${triggerLabel}`;
+  const nextThemeLabel = visualTheme === "daylight" ? "Obsidian" : "Daylight";
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
 
   const stageLevels = useMemo(() => structure.levels.slice(0, 4), [structure.levels]);
@@ -155,17 +161,35 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             </div>
           </div>
 
-          <div className="masthead-actions">
-            <div className="action-eyebrow">Operator Controls</div>
-            <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">Command /</button>
+          <div className={`masthead-actions ${armed ? "is-armed" : ""}`}>
+            <div className="action-eyebrow">
+              <span>Execution Controls</span>
+              <em>{controlModeLabel}</em>
+            </div>
+            <div className="order-state">
+              <span>{armed ? "Armed State" : "Safe State"}</span>
+              <strong>{orderStatus}</strong>
+              <small>{orderStatusDetail}</small>
+            </div>
+            <button className="masthead-button primary" onClick={() => setCommandOpen(true)} type="button">
+              <span>Command Center</span>
+              <strong>/</strong>
+            </button>
             <button
-              className="masthead-button"
+              aria-pressed={armed}
+              className="masthead-button arm"
+              onClick={() => setArmed((value) => !value)}
+              type="button"
+            >
+              {armed ? "Disarm Retest" : "Arm Retest"}
+            </button>
+            <button
+              className="masthead-button ghost"
               onClick={() => setVisualTheme((value) => (value === "daylight" ? "obsidian" : "daylight"))}
               type="button"
             >
-              {visualTheme === "daylight" ? "Obsidian" : "Daylight"}
+              Switch to {nextThemeLabel}
             </button>
-            <span className="order-state">Order Not Sent</span>
           </div>
         </motion.header>
 
