@@ -467,7 +467,6 @@ function SignalTheater({
   };
   const currentY = yFor(currentEs);
   const entryY = yFor(plannedEntry);
-  const routeD = `M ${currentNodeX} ${currentY} C ${chartLeft + 126} ${(currentY + entryY) / 2 - 34}, ${chartRight - 116} ${(currentY + entryY) / 2 + 34}, ${futureNodeX} ${entryY}`;
   const distanceToRetest = currentEs != null && plannedEntry != null ? currentEs - plannedEntry : null;
   const isPutSetup = activeContract.toUpperCase().endsWith("P");
   const isCallSetup = activeContract.toUpperCase().endsWith("C");
@@ -481,6 +480,11 @@ function SignalTheater({
     : pricedLevels
         .filter((level) => level.value < currentEs)
         .sort((a, b) => b.value - a.value)[0] ?? null;
+  const routeTo = (targetPrice: number) => {
+    const targetY = yFor(targetPrice);
+    const midpointY = (currentY + targetY) / 2;
+    return `M ${currentNodeX} ${currentY} C ${chartLeft + 128} ${midpointY - 28}, ${chartRight - 128} ${midpointY + 28}, ${futureNodeX} ${targetY}`;
+  };
   const gateLevels = [aboveLine, belowLine].filter((level): level is { label: string; value: number; tone: string } => level != null);
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
@@ -594,7 +598,8 @@ function SignalTheater({
             <line x1={chartRight - 92} x2={chartRight - 76} y1={entryY} y2={entryY} />
           </g>
         ) : null}
-        <path className="retest-route" d={routeD} markerEnd="url(#routeArrow)" />
+        {aboveLine ? <path className="gate-route put-route" d={routeTo(aboveLine.value)} markerEnd="url(#routeArrow)" /> : null}
+        {belowLine ? <path className="gate-route call-route" d={routeTo(belowLine.value)} markerEnd="url(#routeArrow)" /> : null}
         <line className="current-price-line" x1={chartLeft} x2={chartRight} y1={currentY} y2={currentY} />
         <circle className="current-price-glow" cx={currentNodeX} cy={currentY} r="42" fill="url(#currentGlow)" />
         <circle className="current-price-ring" cx={currentNodeX} cy={currentY} r="13" />

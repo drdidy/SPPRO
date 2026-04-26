@@ -1587,13 +1587,22 @@ button {
   stroke: var(--cyan);
 }
 
-.retest-route {
+.retest-route,
+.gate-route {
   fill: none;
   stroke: rgba(216,170,87,0.62);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 5 13;
   animation: route-flow 3.8s linear infinite;
+}
+
+.gate-route.call-route {
+  stroke: rgba(122,215,223,0.58);
+}
+
+.gate-route.put-route {
+  stroke: rgba(216,170,87,0.62);
 }
 
 .current-price-line {
