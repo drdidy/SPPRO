@@ -169,7 +169,7 @@ button {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(300px, 0.66fr) minmax(560px, 1.22fr) minmax(280px, 0.58fr);
+  grid-template-columns: minmax(360px, 0.74fr) minmax(560px, 1.12fr) minmax(280px, 0.56fr);
   grid-template-areas: "brand pulse actions";
   align-items: stretch;
   gap: 12px;
@@ -224,7 +224,7 @@ button {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
   min-width: 0;
   text-align: left;
   border-radius: 20px;
@@ -233,13 +233,13 @@ button {
     radial-gradient(circle at 50% 18%, rgba(102,230,255,0.14), transparent 14rem),
     linear-gradient(180deg, rgba(255,255,255,0.052), rgba(255,255,255,0.018));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-  padding: 10px 12px;
+  padding: 12px 16px;
 }
 
 .prophet-mark {
   position: relative;
-  width: 72px;
-  height: 72px;
+  width: 88px;
+  height: 88px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -284,8 +284,8 @@ button {
 .prophet-mark svg {
   position: relative;
   z-index: 1;
-  width: 60px;
-  height: 60px;
+  width: 74px;
+  height: 74px;
   overflow: visible;
 }
 
@@ -356,16 +356,18 @@ button {
 }
 
 .brand-lockup {
+  display: grid;
+  gap: 3px;
   min-width: 0;
 }
 
 .wordmark {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.58rem, 2.15vw, 2.35rem);
+  font-size: clamp(2rem, 2.65vw, 3.08rem);
   line-height: 0.92;
-  font-weight: 900;
-  letter-spacing: -0.085em;
+  font-weight: 920;
+  letter-spacing: -0.075em;
   display: flex;
   justify-content: flex-start;
   align-items: baseline;
@@ -390,7 +392,7 @@ button {
 .masthead-brand p {
   margin: 3px 0 0;
   color: var(--faint);
-  font-size: 0.64rem;
+  font-size: 0.68rem;
   font-weight: 820;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -1146,6 +1148,93 @@ button {
   margin-top: 6px;
 }
 
+.authority-market-card {
+  border: 1px solid rgba(122,215,223,0.13);
+  border-radius: 17px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(122,215,223,0.08), transparent 10rem),
+    linear-gradient(145deg, rgba(255,255,255,0.034), rgba(255,255,255,0.012));
+  display: grid;
+  gap: 9px;
+  margin-top: 11px;
+  padding: 11px 12px;
+}
+
+.authority-market-head,
+.authority-market-event {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.authority-market-head span,
+.authority-market-event span {
+  color: var(--faint);
+  font-size: 0.62rem;
+  font-weight: 860;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.authority-market-head strong {
+  border: 1px solid rgba(216,170,87,0.24);
+  border-radius: 999px;
+  color: var(--amber);
+  font-size: 0.66rem;
+  font-weight: 860;
+  letter-spacing: 0.1em;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.authority-market-event {
+  border: 1px solid rgba(242,239,231,0.06);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.024);
+  padding: 8px 10px;
+}
+
+.authority-market-event strong {
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 860;
+  text-align: right;
+}
+
+.authority-market-card p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.38;
+  margin: 0;
+}
+
+.authority-headlines {
+  display: grid;
+  gap: 6px;
+}
+
+.authority-headlines a {
+  border: 1px solid rgba(242,239,231,0.06);
+  border-radius: 12px;
+  background: rgba(3,4,6,0.38);
+  color: inherit;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.authority-headlines a strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.authority-headlines a span {
+  color: var(--faint);
+  font-size: 0.68rem;
+}
+
 .mode-switch {
   width: fit-content;
   display: inline-grid;
@@ -1289,15 +1378,15 @@ button {
 }
 
 .studio-workspace {
-  grid-template-columns: minmax(720px, 1fr) 430px;
+  grid-template-columns: 1fr;
 }
 
 .signal-theater {
-  min-height: 380px;
+  min-height: 430px;
   isolation: isolate;
   display: grid;
   align-items: stretch;
-  grid-template-rows: auto auto minmax(240px, 1fr);
+  grid-template-rows: auto auto minmax(300px, 1fr);
   gap: 8px;
   background:
     radial-gradient(circle at 52% 52%, rgba(102,230,255,0.14), transparent 15rem),
@@ -1437,7 +1526,7 @@ button {
   align-self: stretch;
   justify-self: center;
   width: 100%;
-  height: 245px;
+  height: 312px;
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
 }
 
@@ -1445,8 +1534,8 @@ button {
   position: relative;
   z-index: 4;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.34fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.31fr);
+  gap: 22px;
   align-items: stretch;
   margin: 0 22px 18px;
 }
@@ -1956,7 +2045,7 @@ button {
 }
 
 .sequence-step {
-  min-height: 110px;
+  min-height: 94px;
   border: 1px solid rgba(242,239,231,0.075);
   border-radius: 14px;
   background: rgba(255,255,255,0.025);
@@ -1976,7 +2065,7 @@ button {
 
 .sequence-step strong {
   display: block;
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
 .sequence-step p {

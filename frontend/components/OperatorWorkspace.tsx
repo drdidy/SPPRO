@@ -58,7 +58,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       ? `${decision.bias} plan needs ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} retest confirmation.`
       : decision.reason;
   const scenarioLabel = `${decision.bias} / ${decision.scenario}`;
-  const executionLine = `${primary.zone} | ${structure.anchor_source} anchor`;
   const controlModeLabel = "Retest Plan";
   const orderStatus = armed ? "Retest Watch On" : "Retest Watch Off";
   const orderStatusDetail = armed
@@ -77,8 +76,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     "Retest Required"
   ];
   const constraintSummary = constraintLabels.join(" | ");
-  const primaryStatusLabel = operatorStatusLabel(primary.status);
-  const alternateStatusLabel = operatorStatusLabel(alternate.status);
   const authoritySubtitle = armed
     ? "Retest watch on. Confirmation still required."
     : decision.state.toUpperCase().includes("WAIT")
@@ -260,6 +257,25 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
                 <strong>{constraintSummary}</strong>
               </div>
             </div>
+            <div className="authority-market-card" aria-label="Market context">
+              <div className="authority-market-head">
+                <span>Market Context</span>
+                <strong>{context.risk_mode}</strong>
+              </div>
+              <div className="authority-market-event">
+                <span>Next Event</span>
+                <strong>{context.next_event}</strong>
+              </div>
+              <p>{context.interpretation}</p>
+              <div className="authority-headlines">
+                {context.headlines.slice(0, 2).map((headline) => (
+                  <a href={headline.url ?? "#"} key={headline.title}>
+                    <strong>{headline.title}</strong>
+                    <span>{headline.source} | {headline.time}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
 
           <PlayStack
@@ -346,45 +362,20 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             <motion.section className="panel narrative-panel" variants={panelVariants}>
               <div className="panel-header">
                 <div>
-                  <p className="kicker">Execution Sequence</p>
-                  <h3>Execution checklist</h3>
+                  <p className="kicker">Retest Protocol</p>
+                  <h3>What must happen next</h3>
                 </div>
-                <span className="pill">Operator Flow</span>
+                <span className="pill">Polarity Gate</span>
               </div>
               <div className="sequence-grid">
-                <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity`} active />
-                <SequenceStep index="02" title="Retest" value="Clean line return required" active />
-                <SequenceStep index="03" title="Primary" value={`${activeContract} | ${primaryStatusLabel}`} active />
-                <SequenceStep index="04" title="Alternate" value={`${alternateContract} | ${alternateStatusLabel}`} active={alternate.status !== "Blocked"} />
-                <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "Alert not armed"} active={armed} />
+                <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity line selected`} active />
+                <SequenceStep index="02" title="Return" value={`Price must revisit ${formatPrice(mapEntry)}`} active />
+                <SequenceStep index="03" title="Confirm" value="Touch and close within 3 pts" active />
+                <SequenceStep index="04" title="VWAP" value={structure.vwap?.label ?? "VWAP pending"} active={Boolean(structure.vwap?.value)} />
+                <SequenceStep index="05" title="Alert" value={armed ? "Watch armed for retest" : "Arm only when ready"} active={armed} />
               </div>
             </motion.section>
           </div>
-
-          <aside className="right-stack">
-            <motion.section className="panel market-card" variants={panelVariants}>
-              <div className="panel-header">
-                <div>
-                  <p className="kicker">Market Context</p>
-                  <h3>Event risk</h3>
-                </div>
-                <span className={`pill tone-${toneFor(context.event_risk)}`}>{context.risk_mode}</span>
-              </div>
-              <div className="next-event-row">
-                <span>Next Event</span>
-                <strong>{context.next_event}</strong>
-              </div>
-              <p className="panel-copy muted">{context.interpretation}</p>
-              <div className="headlines">
-                {context.headlines.slice(0, 3).map((headline) => (
-                  <a className="headline" href={headline.url ?? "#"} key={headline.title}>
-                    <strong>{headline.title}</strong>
-                    <span>{headline.source} | {headline.time}</span>
-                  </a>
-                ))}
-              </div>
-            </motion.section>
-          </aside>
         </div>
       </section>
 
@@ -562,10 +553,10 @@ function SignalTheater({
   plannedEntry: number | null;
   vwap?: OperatorSnapshot["structure"]["vwap"];
 }) {
-  const chartTop = 38;
-  const chartHeight = 228;
-  const chartLeft = 82;
-  const chartRight = 778;
+  const chartTop = 30;
+  const chartHeight = 270;
+  const chartLeft = 34;
+  const chartRight = 842;
   const currentNodeX = chartLeft + 42;
   const futureNodeX = chartRight - 42;
   const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
@@ -658,7 +649,7 @@ function SignalTheater({
         <span>Close within 3 pts</span>
       </div>
       <div className="map-body">
-      <svg className="execution-map-svg" viewBox="0 0 880 330" role="img" aria-label="Current ES, planned entry, and structure levels">
+      <svg className="execution-map-svg" viewBox="0 0 880 350" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
           <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
             <stop stopColor="#d8aa57" stopOpacity="0" />
@@ -817,8 +808,8 @@ function StrikeSummaryCard({
         <span><em>RR</em><strong>{row?.rr == null ? "-" : row.rr.toFixed(2)}</strong></span>
       </div>
       <div className="strike-summary-footer">
-        <span className={`text-${toneFor(row?.budget ?? "")}`}>{row?.budget ?? "Budget unknown"}</span>
-        <strong>{row?.tag ?? "Selected"}</strong>
+        <span>Plan locked</span>
+        <strong>{row?.tag === "Selected" ? "Selected" : row?.tag ?? "Selected"}</strong>
       </div>
     </article>
   );
