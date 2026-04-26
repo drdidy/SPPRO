@@ -1362,6 +1362,35 @@ button {
   padding: 7px 10px;
 }
 
+.polarity-rule-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  left: 24px;
+  max-width: calc(100% - 48px);
+  position: absolute;
+  top: 78px;
+  z-index: 5;
+}
+
+.polarity-rule-strip span {
+  border: 1px solid rgba(242,239,231,0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.026);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
+.polarity-rule-strip span:nth-child(2) {
+  border-color: rgba(216,170,87,0.22);
+  background: rgba(216,170,87,0.08);
+  color: var(--amber);
+}
+
 .theme-daylight .signal-theater {
   background:
     radial-gradient(circle at 52% 52%, rgba(22,121,155,0.13), transparent 15rem),
@@ -2391,9 +2420,13 @@ button {
     align-items: flex-start;
     flex-direction: column;
   }
+  .polarity-rule-strip {
+    position: static;
+    margin: 88px 18px 0;
+  }
   .execution-map-svg {
     width: 100%;
-    margin-top: 70px;
+    margin-top: 6px;
   }
   .distance-badge,
   .entry-ticket-badge,

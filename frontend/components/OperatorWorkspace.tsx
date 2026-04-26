@@ -478,6 +478,21 @@ function SignalTheater({
     : activeContract.toUpperCase().endsWith("C")
       ? "Selected Call"
       : "Selected Contract";
+  const entrySideLabel = activeContract.toUpperCase().endsWith("P")
+    ? "Put Rejection Zone"
+    : activeContract.toUpperCase().endsWith("C")
+      ? "Call Hold Zone"
+      : "Retest Entry Zone";
+  const confirmationLabel = activeContract.toUpperCase().endsWith("P")
+    ? "Touch line, close below within 3 pts"
+    : activeContract.toUpperCase().endsWith("C")
+      ? "Touch line, close above within 3 pts"
+      : "Touch line, close near it";
+  const noEntryLabel = activeContract.toUpperCase().endsWith("P")
+    ? "No put until rejection confirms"
+    : activeContract.toUpperCase().endsWith("C")
+      ? "No call until hold confirms"
+      : "No entry until retest confirms";
   const mapStatus = currentEs != null && plannedEntry != null
     ? currentEs > plannedEntry
       ? "Current ES is above retest zone"
@@ -495,7 +510,12 @@ function SignalTheater({
           <span>Structure Map</span>
           <strong>{mapStatus}</strong>
         </div>
-        <em>No entry until retest confirms</em>
+        <em>{noEntryLabel}</em>
+      </div>
+      <div className="polarity-rule-strip" aria-label="Polarity confirmation rules">
+        <span>All lines start neutral</span>
+        <span>{confirmationLabel}</span>
+        <span>Extended reaction = wait</span>
       </div>
       <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
@@ -524,7 +544,7 @@ function SignalTheater({
         })}
         <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
         <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
-        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>Retest entry zone {formatPrice(plannedEntry)}</text>
+        <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
         {drawableLevels.map((level) => {
           const y = yFor(level.value);
           return (
@@ -564,8 +584,9 @@ function SignalTheater({
         <small>{mapStatus}</small>
       </div>
       <div className="stage-readout bottom-left">
-        <span>Retest Entry Zone</span>
+        <span>{entrySideLabel}</span>
         <strong>{formatPrice(plannedEntry)}</strong>
+        <small>{confirmationLabel}</small>
       </div>
       <div className="stage-levels structure-legend">
         {pricedLevels.map((level) => (
