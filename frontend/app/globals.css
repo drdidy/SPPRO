@@ -1286,10 +1286,10 @@ button {
 }
 
 .map-titlebar {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 18px;
   left: 24px;
   position: absolute;
   right: 24px;
@@ -1325,7 +1325,11 @@ button {
   border-radius: 999px;
   background: rgba(216,170,87,0.08);
   color: var(--amber);
-  padding: 7px 10px;
+  flex: 0 1 330px;
+  line-height: 1.35;
+  padding: 7px 12px;
+  text-align: right;
+  white-space: normal;
 }
 
 .polarity-rule-strip {
@@ -1335,7 +1339,7 @@ button {
   left: 24px;
   max-width: calc(100% - 48px);
   position: absolute;
-  top: 70px;
+  top: 98px;
   z-index: 5;
 }
 
@@ -1349,6 +1353,7 @@ button {
   letter-spacing: 0.08em;
   padding: 6px 8px;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .polarity-rule-strip span:nth-child(2) {
@@ -1668,7 +1673,7 @@ button {
   font-size: 1.04rem;
 }
 
-.top-left { left: 24px; top: 86px; }
+.top-left { left: 24px; top: 158px; }
 .bottom-left { left: 24px; bottom: 112px; }
 .right { right: 24px; top: 86px; }
 
