@@ -1514,6 +1514,36 @@ button {
   animation: band-flow 2.4s linear infinite;
 }
 
+.gate-zone-fill {
+  opacity: 0.34;
+}
+
+.put-gate-zone {
+  fill: rgba(216,170,87,0.12);
+}
+
+.call-gate-zone {
+  fill: rgba(122,215,223,0.1);
+}
+
+.polarity-gate-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 13 10;
+  animation: band-flow 2.4s linear infinite;
+}
+
+.put-gate-line {
+  stroke: var(--amber);
+  filter: drop-shadow(0 0 12px rgba(216,170,87,0.34));
+}
+
+.call-gate-line {
+  stroke: var(--cyan);
+  filter: drop-shadow(0 0 12px rgba(122,215,223,0.3));
+}
+
 .structure-level-line {
   stroke: rgba(242,239,231,0.22);
   stroke-width: 1.45;
@@ -1545,6 +1575,16 @@ button {
 
 .level-dot {
   filter: drop-shadow(0 0 9px currentColor);
+}
+
+.put-gate-dot {
+  fill: var(--amber);
+  stroke: var(--amber);
+}
+
+.call-gate-dot {
+  fill: var(--cyan);
+  stroke: var(--cyan);
 }
 
 .retest-route {

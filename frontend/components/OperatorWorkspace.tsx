@@ -482,7 +482,6 @@ function SignalTheater({
         .filter((level) => level.value < currentEs)
         .sort((a, b) => b.value - a.value)[0] ?? null;
   const gateLevels = [aboveLine, belowLine].filter((level): level is { label: string; value: number; tone: string } => level != null);
-  const drawableLevels = gateLevels.filter((level) => plannedEntry == null || Math.abs(level.value - plannedEntry) > 0.25);
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
@@ -569,14 +568,15 @@ function SignalTheater({
         <rect className="entry-zone-fill" x={chartLeft} y={entryY - 13} width={chartRight - chartLeft} height="26" rx="13" />
         <line className="entry-zone-line" x1={chartLeft} x2={chartRight} y1={entryY} y2={entryY} />
         <text className="map-entry-label" x={chartLeft + 12} y={entryY - 18}>{entrySideLabel} {formatPrice(plannedEntry)}</text>
-        {drawableLevels.map((level) => {
+        {gateLevels.map((level) => {
           const y = yFor(level.value);
           const isUpperGate = aboveLine != null && level.value === aboveLine.value;
           const gateLabel = isUpperGate ? "Put rejection line" : "Call hold line";
           return (
             <g key={`${gateLabel}-${level.value}`}>
-              <line className="structure-level-line tone-neutral" x1={chartLeft} x2={chartRight} y1={y} y2={y} />
-              <circle className="level-dot tone-neutral" cx={chartLeft} cy={y} r="4" />
+              <rect className={`gate-zone-fill ${isUpperGate ? "put-gate-zone" : "call-gate-zone"}`} x={chartLeft} y={y - 13} width={chartRight - chartLeft} height="26" rx="13" />
+              <line className={`polarity-gate-line ${isUpperGate ? "put-gate-line" : "call-gate-line"}`} x1={chartLeft} x2={chartRight} y1={y} y2={y} />
+              <circle className={`level-dot ${isUpperGate ? "put-gate-dot" : "call-gate-dot"}`} cx={chartLeft} cy={y} r="4" />
               <text className="structure-level-label" x={chartLeft + 12} y={y - 7}>{gateLabel} {formatPrice(level.value)}</text>
             </g>
           );
