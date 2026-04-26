@@ -73,6 +73,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     `${decision.risk} Risk`
   ];
   const constraintSummary = constraintLabels.join(" | ");
+  const primaryStatusLabel = operatorStatusLabel(primary.status);
+  const alternateStatusLabel = operatorStatusLabel(alternate.status);
   const authoritySubtitle = armed
     ? "Retest watch on. Confirmation still required."
     : decision.state.toUpperCase().includes("WAIT")
@@ -257,14 +259,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             </div>
           </div>
 
-          <SignalTheater
-            activeContract={activeContract}
-            currentEs={structure.current_es}
-            expectedFill={ticketFill}
-            levels={stageLevels}
-            plannedEntry={mapEntry}
-          />
-
           <PlayStack
             alternate={{
               atEntry: alternateAtEntry,
@@ -287,6 +281,16 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             }}
           />
         </motion.section>
+
+        <motion.div className="structure-focus-row" variants={panelVariants}>
+          <SignalTheater
+            activeContract={activeContract}
+            currentEs={structure.current_es}
+            expectedFill={ticketFill}
+            levels={stageLevels}
+            plannedEntry={mapEntry}
+          />
+        </motion.div>
 
         <motion.section className="operator-strip" variants={panelVariants} aria-label="Operator summary">
           <Metric label={plannedEntryEs != null ? "Trigger ES" : "Planned Entry"} value={`${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"}`} />
@@ -346,8 +350,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               <div className="sequence-grid">
                 <SequenceStep index="01" title="Anchor" value={`${structure.anchor_source} polarity`} active />
                 <SequenceStep index="02" title="Retest" value="Clean line return required" active />
-                <SequenceStep index="03" title="Primary" value={`${activeContract} | ${primary.status}`} active />
-                <SequenceStep index="04" title="Alternate" value={`${alternateContract} | ${alternate.status}`} active={alternate.status !== "Blocked"} />
+                <SequenceStep index="03" title="Primary" value={`${activeContract} | ${primaryStatusLabel}`} active />
+                <SequenceStep index="04" title="Alternate" value={`${alternateContract} | ${alternateStatusLabel}`} active={alternate.status !== "Blocked"} />
                 <SequenceStep index="05" title="Alert" value={armed ? "Retest alert armed" : "Alert not armed"} active={armed} />
               </div>
             </motion.section>
@@ -415,6 +419,14 @@ type PlayTicketData = {
   rr: number | null;
 };
 
+function operatorStatusLabel(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "armed") return "Candidate";
+  if (normalized === "watch") return "Watching";
+  if (normalized === "invalidated") return "Blocked";
+  return status;
+}
+
 function PlayStack({
   alternate,
   armed,
@@ -465,7 +477,7 @@ function PlayTicketCard({
   const isPut = data.contract.toUpperCase().endsWith("P");
   const isCall = data.contract.toUpperCase().endsWith("C");
   const contractSide = isPut ? "Put" : isCall ? "Call" : data.play.direction;
-  const ticketState = armed ? "Retest Watch On" : data.play.status;
+  const ticketState = armed ? "Alert Watching" : operatorStatusLabel(data.play.status);
   const gateLabel = isPut ? "upper rejection line" : isCall ? "lower hold line" : "planned trigger";
   const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
 
@@ -522,17 +534,27 @@ function SignalTheater({
   levels: Array<{ label: string; value: number | null; tone: string }>;
   plannedEntry: number | null;
 }) {
-  const chartTop = 46;
-  const chartHeight = 308;
-  const chartLeft = 72;
-  const chartRight = 444;
+  const chartTop = 38;
+  const chartHeight = 228;
+  const chartLeft = 82;
+  const chartRight = 778;
   const currentNodeX = chartLeft + 42;
   const futureNodeX = chartRight - 42;
   const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
-  const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
+  const aboveLine = currentEs == null
+    ? null
+    : pricedLevels
+        .filter((level) => level.value > currentEs)
+        .sort((a, b) => a.value - b.value)[0] ?? null;
+  const belowLine = currentEs == null
+    ? null
+    : pricedLevels
+        .filter((level) => level.value < currentEs)
+        .sort((a, b) => b.value - a.value)[0] ?? null;
+  const priceValues = [currentEs, plannedEntry, aboveLine?.value, belowLine?.value].filter((value): value is number => value != null);
   const rawMin = priceValues.length > 0 ? Math.min(...priceValues) : 0;
   const rawMax = priceValues.length > 0 ? Math.max(...priceValues) : 1;
-  const pad = Math.max((rawMax - rawMin) * 0.04, 3);
+  const pad = Math.max((rawMax - rawMin) * 0.12, 4);
   const minPrice = rawMin - pad;
   const maxPrice = rawMax + pad;
   const yFor = (price: number | null) => {
@@ -546,16 +568,6 @@ function SignalTheater({
   const distanceToRetest = currentEs != null && plannedEntry != null ? currentEs - plannedEntry : null;
   const isPutSetup = activeContract.toUpperCase().endsWith("P");
   const isCallSetup = activeContract.toUpperCase().endsWith("C");
-  const aboveLine = currentEs == null
-    ? null
-    : pricedLevels
-        .filter((level) => level.value > currentEs)
-        .sort((a, b) => a.value - b.value)[0] ?? null;
-  const belowLine = currentEs == null
-    ? null
-    : pricedLevels
-        .filter((level) => level.value < currentEs)
-        .sort((a, b) => b.value - a.value)[0] ?? null;
   const routeTo = (targetPrice: number) => {
     const targetY = yFor(targetPrice);
     const midpointY = (currentY + targetY) / 2;
@@ -579,7 +591,7 @@ function SignalTheater({
     : isCallSetup
       ? "Call Hold Zone"
       : "Retest Entry Zone";
-  const universalNoEntryLabel = "Trade gates: upper rejection for puts, lower hold for calls.";
+  const universalNoEntryLabel = "Upper line gates puts. Lower line gates calls.";
   const mapStatus = currentEs != null && plannedEntry != null
     ? isPutSetup
       ? currentEs < plannedEntry
@@ -610,12 +622,12 @@ function SignalTheater({
         <em>{universalNoEntryLabel}</em>
       </div>
       <div className="polarity-rule-strip" aria-label="Polarity confirmation rules">
-        <span>All lines start neutral</span>
-        <span>Put gate: upper rejection</span>
-        <span>Call gate: lower hold</span>
-        <span>Extended reaction = retest required</span>
+        <span>Neutral until confirmed</span>
+        <span>Put rejection above</span>
+        <span>Call hold below</span>
+        <span>Close within 3 pts</span>
       </div>
-      <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
+      <svg className="execution-map-svg" viewBox="0 0 880 330" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
           <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
             <stop stopColor="#d8aa57" stopOpacity="0" />

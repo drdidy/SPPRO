@@ -451,10 +451,10 @@ button {
 
 .pulse-decision {
   display: grid;
-  grid-template-columns: minmax(88px, 0.42fr) minmax(0, 1fr);
-  column-gap: 13px;
-  row-gap: 3px;
-  align-items: end;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  column-gap: 15px;
+  row-gap: 4px;
+  align-items: center;
   border-radius: 13px;
   border: 1px solid rgba(242,239,231,0.075);
   border-left: 3px solid var(--amber);
@@ -476,11 +476,12 @@ button {
 .pulse-decision strong {
   grid-column: 1;
   color: var(--text);
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 2.7vw, 3rem);
-  line-height: 0.82;
+  font-family: var(--font-mono);
+  font-size: clamp(1.28rem, 1.6vw, 1.72rem);
+  line-height: 0.95;
   font-weight: 900;
-  letter-spacing: -0.065em;
+  letter-spacing: -0.05em;
+  white-space: nowrap;
 }
 
 .pulse-decision p {
@@ -501,6 +502,7 @@ button {
 .pulse-decision p b {
   color: var(--text);
   font-weight: 780;
+  max-width: 44ch;
 }
 
 .pulse-decision p small {
@@ -884,9 +886,13 @@ button {
 .cinematic-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(350px, 0.82fr) minmax(540px, 1.12fr) minmax(390px, 0.88fr);
+  grid-template-columns: minmax(390px, 0.78fr) minmax(520px, 1fr);
   gap: 18px;
   align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.structure-focus-row {
   margin-bottom: 14px;
 }
 
@@ -1287,11 +1293,11 @@ button {
 }
 
 .signal-theater {
-  min-height: 500px;
+  min-height: 440px;
   isolation: isolate;
   display: grid;
   align-items: stretch;
-  grid-template-rows: auto auto minmax(250px, 1fr) auto;
+  grid-template-rows: auto auto minmax(235px, 1fr) auto;
   gap: 12px;
   background:
     radial-gradient(circle at 52% 52%, rgba(102,230,255,0.14), transparent 15rem),
@@ -1328,7 +1334,7 @@ button {
 .map-titlebar strong {
   color: var(--text);
   font-family: var(--font-display);
-  font-size: clamp(1.08rem, 1.5vw, 1.45rem);
+  font-size: clamp(1.18rem, 1.25vw, 1.56rem);
   font-weight: 740;
   letter-spacing: -0.035em;
 }
@@ -1338,7 +1344,7 @@ button {
   border-radius: 999px;
   background: rgba(216,170,87,0.08);
   color: var(--amber);
-  flex: 0 1 300px;
+  flex: 0 1 420px;
   line-height: 1.35;
   padding: 7px 12px;
   text-align: right;
@@ -1351,7 +1357,7 @@ button {
   gap: 7px;
   align-content: flex-start;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   justify-self: stretch;
   margin: 0 22px;
   max-width: calc(100% - 48px);
@@ -1364,7 +1370,7 @@ button {
   border-radius: 999px;
   background: rgba(255,255,255,0.026);
   color: var(--muted);
-  font-size: 0.58rem;
+  font-size: 0.61rem;
   font-weight: 820;
   letter-spacing: 0.08em;
   padding: 5px 7px;
@@ -1394,7 +1400,7 @@ button {
     linear-gradient(rgba(242,239,231,0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(242,239,231,0.026) 1px, transparent 1px);
   background-size: 100% 20%, 12.5% 100%;
-  mask-image: radial-gradient(circle at 50% 52%, black, transparent 73%);
+  mask-image: radial-gradient(ellipse at 50% 52%, black, transparent 78%);
 }
 
 .stage-orbit {
@@ -1430,8 +1436,8 @@ button {
   z-index: 2;
   align-self: stretch;
   justify-self: center;
-  width: min(100%, 660px);
-  height: 280px;
+  width: min(100%, 1060px);
+  height: 260px;
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
 }
 
@@ -1447,7 +1453,7 @@ button {
 .current-price-label {
   fill: rgba(242,239,231,0.54);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 760;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1503,7 +1509,7 @@ button {
 
 .polarity-gate-line {
   fill: none;
-  stroke-width: 3;
+  stroke-width: 3.2;
   stroke-linecap: round;
   stroke-dasharray: 13 10;
   animation: band-flow 2.4s linear infinite;
@@ -1582,14 +1588,14 @@ button {
 
 .current-price-line {
   stroke: var(--cyan);
-  stroke-width: 1.55;
+  stroke-width: 1.7;
   stroke-linecap: round;
   filter: drop-shadow(0 0 9px rgba(122,215,223,0.34));
   animation: current-line-pulse 3.8s ease-in-out infinite;
 }
 
 .current-price-glow {
-  opacity: 0.18;
+  opacity: 0.12;
   animation: current-glow-pulse 3.4s ease-in-out infinite;
 }
 
@@ -1597,7 +1603,7 @@ button {
   fill: none;
   stroke: var(--cyan);
   stroke-width: 1.5;
-  opacity: 0.78;
+  opacity: 0.7;
   filter: drop-shadow(0 0 12px rgba(122,215,223,0.58));
   animation: current-ring-pulse 2.2s ease-in-out infinite;
 }
@@ -1820,8 +1826,8 @@ button {
 .map-callout-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0 22px 18px;
+  gap: 10px;
+  margin: 0 22px 20px;
   position: relative;
   z-index: 4;
 }
