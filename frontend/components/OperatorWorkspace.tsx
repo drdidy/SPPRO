@@ -468,37 +468,51 @@ function SignalTheater({
   const entryY = yFor(plannedEntry);
   const routeD = `M ${chartRight - 42} ${currentY} C ${chartRight - 104} ${(currentY + entryY) / 2 - 36}, ${chartLeft + 116} ${(currentY + entryY) / 2 + 34}, ${chartLeft + 26} ${entryY}`;
   const distanceToRetest = currentEs != null && plannedEntry != null ? currentEs - plannedEntry : null;
+  const isPutSetup = activeContract.toUpperCase().endsWith("P");
+  const isCallSetup = activeContract.toUpperCase().endsWith("C");
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
   const distanceTop = Math.max(15, Math.min(78, (((currentY + entryY) / 2) / 420) * 100));
   const entryTop = Math.max(16, Math.min(80, (entryY / 420) * 100));
-  const contractSide = activeContract.toUpperCase().endsWith("P")
+  const contractSide = isPutSetup
     ? "Selected Put"
-    : activeContract.toUpperCase().endsWith("C")
+    : isCallSetup
       ? "Selected Call"
       : "Selected Contract";
-  const entrySideLabel = activeContract.toUpperCase().endsWith("P")
+  const entrySideLabel = isPutSetup
     ? "Put Rejection Zone"
-    : activeContract.toUpperCase().endsWith("C")
+    : isCallSetup
       ? "Call Hold Zone"
       : "Retest Entry Zone";
-  const confirmationLabel = activeContract.toUpperCase().endsWith("P")
+  const confirmationLabel = isPutSetup
     ? "Touch line, close below within 3 pts"
-    : activeContract.toUpperCase().endsWith("C")
+    : isCallSetup
       ? "Touch line, close above within 3 pts"
       : "Touch line, close near it";
-  const noEntryLabel = activeContract.toUpperCase().endsWith("P")
+  const noEntryLabel = isPutSetup
     ? "No put until rejection confirms"
-    : activeContract.toUpperCase().endsWith("C")
+    : isCallSetup
       ? "No call until hold confirms"
       : "No entry until retest confirms";
   const mapStatus = currentEs != null && plannedEntry != null
-    ? currentEs > plannedEntry
-      ? "Current ES is above retest zone"
-      : currentEs < plannedEntry
-        ? "Current ES is below retest zone"
-        : "Current ES is at retest entry"
+    ? isPutSetup
+      ? currentEs < plannedEntry
+        ? "Current ES is below put rejection zone"
+        : currentEs > plannedEntry
+          ? "Current ES is above put rejection zone"
+          : "Current ES is at put rejection zone"
+      : isCallSetup
+        ? currentEs > plannedEntry
+          ? "Current ES is above call hold zone"
+          : currentEs < plannedEntry
+            ? "Current ES is below call hold zone"
+            : "Current ES is at call hold zone"
+        : currentEs > plannedEntry
+          ? "Current ES is above retest zone"
+          : currentEs < plannedEntry
+            ? "Current ES is below retest zone"
+            : "Current ES is at retest entry"
     : "Waiting for structure data";
 
   return (

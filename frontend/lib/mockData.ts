@@ -10,11 +10,11 @@ export const mockSnapshot: OperatorSnapshot = {
     confidence: 74,
     risk: "Low",
     event_risk: "Major",
-    planned_entry: 7167.16,
-    selected_strike: "7155P",
-    expected_fill: 7.71,
+    planned_entry: 7211.25,
+    selected_strike: "7210P",
+    expected_fill: 6.88,
     budget: "Over Budget",
-    reason: "Waiting for price to return to the Asian polarity entry line."
+    reason: "Waiting for price to rally into the Asian polarity rejection line."
   },
   market_context: {
     risk_mode: "High Watch",
@@ -31,15 +31,15 @@ export const mockSnapshot: OperatorSnapshot = {
     title: "Primary Idea",
     direction: "Put",
     status: "Armed",
-    contract: "7155P",
-    current_mark: 23.3,
-    at_entry: 7.49,
-    expected_fill: 7.71,
+    contract: "7210P",
+    current_mark: 10.8,
+    at_entry: 6.63,
+    expected_fill: 6.88,
     rr: 1.31,
     zone: "Near Zone",
     budget: "Over Budget",
     quality: "Moderate",
-    reason: "Best bearish fit if SPX retests the planned entry line."
+    reason: "Best bearish fit if SPX retests the upper Asian polarity line and rejects."
   },
   alternate_play: {
     title: "Alternate Idea",
@@ -57,11 +57,11 @@ export const mockSnapshot: OperatorSnapshot = {
   },
   strike_ladders: {
     primary: [
-      { strike: "7145P", mark: 18.4, at_entry: 6.1, fill: 6.31, rr: 1.18, budget: "Over", tag: "Balanced" },
-      { strike: "7150P", mark: 20.7, at_entry: 6.82, fill: 7.02, rr: 1.24, budget: "Over", tag: "Best RR" },
-      { strike: "7155P", mark: 23.3, at_entry: 7.49, fill: 7.71, rr: 1.31, budget: "Over", tag: "Selected" },
-      { strike: "7160P", mark: 26.1, at_entry: 8.2, fill: 8.43, rr: 1.22, budget: "Over", tag: "System Pick" },
-      { strike: "7165P", mark: 28.6, at_entry: 9.06, fill: 9.34, rr: 1.06, budget: "Over", tag: "Rich" }
+      { strike: "7200P", mark: 8.1, at_entry: 5.22, fill: 5.39, rr: 1.18, budget: "Over", tag: "Balanced" },
+      { strike: "7205P", mark: 9.4, at_entry: 5.91, fill: 6.09, rr: 1.24, budget: "Over", tag: "Best RR" },
+      { strike: "7210P", mark: 10.8, at_entry: 6.63, fill: 6.88, rr: 1.31, budget: "Over", tag: "Selected" },
+      { strike: "7215P", mark: 12.2, at_entry: 7.36, fill: 7.61, rr: 1.22, budget: "Over", tag: "System Pick" },
+      { strike: "7220P", mark: 13.7, at_entry: 8.12, fill: 8.4, rr: 1.06, budget: "Over", tag: "Rich" }
     ],
     alternate: [
       { strike: "7170C", mark: 12.3, at_entry: 6.14, fill: 6.36, rr: 0.92, budget: "Over", tag: "Watch" },
@@ -76,10 +76,10 @@ export const mockSnapshot: OperatorSnapshot = {
     anchor_source: "Asian",
     anchor_confidence: "Medium",
     levels: [
-      { label: "Upper Polarity", value: 7211.25, tone: "neutral" },
-      { label: "Active Entry Line", value: 7167.16, tone: "accent" },
-      { label: "Mid Structure", value: 7146.8, tone: "neutral" },
-      { label: "Lower Polarity", value: 7108.4, tone: "neutral" }
+      { label: "Upper Polarity", value: 7228.5, tone: "neutral" },
+      { label: "Active Entry Line", value: 7211.25, tone: "accent" },
+      { label: "Mid Structure", value: 7186.8, tone: "neutral" },
+      { label: "Lower Polarity", value: 7167.16, tone: "neutral" }
     ]
   }
 };
