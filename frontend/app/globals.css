@@ -1063,7 +1063,7 @@ button {
 .authority-subtitle {
   color: var(--text);
   display: block;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 840;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1091,15 +1091,15 @@ button {
 .authority-condition-grid span {
   color: var(--faint);
   display: block;
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 840;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .authority-trigger strong {
   color: var(--text);
-  font-size: 0.94rem;
+  font-size: 1rem;
   line-height: 1.35;
 }
 
@@ -1121,9 +1121,9 @@ button {
 .authority-ticket-row span {
   color: var(--faint);
   display: block;
-  font-size: 0.58rem;
+  font-size: 0.66rem;
   font-weight: 840;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
 }
 
@@ -1131,9 +1131,9 @@ button {
   color: var(--text);
   display: block;
   font-family: var(--font-mono);
-  font-size: 0.92rem;
+  font-size: 1rem;
   font-weight: 900;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.045em;
   line-height: 1;
   margin-top: 10px;
   overflow: hidden;
@@ -1160,7 +1160,7 @@ button {
   color: var(--text);
   display: block;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   font-weight: 840;
   letter-spacing: -0.035em;
   line-height: 1.25;
