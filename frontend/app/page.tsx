@@ -1,5 +1,6 @@
 import { OperatorWorkspace } from "@/components/OperatorWorkspace";
 import { mockSnapshot } from "@/lib/mockData";
+import { normalizeOperatorSnapshot } from "@/lib/normalizeSnapshot";
 import type { OperatorSnapshot } from "@/lib/types";
 
 async function getSnapshot(): Promise<OperatorSnapshot> {
@@ -9,12 +10,12 @@ async function getSnapshot(): Promise<OperatorSnapshot> {
       cache: "no-store"
     });
     if (response.ok) {
-      return response.json();
+      return normalizeOperatorSnapshot(await response.json());
     }
   } catch {
     // Keep the production shell alive while the Python bridge is offline.
   }
-  return mockSnapshot;
+  return normalizeOperatorSnapshot(mockSnapshot);
 }
 
 export default async function Home() {

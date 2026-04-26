@@ -8,7 +8,10 @@ with a real adapter around the tested Python intelligence functions.
 
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -26,6 +29,23 @@ class OperatorSnapshot(BaseModel):
     alternate_play: dict[str, Any] = Field(default_factory=dict)
     strike_ladders: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     structure: dict[str, Any] = Field(default_factory=dict)
+
+
+SNAPSHOT_PATH = Path(os.environ.get("SPX_PROPHET_SNAPSHOT_PATH", Path(__file__).resolve().parents[1] / "data" / "operator_snapshot.json"))
+
+
+def load_latest_operator_snapshot() -> OperatorSnapshot | None:
+    """Load the latest real Streamlit-exported operator snapshot when available."""
+
+    if not SNAPSHOT_PATH.exists():
+        return None
+    try:
+        payload = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return OperatorSnapshot(**payload)
+    except Exception:
+        return None
+    return None
 
 
 def build_mock_operator_snapshot() -> OperatorSnapshot:
@@ -149,4 +169,4 @@ def health() -> dict[str, str]:
 
 @app.get("/api/operator-snapshot", response_model=OperatorSnapshot)
 def operator_snapshot() -> OperatorSnapshot:
-    return build_mock_operator_snapshot()
+    return load_latest_operator_snapshot() or build_mock_operator_snapshot()

@@ -173,6 +173,7 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent / "trade_log.json"
 SNAPSHOT_LOG_PATH = Path(__file__).resolve().parent / "daily_snapshots.json"
 RESEARCH_CALIBRATION_PATH = Path(__file__).resolve().parent / "research_calibration.json"
 SETTINGS_PATH = Path(__file__).resolve().parent / "settings.json"
+OPERATOR_SNAPSHOT_PATH = Path(os.environ.get("SPX_PROPHET_SNAPSHOT_PATH", Path(__file__).resolve().parent / "data" / "operator_snapshot.json"))
 QUICK_TAG_OPTIONS = [
     "Green Day",
     "Red Day",
@@ -5347,6 +5348,283 @@ def build_alert_delivery_payload(authority: dict[str, Any] | None, ticket: dict[
         "max_fill_limit": ticket.get("max_fill_limit"),
         "created_at": current_central_time().isoformat(),
     }
+
+
+def _operator_json_safe(value: Any) -> Any:
+    """Convert app-native objects into JSON-safe values for the web operator bridge."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        if isinstance(value, float) and pd.isna(value):
+            return None
+        return value
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _operator_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_operator_json_safe(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return _operator_json_safe(value.item())
+        except Exception:
+            pass
+    return str(value)
+
+
+def _compact_contract_label(quote: dict[str, Any] | None, play: dict[str, Any] | None = None) -> str:
+    """Return a trader-readable label such as 7155P without losing raw symbol metadata."""
+
+    quote = quote or {}
+    play = play or {}
+    strike = _to_float_or_none(quote.get("strike") or play.get("strike"))
+    side = str(quote.get("option_type") or play.get("direction") or "").strip().upper()
+    suffix = "P" if side.startswith("P") else "C" if side.startswith("C") else ""
+    if strike is not None and suffix:
+        strike_text = str(int(strike)) if float(strike).is_integer() else f"{strike:g}"
+        return f"{strike_text}{suffix}"
+    return str(quote.get("contract_symbol") or quote.get("symbol") or play.get("strike") or "-")
+
+
+def _first_option_value(source: dict[str, Any] | None, keys: list[str]) -> float | None:
+    """Return the first nonnegative option premium-like value from a quote/row."""
+
+    source = source or {}
+    for key in keys:
+        value = _non_negative_option_price(source.get(key))
+        if value is not None:
+            return round_price(value)
+    return None
+
+
+def _build_frontend_strike_rows(option_display_state: dict[str, Any] | None, selected_quote: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Normalize Streamlit ladder rows into the compact Next.js ladder schema."""
+
+    state = option_display_state or {}
+    selected_symbol = str((selected_quote or {}).get("contract_symbol") or (selected_quote or {}).get("symbol") or state.get("selected_for_entry_symbol") or "")
+    rows: list[dict[str, Any]] = []
+    for row in list(state.get("ladder_rows", []) or []):
+        symbol = str(row.get("contract_symbol") or row.get("symbol") or "")
+        is_selected = bool(row.get("is_selected")) or (selected_symbol and symbol == selected_symbol)
+        labels = list(row.get("labels", []) or [])
+        tag = "Selected" if is_selected else str(row.get("selection_reason") or (labels[0] if labels else "") or row.get("reason") or "")
+        rows.append(
+            {
+                "strike": _compact_contract_label(row, {"direction": row.get("option_type")}),
+                "mark": _first_option_value(row, ["current_mark", "mark", "price"]),
+                "at_entry": _first_option_value(row, ["projected_mark_at_target_time", "projected_mark_at_entry", "predicted_entry_price", "calibrated_entry_mark"]),
+                "fill": _first_option_value(row, ["expected_fill_at_target_time", "projected_fill_at_entry", "expected_fill_mark"]),
+                "rr": _to_float_or_none(row.get("rr_ratio")),
+                "budget": str(row.get("budget_status") or row.get("budget") or "Unknown"),
+                "tag": tag or "Candidate",
+            }
+        )
+    if rows:
+        return rows
+    if selected_quote:
+        return [
+            {
+                "strike": _compact_contract_label(selected_quote),
+                "mark": _first_option_value(selected_quote, ["price", "current_mark", "mark"]),
+                "at_entry": _first_option_value(selected_quote, ["projected_mark_at_target_time", "projected_mark_at_entry", "predicted_entry_price"]),
+                "fill": _first_option_value(selected_quote, ["expected_fill_at_target_time", "projected_fill_at_entry", "expected_fill_mark"]),
+                "rr": _to_float_or_none(selected_quote.get("rr_ratio")),
+                "budget": str(selected_quote.get("budget_status") or "Unknown"),
+                "tag": "Selected",
+            }
+        ]
+    return []
+
+
+def _build_frontend_play(
+    *,
+    title: str,
+    play: dict[str, Any] | None,
+    authority: dict[str, Any] | None,
+    selected_quote: dict[str, Any] | None,
+    ticket: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Normalize one Streamlit operator play into the Next.js play card schema."""
+
+    play = play or {}
+    authority = authority or {}
+    selected_quote = selected_quote or {}
+    ticket = ticket or {}
+    direction = str(play.get("direction") or ticket.get("option_type") or selected_quote.get("option_type") or "")
+    return {
+        "title": title,
+        "direction": direction.title() if direction else "-",
+        "status": str(authority.get("setup_state") or authority.get("alert_state") or ticket.get("decision") or "Watch").replace("_", " ").title(),
+        "contract": _compact_contract_label(selected_quote, play),
+        "planned_entry": _to_float_or_none(((play.get("entry") or {}).get("price")) or authority.get("trigger_entry_price_spx")),
+        "stop": _to_float_or_none(authority.get("authoritative_stop_spx") or ((play.get("stop") or {}).get("price"))),
+        "target_1": _to_float_or_none(authority.get("target_1_spx") or ((play.get("tp1") or {}).get("price"))),
+        "target_2": _to_float_or_none(authority.get("target_2_spx") or ((play.get("tp2") or {}).get("price"))),
+        "contracts": int(play.get("contracts", ticket.get("contracts", 1)) or 1),
+        "trigger": str(authority.get("trigger_reason") or authority.get("condition_required") or ""),
+        "alert_state": str(authority.get("alert_state") or ""),
+        "current_mark": _first_option_value(ticket, ["current_mark"]) or _first_option_value(selected_quote, ["price", "current_mark", "mark"]),
+        "at_entry": _first_option_value(ticket, ["at_entry_estimate"]) or _first_option_value(selected_quote, ["projected_mark_at_target_time", "projected_mark_at_entry", "predicted_entry_price"]),
+        "expected_fill": _first_option_value(ticket, ["expected_fill"]) or _first_option_value(selected_quote, ["expected_fill_at_target_time", "projected_fill_at_entry", "expected_fill_mark"]),
+        "rr": _to_float_or_none(authority.get("rr_to_target_1") or selected_quote.get("rr_ratio")),
+        "zone": str(authority.get("entry_zone_status") or ""),
+        "budget": str(authority.get("budget_execution_status") or selected_quote.get("budget_status") or ticket.get("budget_status") or "Unknown"),
+        "quality": str(selected_quote.get("estimate_quality") or selected_quote.get("premium_projection_confidence") or authority.get("evidence_level") or "Unknown"),
+        "reason": str(authority.get("reason_line") or authority.get("execution_action_reason") or ticket.get("invalidation") or ""),
+    }
+
+
+def _frontend_decision_state(authority: dict[str, Any] | None, play: dict[str, Any] | None) -> str:
+    """Map rich Streamlit authority wording into the four operator states used by Next.js."""
+
+    authority = authority or {}
+    play = play or {}
+    decision = str(authority.get("decision") or "").upper()
+    action = str(authority.get("execution_action") or "").upper()
+    direction = str(play.get("direction") or "").upper()
+    if decision == "NO TRADE" or action == "SKIP TRADE":
+        return "NO TRADE"
+    if action in {"ENTER NOW", "DOWNGRADE STRIKE", "REDUCE SIZE"} or decision == "STRONG BUY":
+        return "ENTER PUT" if direction == "PUT" else "ENTER CALL" if direction == "CALL" else "WAIT"
+    return "WAIT"
+
+
+def _build_frontend_structure(
+    final_projected_lines_es: dict[str, dict[str, Any]] | None,
+    current_es_price: float | None,
+    anchor_bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Normalize projected ES lines and anchor metadata for the animated structure map."""
+
+    label_map = {
+        "hw": "HW",
+        "asc_ceiling": "ASC Ceiling",
+        "asc_floor": "ASC Floor",
+        "desc_ceiling": "DESC Ceiling",
+        "desc_floor": "DESC Floor",
+        "lw": "LW",
+    }
+    tone_map = {
+        "hw": "danger",
+        "asc_ceiling": "danger",
+        "asc_floor": "accent",
+        "desc_ceiling": "accent",
+        "desc_floor": "positive",
+        "lw": "positive",
+    }
+    levels = []
+    for name in LINE_DISPLAY_ORDER:
+        details = (final_projected_lines_es or {}).get(name, {})
+        value = _to_float_or_none(details.get("price"))
+        if value is None:
+            continue
+        levels.append({"label": label_map.get(name, str(name)), "value": round_price(value), "tone": tone_map.get(name, "neutral")})
+    sources = summarize_selected_anchor_sources(anchor_bundle) if anchor_bundle else []
+    confidence = str((anchor_bundle or {}).get("anchor_confidence") or (anchor_bundle or {}).get("confidence") or "Unknown")
+    return {
+        "current_es": _to_float_or_none(current_es_price),
+        "anchor_source": " | ".join(sources) if sources else "Unknown",
+        "anchor_confidence": confidence,
+        "levels": levels,
+    }
+
+
+def build_frontend_operator_snapshot(
+    *,
+    signal_package: dict[str, Any] | None,
+    hero_active_play: str,
+    hero_authority: dict[str, Any] | None,
+    primary_authority: dict[str, Any] | None,
+    alternate_authority: dict[str, Any] | None,
+    primary_selected_contract_quote: dict[str, Any] | None,
+    alternate_selected_contract_quote: dict[str, Any] | None,
+    primary_option_display: dict[str, Any] | None,
+    alternate_option_display: dict[str, Any] | None,
+    primary_execution_ticket: dict[str, Any] | None,
+    alternate_execution_ticket: dict[str, Any] | None,
+    live_current_spx: float | None,
+    current_es_price: float | None,
+    final_projected_lines_es: dict[str, dict[str, Any]] | None,
+    event_risk_context: dict[str, Any] | None,
+    anchor_bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build the production web operator payload from the real Streamlit decision model."""
+
+    package = signal_package or {}
+    scenario = package.get("scenario", {}) if isinstance(package, dict) else {}
+    primary_play = scenario.get("primary_play") if isinstance(scenario, dict) else None
+    alternate_play = scenario.get("alternate_play") if isinstance(scenario, dict) else None
+    active_play = primary_play if hero_active_play == "Primary" else alternate_play if hero_active_play == "Alternate" else primary_play
+    active_quote = primary_selected_contract_quote if hero_active_play == "Primary" else alternate_selected_contract_quote if hero_active_play == "Alternate" else primary_selected_contract_quote or alternate_selected_contract_quote
+    authority = hero_authority or primary_authority or alternate_authority or {}
+    event_context = event_risk_context or {}
+    headlines = []
+    for item in list(event_context.get("headlines", []) or [])[:5]:
+        headlines.append(
+            {
+                "title": str(item.get("title") or ""),
+                "source": str(item.get("source") or item.get("category") or "Market"),
+                "time": str(item.get("time") or item.get("published") or ""),
+                "url": item.get("url"),
+            }
+        )
+    return _operator_json_safe(
+        {
+            "generated_at": current_central_time().isoformat(),
+            "decision": {
+                "state": _frontend_decision_state(authority, active_play),
+                "modifier": str(authority.get("setup_state") or authority.get("plan_validity") or ""),
+                "bias": str((active_play or {}).get("direction") or scenario.get("bias") or "").title(),
+                "scenario": str(scenario.get("scenario_name") or ""),
+                "confidence": int(authority.get("confidence_score", 0) or 0),
+                "risk": str(authority.get("risk_class") or ""),
+                "event_risk": str(event_context.get("event_risk_level") or authority.get("event_risk_level") or "Unknown").title(),
+                "planned_entry": _to_float_or_none(((active_play or {}).get("entry") or {}).get("price") or authority.get("trigger_entry_price_spx")),
+                "selected_strike": _compact_contract_label(active_quote, active_play),
+                "expected_fill": _first_option_value(active_quote, ["expected_fill_at_target_time", "projected_fill_at_entry", "expected_fill_mark"]),
+                "budget": str(authority.get("budget_execution_status") or (active_quote or {}).get("budget_status") or "Unknown"),
+                "reason": str(authority.get("reason_line") or authority.get("execution_action_reason") or ""),
+            },
+            "market_context": {
+                "risk_mode": str(event_context.get("event_trading_mode") or "normal").replace("_", " ").title(),
+                "event_risk": str(event_context.get("event_risk_level") or "unknown").title(),
+                "next_event": str(event_context.get("next_known_event") or "No major event detected"),
+                "interpretation": str(event_context.get("event_risk_reason") or "Market context loaded from SPX Prophet."),
+                "headlines": headlines,
+            },
+            "primary_play": _build_frontend_play(
+                title="Primary Play",
+                play=primary_play,
+                authority=primary_authority,
+                selected_quote=primary_selected_contract_quote,
+                ticket=primary_execution_ticket,
+            ),
+            "alternate_play": _build_frontend_play(
+                title="Alternate Play",
+                play=alternate_play,
+                authority=alternate_authority,
+                selected_quote=alternate_selected_contract_quote,
+                ticket=alternate_execution_ticket,
+            ),
+            "strike_ladders": {
+                "primary": _build_frontend_strike_rows(primary_option_display, primary_selected_contract_quote),
+                "alternate": _build_frontend_strike_rows(alternate_option_display, alternate_selected_contract_quote),
+            },
+            "structure": _build_frontend_structure(final_projected_lines_es, current_es_price, anchor_bundle),
+        }
+    )
+
+
+def write_frontend_operator_snapshot(snapshot: dict[str, Any], path: Path = OPERATOR_SNAPSHOT_PATH) -> None:
+    """Persist the latest real operator snapshot for the Next.js production surface."""
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+    except Exception as exc:
+        if st is not None:
+            st.session_state["frontend_operator_snapshot_error"] = f"{exc.__class__.__name__}: {exc}"
 
 
 def build_execution_state(
@@ -19047,6 +19325,26 @@ def render_live_mode_shell(
             play=alternate_play_spx,
             event_risk_context=event_risk_context,
         )
+        frontend_operator_snapshot = build_frontend_operator_snapshot(
+            signal_package=display_signal_package,
+            hero_active_play=hero_active_play,
+            hero_authority=hero_authority,
+            primary_authority=primary_authority,
+            alternate_authority=alternate_authority,
+            primary_selected_contract_quote=primary_selected_contract_quote,
+            alternate_selected_contract_quote=alternate_selected_contract_quote,
+            primary_option_display=primary_option_display,
+            alternate_option_display=alternate_option_display,
+            primary_execution_ticket=primary_execution_ticket,
+            alternate_execution_ticket=alternate_execution_ticket,
+            live_current_spx=live_current_spx,
+            current_es_price=inputs["current_es_price"],
+            final_projected_lines_es=final_projected_lines_es,
+            event_risk_context=event_risk_context,
+            anchor_bundle=anchor_bundle,
+        )
+        st.session_state["latest_frontend_operator_snapshot"] = frontend_operator_snapshot
+        write_frontend_operator_snapshot(frontend_operator_snapshot)
         active_audit_snapshot = build_decision_audit_snapshot(
             play_label=hero_active_play,
             authority=hero_authority,

@@ -83,7 +83,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       : "Execution authority follows confirmed structure.";
   const atmosphereStyle = { "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` } as CSSProperties;
 
-  const stageLevels = useMemo(() => structure.levels.slice(0, 4), [structure.levels]);
+  const stageLevels = useMemo(() => structure.levels, [structure.levels]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
