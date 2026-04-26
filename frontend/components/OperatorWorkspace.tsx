@@ -553,8 +553,8 @@ function SignalTheater({
   plannedEntry: number | null;
   vwap?: OperatorSnapshot["structure"]["vwap"];
 }) {
-  const chartTop = 30;
-  const chartHeight = 270;
+  const chartTop = 70;
+  const chartHeight = 640;
   const chartLeft = 34;
   const chartRight = 842;
   const currentNodeX = chartLeft + 42;
@@ -649,7 +649,7 @@ function SignalTheater({
         <span>Close within 3 pts</span>
       </div>
       <div className="map-body">
-      <svg className="execution-map-svg" viewBox="0 0 880 350" role="img" aria-label="Current ES, planned entry, and structure levels">
+      <svg className="execution-map-svg" viewBox="0 0 880 780" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
           <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
             <stop stopColor="#d8aa57" stopOpacity="0" />
