@@ -450,6 +450,8 @@ function SignalTheater({
   const chartHeight = 308;
   const chartLeft = 72;
   const chartRight = 444;
+  const currentNodeX = chartLeft + 42;
+  const futureNodeX = chartRight - 42;
   const pricedLevels = levels.filter((level) => level.value != null) as Array<{ label: string; value: number; tone: string }>;
   const drawableLevels = pricedLevels.filter((level) => plannedEntry == null || Math.abs(level.value - plannedEntry) > 0.25);
   const priceValues = [currentEs, plannedEntry, ...pricedLevels.map((level) => level.value)].filter((value): value is number => value != null);
@@ -466,10 +468,20 @@ function SignalTheater({
   };
   const currentY = yFor(currentEs);
   const entryY = yFor(plannedEntry);
-  const routeD = `M ${chartRight - 42} ${currentY} C ${chartRight - 104} ${(currentY + entryY) / 2 - 36}, ${chartLeft + 116} ${(currentY + entryY) / 2 + 34}, ${chartLeft + 26} ${entryY}`;
+  const routeD = `M ${currentNodeX} ${currentY} C ${chartLeft + 126} ${(currentY + entryY) / 2 - 34}, ${chartRight - 116} ${(currentY + entryY) / 2 + 34}, ${futureNodeX} ${entryY}`;
   const distanceToRetest = currentEs != null && plannedEntry != null ? currentEs - plannedEntry : null;
   const isPutSetup = activeContract.toUpperCase().endsWith("P");
   const isCallSetup = activeContract.toUpperCase().endsWith("C");
+  const aboveLine = currentEs == null
+    ? null
+    : pricedLevels
+        .filter((level) => level.value > currentEs)
+        .sort((a, b) => a.value - b.value)[0] ?? null;
+  const belowLine = currentEs == null
+    ? null
+    : pricedLevels
+        .filter((level) => level.value < currentEs)
+        .sort((a, b) => b.value - a.value)[0] ?? null;
   const distanceLabel = distanceToRetest == null
     ? "Distance unavailable"
     : `${Math.abs(distanceToRetest).toFixed(2)} pts ${distanceToRetest >= 0 ? "above" : "below"} retest`;
@@ -490,11 +502,7 @@ function SignalTheater({
     : isCallSetup
       ? "Touch line, close above within 3 pts"
       : "Touch line, close near it";
-  const noEntryLabel = isPutSetup
-    ? "No put until rejection confirms"
-    : isCallSetup
-      ? "No call until hold confirms"
-      : "No entry until retest confirms";
+  const universalNoEntryLabel = "No puts until upper rejection. No calls until lower hold.";
   const mapStatus = currentEs != null && plannedEntry != null
     ? isPutSetup
       ? currentEs < plannedEntry
@@ -524,11 +532,12 @@ function SignalTheater({
           <span>Structure Map</span>
           <strong>{mapStatus}</strong>
         </div>
-        <em>{noEntryLabel}</em>
+        <em>{universalNoEntryLabel}</em>
       </div>
       <div className="polarity-rule-strip" aria-label="Polarity confirmation rules">
         <span>All lines start neutral</span>
-        <span>{confirmationLabel}</span>
+        <span>Put gate: upper rejection</span>
+        <span>Call gate: lower hold</span>
         <span>Extended reaction = wait</span>
       </div>
       <svg className="execution-map-svg" viewBox="0 0 520 420" role="img" aria-label="Current ES, planned entry, and structure levels">
@@ -569,6 +578,12 @@ function SignalTheater({
             </g>
           );
         })}
+        {aboveLine ? (
+          <text className="polarity-gate-label put-gate-label" x={chartRight - 156} y={yFor(aboveLine.value) - 10}>Put rejection candidate</text>
+        ) : null}
+        {belowLine ? (
+          <text className="polarity-gate-label call-gate-label" x={chartRight - 138} y={yFor(belowLine.value) + 18}>Call hold candidate</text>
+        ) : null}
         {distanceToRetest != null && Math.abs(currentY - entryY) > 8 ? (
           <g className="distance-ruler">
             <line x1={chartRight - 84} x2={chartRight - 84} y1={Math.min(currentY, entryY)} y2={Math.max(currentY, entryY)} />
@@ -578,10 +593,10 @@ function SignalTheater({
         ) : null}
         <path className="retest-route" d={routeD} markerEnd="url(#routeArrow)" />
         <line className="current-price-line" x1={chartLeft} x2={chartRight} y1={currentY} y2={currentY} />
-        <circle className="current-price-glow" cx={chartRight - 42} cy={currentY} r="42" fill="url(#currentGlow)" />
-        <circle className="current-price-ring" cx={chartRight - 42} cy={currentY} r="13" />
-        <circle className="current-price-node" cx={chartRight - 42} cy={currentY} r="6" />
-        <text className="current-price-label" x={chartRight - 36} y={currentY - 12}>Current ES {formatPrice(currentEs)}</text>
+        <circle className="current-price-glow" cx={currentNodeX} cy={currentY} r="42" fill="url(#currentGlow)" />
+        <circle className="current-price-ring" cx={currentNodeX} cy={currentY} r="13" />
+        <circle className="current-price-node" cx={currentNodeX} cy={currentY} r="6" />
+        <text className="current-price-label" x={currentNodeX + 12} y={currentY - 12}>Current ES {formatPrice(currentEs)}</text>
       </svg>
       <div className="distance-badge" style={{ top: `${distanceTop}%` }}>
         <span>Distance to wait</span>

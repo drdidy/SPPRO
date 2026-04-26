@@ -1391,6 +1391,12 @@ button {
   color: var(--amber);
 }
 
+.polarity-rule-strip span:nth-child(3) {
+  border-color: rgba(122,215,223,0.22);
+  background: rgba(122,215,223,0.07);
+  color: var(--cyan);
+}
+
 .theme-daylight .signal-theater {
   background:
     radial-gradient(circle at 52% 52%, rgba(22,121,155,0.13), transparent 15rem),
@@ -1475,6 +1481,23 @@ button {
 .map-entry-label,
 .current-price-label {
   fill: var(--text);
+}
+
+.polarity-gate-label {
+  fill: rgba(242,239,231,0.72);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.put-gate-label {
+  fill: var(--amber);
+}
+
+.call-gate-label {
+  fill: var(--cyan);
 }
 
 .entry-zone-fill {
