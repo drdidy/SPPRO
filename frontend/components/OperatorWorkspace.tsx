@@ -26,7 +26,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const [quoteAge, setQuoteAge] = useState(4);
   const [commandOpen, setCommandOpen] = useState(false);
   const [armed, setArmed] = useState(false);
-  const [visualTheme, setVisualTheme] = useState<"daylight" | "obsidian">("daylight");
+  const visualTheme = "obsidian";
   const [pointer, setPointer] = useState({ x: 50, y: 50 });
   const reduceMotion = useReducedMotion();
 
@@ -61,7 +61,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
   const orderStatusDetail = armed
     ? `${activeContract} waits for confirmation at the planned line.`
     : `${decision.state} | ${triggerLabel}`;
-  const nextThemeLabel = visualTheme === "daylight" ? "Obsidian" : "Daylight";
   const authorityTone = toneFor(decision.state);
   const currentAuthorityText = "No fill authority at current price. Await structure return.";
   const retestAuthorityText = decision.reason;
@@ -212,13 +211,6 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               type="button"
             >
               {armed ? "Disarm Retest" : "Arm Retest"}
-            </button>
-            <button
-              className="masthead-button ghost"
-              onClick={() => setVisualTheme((value) => (value === "daylight" ? "obsidian" : "daylight"))}
-              type="button"
-            >
-              Switch to {nextThemeLabel}
             </button>
           </div>
         </motion.header>

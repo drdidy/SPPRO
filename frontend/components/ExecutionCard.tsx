@@ -10,7 +10,7 @@ export function ExecutionCard({ play, emphasis = false }: { play: Play; emphasis
       <div className="execution-header">
         <div>
           <p className="eyebrow">{play.title}</p>
-          <h3>{play.direction} · {play.contract}</h3>
+          <h3>{play.direction} | {play.contract}</h3>
         </div>
         <span className={`pill tone-${tone}`}>{play.status}</span>
       </div>
@@ -22,7 +22,7 @@ export function ExecutionCard({ play, emphasis = false }: { play: Play; emphasis
       </div>
 
       <div className="mini-grid">
-        <Value label="RR" value={play.rr == null ? "—" : play.rr.toFixed(2)} />
+        <Value label="RR" value={play.rr == null ? "-" : play.rr.toFixed(2)} />
         <Value label="Zone" value={play.zone} />
         <Value label="Budget" value={play.budget} />
         <Value label="Quality" value={play.quality} />

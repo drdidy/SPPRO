@@ -27,7 +27,7 @@ export function StrikeLadder({ title, rows }: { title: string; rows: StrikeRow[]
             <span>{formatPrice(row.mark)}</span>
             <span>{formatPrice(row.at_entry)}</span>
             <span>{formatPrice(row.fill)}</span>
-            <span>{row.rr == null ? "—" : row.rr.toFixed(2)}</span>
+            <span>{row.rr == null ? "-" : row.rr.toFixed(2)}</span>
             <span className={`text-${toneFor(row.budget)}`}>{row.budget}</span>
             <span className="tag">{row.tag}</span>
           </div>

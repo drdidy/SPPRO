@@ -1,4 +1,4 @@
-export function formatPrice(value: number | null | undefined, fallback = "—") {
+export function formatPrice(value: number | null | undefined, fallback = "-") {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return value.toLocaleString("en-US", {
     minimumFractionDigits: value >= 100 ? 2 : 2,

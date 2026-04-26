@@ -32,7 +32,7 @@ export function DecisionHero({ snapshot }: { snapshot: OperatorSnapshot }) {
         <Metric label="Expected Fill" value={formatPrice(decision.expected_fill)} />
         <Metric label="Budget" value={decision.budget} />
         <Metric label="Current ES" value={formatPrice(structure.current_es)} />
-        <Metric label="Anchor" value={`${structure.anchor_source} · ${structure.anchor_confidence}`} />
+        <Metric label="Anchor" value={`${structure.anchor_source} | ${structure.anchor_confidence}`} />
       </div>
     </section>
   );

@@ -30,7 +30,7 @@ export function MarketContext({ snapshot }: { snapshot: OperatorSnapshot }) {
             key={`${headline.title}-${headline.time}`}
           >
             <span>{headline.title}</span>
-            <em>{headline.source} · {headline.time}</em>
+            <em>{headline.source} | {headline.time}</em>
           </a>
         ))}
       </div>
