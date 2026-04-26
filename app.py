@@ -5561,6 +5561,15 @@ def build_frontend_operator_snapshot(
     planned_entry_spx = _to_float_or_none(((active_play or {}).get("entry") or {}).get("price") or authority.get("trigger_entry_price_spx"))
     planned_entry_es = _to_float_or_none(authority.get("trigger_entry_price_es"))
     event_context = event_risk_context or {}
+    structure_payload = _build_frontend_structure(final_projected_lines_es, current_es_price, live_current_spx, anchor_bundle)
+    vwap_context = authority.get("vwap_context") if isinstance(authority.get("vwap_context"), dict) else {}
+    vwap_display = resolve_vwap_display(vwap_context, authority.get("line_polarity_vwap_alignment"))
+    structure_payload["vwap"] = {
+        "value": _to_float_or_none(vwap_context.get("vwap")),
+        "label": vwap_display.get("label"),
+        "detail": vwap_display.get("detail"),
+        "alignment": str(authority.get("line_polarity_vwap_alignment") or vwap_context.get("alignment") or ""),
+    }
     headlines = []
     for item in list(event_context.get("headlines", []) or [])[:5]:
         headlines.append(
@@ -5615,7 +5624,7 @@ def build_frontend_operator_snapshot(
                 "primary": _build_frontend_strike_rows(primary_option_display, primary_selected_contract_quote),
                 "alternate": _build_frontend_strike_rows(alternate_option_display, alternate_selected_contract_quote),
             },
-            "structure": _build_frontend_structure(final_projected_lines_es, current_es_price, live_current_spx, anchor_bundle),
+            "structure": structure_payload,
         }
     )
 

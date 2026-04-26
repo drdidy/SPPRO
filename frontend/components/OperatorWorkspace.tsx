@@ -49,6 +49,10 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
     distanceToEntry == null
       ? "ES trigger distance unavailable"
       : `${Math.abs(distanceToEntry).toFixed(2)} pts ${distanceToEntry >= 0 ? "above" : "below"} ES trigger`;
+  const shortDistanceLabel =
+    distanceToEntry == null
+      ? "Unavailable"
+      : `${Math.abs(distanceToEntry).toFixed(1)} pts ${distanceToEntry >= 0 ? "above" : "below"}`;
   const mastheadReason =
     mapEntry != null
       ? `${decision.bias} plan needs ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} retest confirmation.`
@@ -69,8 +73,8 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
       : `Retest ${formatPrice(mapEntry)} ${plannedEntryEs != null ? "ES" : "SPX"} and confirm the ${structure.anchor_source} polarity line.`;
   const constraintLabels = [
     `Event ${decision.event_risk}`,
-    decision.budget,
-    `${decision.risk} Risk`
+    `${decision.risk} Risk`,
+    "Retest Required"
   ];
   const constraintSummary = constraintLabels.join(" | ");
   const primaryStatusLabel = operatorStatusLabel(primary.status);
@@ -175,12 +179,11 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
               </p>
             </div>
             <div className="pulse-values">
-              <span>Setup <strong>{executionLine}</strong></span>
+              <span>Setup <strong>{`${primary.zone} | ${structure.anchor_source}`}</strong></span>
               <span>Strike <strong>{activeContract}</strong></span>
-              <span>ES Distance <strong>{distanceLabel}</strong></span>
-              <span>Fill / Budget <strong>{formatPrice(ticketFill)} | {decision.budget}</strong></span>
-              <span>Confidence <strong>{decision.confidence}% | {decision.risk} Risk</strong></span>
-              <span>Context <strong>{context.risk_mode}</strong></span>
+              <span>Distance <strong>{shortDistanceLabel}</strong></span>
+              <span>Likely Fill <strong>{formatPrice(ticketFill)}</strong></span>
+              <span>Confidence <strong>{decision.confidence}% | {decision.risk}</strong></span>
               <span>Snapshot Age <strong>{snapshotAgeLabel}</strong></span>
             </div>
           </div>
@@ -214,7 +217,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
           <div className={`hero-copy authority-card tone-${authorityTone}`}>
             <div className="authority-topline">
               <p className="kicker">Trade Authority</p>
-              <span className="decision-index">Gate 01</span>
+              <span className="decision-index">Retest Gate</span>
             </div>
             <div className="decision-lockup">
               <h2 className="decision-word">{decision.state}</h2>
@@ -289,6 +292,7 @@ export function OperatorWorkspace({ snapshot }: { snapshot: OperatorSnapshot }) 
             expectedFill={ticketFill}
             levels={stageLevels}
             plannedEntry={mapEntry}
+            vwap={structure.vwap}
           />
         </motion.div>
 
@@ -427,6 +431,14 @@ function operatorStatusLabel(status: string) {
   return status;
 }
 
+function triggerSummary(trigger?: string) {
+  const normalized = (trigger ?? "").toLowerCase();
+  if (normalized.includes("upper")) return "Reject upper line within 3 pts";
+  if (normalized.includes("lower")) return "Hold lower line within 3 pts";
+  if (trigger) return trigger;
+  return "Confirm polarity line";
+}
+
 function PlayStack({
   alternate,
   armed,
@@ -482,6 +494,8 @@ function PlayTicketCard({
   const ticketState = armed ? "Alert Watching" : operatorStatusLabel(data.play.status);
   const gateLabel = isPut ? "upper rejection line" : isCall ? "lower hold line" : "planned trigger";
   const fillCost = data.expectedFill == null ? "Unavailable" : `$${Math.round(data.expectedFill * 100)} est.`;
+  const planSize = data.play.contracts == null ? "Plan size pending" : `${data.play.contracts} contract${data.play.contracts === 1 ? "" : "s"}`;
+  const confirmationText = triggerSummary(data.play.trigger);
 
   return (
     <article className={`play-ticket-card ${active ? "active" : ""} ${compact ? "compact" : ""}`}>
@@ -506,8 +520,8 @@ function PlayTicketCard({
       </div>
       {compact ? (
         <div className="compact-ticket-strip">
-          <span><em>Trigger</em><strong>{data.play.trigger ?? data.play.zone}</strong></span>
-          <span><em>Budget</em><strong>{data.play.budget}</strong></span>
+          <span><em>Confirm</em><strong>{confirmationText}</strong></span>
+          <span><em>Plan Size</em><strong>{planSize}</strong></span>
           <span><em>RR</em><strong>{data.rr == null ? "-" : data.rr.toFixed(2)}</strong></span>
         </div>
       ) : (
@@ -524,8 +538,8 @@ function PlayTicketCard({
           <div className="ticket-risk-grid">
             <Risk label="Cost If Filled" value={fillCost} tone="warning" />
             <Risk label="RR" value={data.rr == null ? "-" : data.rr.toFixed(2)} />
-            <Risk label="Budget" value={data.play.budget} tone={toneFor(data.play.budget)} />
-            <Risk label="Trigger" value={data.play.trigger ?? data.play.zone} />
+            <Risk label="Plan Size" value={planSize} />
+            <Risk label="Confirmation" value={confirmationText} />
           </div>
         </>
       )}
@@ -538,13 +552,15 @@ function SignalTheater({
   currentEs,
   expectedFill,
   levels,
-  plannedEntry
+  plannedEntry,
+  vwap
 }: {
   activeContract: string;
   currentEs: number | null;
   expectedFill: number | null;
   levels: Array<{ label: string; value: number | null; tone: string }>;
   plannedEntry: number | null;
+  vwap?: OperatorSnapshot["structure"]["vwap"];
 }) {
   const chartTop = 38;
   const chartHeight = 228;
@@ -604,6 +620,8 @@ function SignalTheater({
       ? "Call Hold Zone"
       : "Retest Entry Zone";
   const universalNoEntryLabel = "Upper line gates puts. Lower line gates calls.";
+  const vwapLabel = vwap?.label || "VWAP unavailable";
+  const vwapDetail = vwap?.detail || "5m ES VWAP will appear here when available.";
   const mapStatus = currentEs != null && plannedEntry != null
     ? isPutSetup
       ? currentEs < plannedEntry
@@ -639,6 +657,7 @@ function SignalTheater({
         <span>Call hold below</span>
         <span>Close within 3 pts</span>
       </div>
+      <div className="map-body">
       <svg className="execution-map-svg" viewBox="0 0 880 330" role="img" aria-label="Current ES, planned entry, and structure levels">
         <defs>
           <linearGradient id="entryGlow" x1="0" x2="1" y1="0" y2="0">
@@ -696,32 +715,45 @@ function SignalTheater({
         <circle className="current-price-ring" cx={currentNodeX} cy={currentY} r="13" />
         <circle className="current-price-node" cx={currentNodeX} cy={currentY} r="6" />
       </svg>
-      <div className="map-callout-grid" aria-label="Structure map readout">
-        <div className="map-callout current">
-          <span>Current ES</span>
-          <strong>{formatPrice(currentEs)}</strong>
-          <small>{distanceLabel}</small>
-        </div>
-        {aboveLine ? (
-          <div className="map-callout put">
-            <span>Put Gate</span>
-            <strong>{formatPrice(aboveLine.value)}</strong>
-            <small>{isPutSetup ? `${activeContract} selected` : "Close below required"}</small>
+        <aside className="map-side-panel" aria-label="Structure map readout">
+          <div className="map-side-card">
+            <span>Execution Rule</span>
+            <strong>No entry on touch alone</strong>
+            <small>Price must touch the polarity line and close within 3 points. Extended reactions wait for retest.</small>
           </div>
-        ) : null}
-        {belowLine ? (
-          <div className="map-callout call">
-            <span>Call Gate</span>
-            <strong>{formatPrice(belowLine.value)}</strong>
-            <small>{isCallSetup ? `${activeContract} selected` : "Close above required"}</small>
+          <div className="map-callout-grid">
+            <div className="map-callout current">
+              <span>Current ES</span>
+              <strong>{formatPrice(currentEs)}</strong>
+              <small>{distanceLabel}</small>
+            </div>
+            {aboveLine ? (
+              <div className="map-callout put">
+                <span>Put Gate</span>
+                <strong>{formatPrice(aboveLine.value)}</strong>
+                <small>{isPutSetup ? `${activeContract} selected` : "Close below required"}</small>
+              </div>
+            ) : null}
+            {belowLine ? (
+              <div className="map-callout call">
+                <span>Call Gate</span>
+                <strong>{formatPrice(belowLine.value)}</strong>
+                <small>{isCallSetup ? `${activeContract} selected` : "Close above required"}</small>
+              </div>
+            ) : null}
+            <div className="map-callout selected">
+              <span>{contractSide}</span>
+              <strong>{activeContract}</strong>
+              <small>{entrySideLabel} {formatPrice(plannedEntry)} | fill {formatPrice(expectedFill)}</small>
+            </div>
+            <div className="map-callout vwap">
+              <span>5m VWAP</span>
+              <strong>{vwap?.value == null ? vwapLabel : formatPrice(vwap.value)}</strong>
+              <small>{vwapDetail}</small>
+            </div>
           </div>
-        ) : null}
-        <div className="map-callout selected">
-          <span>{contractSide}</span>
-          <strong>{activeContract}</strong>
-          <small>{entrySideLabel} {formatPrice(plannedEntry)} | fill {formatPrice(expectedFill)}</small>
+        </aside>
         </div>
-      </div>
     </section>
   );
 }

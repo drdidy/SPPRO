@@ -75,6 +75,12 @@ export type OperatorSnapshot = {
     current_spx?: number | null;
     anchor_source: string;
     anchor_confidence: string;
+    vwap?: {
+      value: number | null;
+      label?: string | null;
+      detail?: string | null;
+      alignment?: string | null;
+    };
     levels: Array<{ label: string; value: number | null; tone: string }>;
   };
 };

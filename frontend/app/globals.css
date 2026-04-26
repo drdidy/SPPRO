@@ -169,7 +169,7 @@ button {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(230px, 0.55fr) minmax(560px, 1.25fr) minmax(280px, 0.62fr);
+  grid-template-columns: minmax(300px, 0.66fr) minmax(560px, 1.22fr) minmax(280px, 0.58fr);
   grid-template-areas: "brand pulse actions";
   align-items: stretch;
   gap: 12px;
@@ -238,12 +238,12 @@ button {
 
 .prophet-mark {
   position: relative;
-  width: 58px;
-  height: 58px;
+  width: 72px;
+  height: 72px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 20px;
+  border-radius: 24px;
   border: 1px solid rgba(122,215,223,0.22);
   background:
     radial-gradient(circle at 38% 30%, rgba(255,255,255,0.16), transparent 34%),
@@ -284,8 +284,8 @@ button {
 .prophet-mark svg {
   position: relative;
   z-index: 1;
-  width: 48px;
-  height: 48px;
+  width: 60px;
+  height: 60px;
   overflow: visible;
 }
 
@@ -340,7 +340,7 @@ button {
   display: block;
   margin-bottom: 4px;
   color: var(--cyan);
-  font-size: 0.58rem;
+  font-size: 0.62rem;
   font-weight: 820;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -362,7 +362,7 @@ button {
 .wordmark {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.22rem, 1.8vw, 1.85rem);
+  font-size: clamp(1.58rem, 2.15vw, 2.35rem);
   line-height: 0.92;
   font-weight: 900;
   letter-spacing: -0.085em;
@@ -390,7 +390,7 @@ button {
 .masthead-brand p {
   margin: 3px 0 0;
   color: var(--faint);
-  font-size: 0.58rem;
+  font-size: 0.64rem;
   font-weight: 820;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -537,7 +537,7 @@ button {
 
 .pulse-values {
   display: grid;
-  grid-template-columns: 1.1fr 0.7fr 0.9fr 0.98fr 1fr 0.72fr 0.78fr;
+  grid-template-columns: 1.16fr 0.7fr 0.86fr 0.78fr 0.96fr 0.74fr;
   gap: 0;
   overflow: visible;
   mask-image: none;
@@ -888,7 +888,7 @@ button {
   display: grid;
   grid-template-columns: minmax(390px, 0.78fr) minmax(520px, 1fr);
   gap: 18px;
-  align-items: stretch;
+  align-items: start;
   margin-bottom: 12px;
 }
 
@@ -1293,11 +1293,11 @@ button {
 }
 
 .signal-theater {
-  min-height: 360px;
+  min-height: 380px;
   isolation: isolate;
   display: grid;
   align-items: stretch;
-  grid-template-rows: auto auto minmax(210px, 1fr) auto;
+  grid-template-rows: auto auto minmax(240px, 1fr);
   gap: 8px;
   background:
     radial-gradient(circle at 52% 52%, rgba(102,230,255,0.14), transparent 15rem),
@@ -1436,9 +1436,57 @@ button {
   z-index: 2;
   align-self: stretch;
   justify-self: center;
-  width: min(100%, 1060px);
-  height: 220px;
+  width: 100%;
+  height: 245px;
   filter: drop-shadow(0 26px 60px rgba(0,0,0,0.42));
+}
+
+.map-body {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.34fr);
+  gap: 18px;
+  align-items: stretch;
+  margin: 0 22px 18px;
+}
+
+.map-side-panel {
+  display: grid;
+  align-content: stretch;
+  gap: 10px;
+  min-width: 0;
+}
+
+.map-side-card {
+  border: 1px solid rgba(216,170,87,0.2);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(216,170,87,0.1), transparent 10rem),
+    rgba(3,4,6,0.5);
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+}
+
+.map-side-card span {
+  color: var(--amber);
+  font-size: 0.62rem;
+  font-weight: 860;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.map-side-card strong {
+  color: var(--text);
+  font-size: 0.96rem;
+  font-weight: 900;
+}
+
+.map-side-card small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.36;
 }
 
 .map-grid-line {
@@ -1832,6 +1880,11 @@ button {
   z-index: 4;
 }
 
+.map-side-panel .map-callout-grid {
+  grid-template-columns: 1fr;
+  margin: 0;
+}
+
 .map-callout {
   min-width: 0;
   border: 1px solid rgba(202,224,255,0.082);
@@ -1860,6 +1913,13 @@ button {
   background:
     radial-gradient(circle at 0% 0%, rgba(216,170,87,0.12), transparent 9rem),
     linear-gradient(145deg, rgba(255,255,255,0.038), rgba(3,4,6,0.58));
+}
+
+.map-callout.vwap {
+  border-color: rgba(116,217,159,0.2);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(116,217,159,0.1), transparent 9rem),
+    rgba(3,4,6,0.58);
 }
 
 .map-callout span {

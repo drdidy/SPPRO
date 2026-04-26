@@ -92,6 +92,12 @@ export const mockSnapshot: OperatorSnapshot = {
     current_spx: 7194.75,
     anchor_source: "Asian",
     anchor_confidence: "Medium",
+    vwap: {
+      value: null,
+      label: "VWAP unavailable",
+      detail: "5m ES VWAP not available in preview",
+      alignment: "UNAVAILABLE"
+    },
     levels: [
       { label: "Upper Polarity", value: 7228.5, tone: "neutral" },
       { label: "Active Entry Line", value: 7211.25, tone: "accent" },
